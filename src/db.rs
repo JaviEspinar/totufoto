@@ -4,6 +4,11 @@ use anyhow::Result;
 use rusqlite::Connection;
 
 const SCHEMA: &str = "
+-- photo folders added from the UI (used when none are given on the command line)
+CREATE TABLE IF NOT EXISTS folders (
+    path TEXT PRIMARY KEY
+);
+
 CREATE TABLE IF NOT EXISTS places (
     id      INTEGER PRIMARY KEY,
     city    TEXT NOT NULL,

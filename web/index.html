@@ -156,6 +156,29 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 .info a { color: #9dbaff; }
 .info label { display: flex; gap: 8px; align-items: center; color: #bbb; font-size: 12px; margin-top: 16px; }
 
+dialog {
+  border: 1px solid var(--line); border-radius: 14px; background: var(--panel); color: var(--ink);
+  padding: 0; width: min(620px, calc(100vw - 32px)); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
+.dlg-head { display: flex; align-items: center; padding: 16px 18px 6px; }
+.dlg-head h3 { margin: 0; font-size: 16px; flex: 1; }
+.dlg-head button { border: 0; background: transparent; font-size: 18px; color: var(--muted); }
+.dlg-body { padding: 6px 18px 18px; }
+.dlg-body p { color: var(--muted); margin: 4px 0 12px; font-size: 13px; }
+.folder { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.folder .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.folder .c { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.folder .off { color: #c2410c; font-size: 12px; white-space: nowrap; }
+.add-row { display: flex; gap: 8px; margin-top: 14px; }
+.add-row input { flex: 1; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 6px 10px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.primary:hover { filter: brightness(1.08); background: var(--accent); }
+.err { color: #c2410c; font-size: 12px; margin-top: 8px; min-height: 1em; }
+.welcome { text-align: center; padding: 90px 16px; }
+.welcome h2 { font-size: 22px; margin: 0 0 8px; }
+.welcome p { color: var(--muted); margin: 0 0 20px; }
+
 @media (max-width: 760px) {
   body { grid-template-columns: 1fr; }
   aside { display: none; }
@@ -192,6 +215,7 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
       <option value="asc">Oldest first</option>
     </select>
     <div id="scan"></div>
+    <button class="btn" id="foldersBtn" title="Choose the folders with your photos">Folders</button>
   </div>
 </header>
 
@@ -206,6 +230,11 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 </aside>
 
 <main id="main"></main>
+
+<dialog id="foldersDlg">
+  <div class="dlg-head"><h3>Photo folders</h3><button data-close title="Close">✕</button></div>
+  <div class="dlg-body"></div>
+</dialog>
 
 <div id="viewer">
   <div class="stage">
@@ -423,7 +452,19 @@ async function renderPhotos(main, token) {
   if (token !== renderToken) return;
   photos = data.photos;
   main.innerHTML = filterChips() + `<div class="count">${photos.length.toLocaleString()} photos</div>`;
-  if (!photos.length) { main.insertAdjacentHTML("beforeend", `<div class="blank">No photos match these filters.</div>`); return; }
+  if (!photos.length) {
+    const filtered = state.people.size || state.place || state.date;
+    if (!filtered && !folderInfo.folders.length && folderInfo.managed) {
+      main.innerHTML = `<div class="welcome"><h2>Welcome to totufoto</h2>
+        <p>Add a folder with photos. It is indexed in the background, and subfolders are included.</p>
+        <button class="btn primary" id="welcomeAdd">Add folder…</button></div>`;
+      $("#welcomeAdd").onclick = () => folderInfo.desktop ? addFolder(null).then(ok => ok && render()).catch(err => alert(err.message)) : openFolders();
+      return;
+    }
+    const msg = filtered ? "No photos match these filters." : "No photos yet. They appear here while the folders are indexed.";
+    main.insertAdjacentHTML("beforeend", `<div class="blank">${msg}</div>`);
+    return;
+  }
   const groups = groupPhotos(photos, groupKey);
   const header = state.groupBy === "none" ? null :
     g => `<h2>${esc(groupTitle(g.key, g.items[0]))}<small>${g.items.length}</small></h2>`;
@@ -582,6 +623,8 @@ $(".next", viewer).onclick = () => openViewer(viewerIndex + 1);
 $(".stage", viewer).addEventListener("click", e => { if (e.target.classList.contains("stage")) closeViewer(); });
 $(".info", viewer).addEventListener("change", e => { if (e.target.id === "showBoxes") viewer.classList.toggle("boxes", e.target.checked); });
 $(".info", viewer).addEventListener("click", async e => {
+  const link = e.target.closest("a[target=_blank]");
+  if (link && folderInfo.desktop) { e.preventDefault(); return post("/api/open", { url: link.href }); }
   if (e.target.dataset.reject) {
     await post(`/api/faces/${e.target.dataset.reject}/reject`);
     await loadMeta();
@@ -598,6 +641,59 @@ document.addEventListener("keydown", e => {
   else if (e.key === "ArrowRight") openViewer(viewerIndex + 1);
 });
 
+// ---- folders -----------------------------------------------------------------------
+let folderInfo = { folders: [], managed: true, desktop: false };
+async function loadFolders() {
+  folderInfo = await api("/api/folders");
+  return folderInfo;
+}
+async function addFolder(path) {
+  const r = await fetch(path == null ? "/api/folders/pick" : "/api/folders", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(path == null ? {} : { path }),
+  });
+  if (r.status === 204) return false; // picker cancelled
+  if (!r.ok) throw new Error(await r.text());
+  await loadFolders();
+  setTimeout(pollStatus, 300);
+  return true;
+}
+function renderFoldersDialog(error = "") {
+  const dlg = $("#foldersDlg"), body = $(".dlg-body", dlg);
+  const { folders, managed, desktop } = folderInfo;
+  const list = folders.length ? folders.map(f => `
+    <div class="folder">
+      <span class="p" title="${esc(f.path)}"><bdi>${esc(f.path)}</bdi></span>
+      ${f.available ? `<span class="c">${f.photos.toLocaleString()} photos</span>` : `<span class="off" title="The folder can't be found right now. Its photos are kept until it's back or you remove it.">not available</span>`}
+      ${managed ? `<button class="btn" data-remove="${esc(f.path)}">Remove</button>` : ""}
+    </div>`).join("") : `<p>No folders yet.</p>`;
+  const add = !managed ? `<p>These folders were given on the command line. Start the app without folders to manage them here.</p>`
+    : desktop ? `<div class="add-row"><button class="btn primary" data-pick>Add folder…</button></div>`
+    : `<div class="add-row"><input id="folderPath" placeholder="/path/to/photos" spellcheck="false"><button class="btn primary" data-add>Add</button></div>`;
+  body.innerHTML = `<p>Subfolders are included. Photos are only read, never changed.</p>${list}${add}<div class="err">${esc(error)}</div>`;
+}
+function openFolders() {
+  renderFoldersDialog();
+  const dlg = $("#foldersDlg");
+  if (!dlg.open) dlg.showModal();
+  $("#folderPath")?.focus();
+}
+$("#foldersBtn").onclick = () => loadFolders().then(openFolders);
+$("#foldersDlg").addEventListener("click", async e => {
+  const dlg = $("#foldersDlg");
+  if (e.target === dlg || e.target.dataset.close != null) return dlg.close();
+  try {
+    if (e.target.dataset.pick != null) { if (await addFolder(null)) renderFoldersDialog(); }
+    else if (e.target.dataset.add != null) { await addFolder($("#folderPath").value); renderFoldersDialog(); }
+    else if (e.target.dataset.remove) {
+      if (!confirm(`Remove this folder from the gallery?\n\n${e.target.dataset.remove}\n\nThe photos stay on disk; they are only removed from the gallery.`)) return;
+      await post("/api/folders/remove", { path: e.target.dataset.remove });
+      await loadFolders(); renderFoldersDialog(); setTimeout(pollStatus, 300);
+    }
+  } catch (err) { renderFoldersDialog(err.message); }
+});
+$("#foldersDlg").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "folderPath") $("[data-add]")?.click(); });
+$("#foldersDlg").addEventListener("close", () => { if (!photos.length) render(); });
+
 // ---- scan status -----------------------------------------------------------------
 let wasRunning = false;
 async function pollStatus() {
@@ -610,13 +706,15 @@ async function pollStatus() {
     el.innerHTML = `<button class="btn" id="rescan" title="Look for new or changed photos">Rescan</button>`;
     $("#rescan").onclick = () => post("/api/scan").then(() => setTimeout(pollStatus, 300));
   }
-  if (wasRunning && !s.running) { await loadMeta(); render(); }
+  if (wasRunning && !s.running) { await Promise.all([loadMeta(), loadFolders()]); render(); }
+  // During the first index, show photos as soon as some are in instead of waiting for the end.
+  else if (s.running && s.done > 0 && !photos.length && state.view === "photos" && !viewer.classList.contains("open")) render();
   wasRunning = s.running;
   setTimeout(pollStatus, s.running ? 1500 : 10000);
 }
 
 loadHash();
-loadMeta().then(render);
+Promise.all([loadMeta(), loadFolders()]).then(render);
 pollStatus();
 </script>
 </body>

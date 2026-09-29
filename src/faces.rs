@@ -85,11 +85,33 @@ pub fn init_runtime(explicit: Option<&Path>) -> Result<PathBuf> {
         .iter()
         .find(|p| p.is_file())
         .ok_or_else(|| anyhow!("{ORT_LIBRARY} not found (looked in: {})", display_list(&candidates)))?;
+    #[cfg(target_os = "windows")]
+    preload_vc_runtime(path.parent().unwrap_or(Path::new(".")));
     let committed = ort::init_from(path).map_err(|e| anyhow!("loading {}: {e}", path.display()))?.commit();
     if !committed {
         tracing::debug!("ONNX Runtime environment was already configured");
     }
     Ok(path.clone())
+}
+
+/// The official onnxruntime.dll needs the Visual C++ runtime. Copies shipped next to it
+/// (app-local deployment) are loaded first, so it works on Windows installs without the
+/// VC++ redistributable, and never picks up an outdated system copy.
+#[cfg(target_os = "windows")]
+fn preload_vc_runtime(dir: &Path) {
+    // Dependency order: msvcp140 needs vcruntime140, *_1 need their base DLL.
+    for name in ["vcruntime140.dll", "vcruntime140_1.dll", "msvcp140.dll", "msvcp140_1.dll"] {
+        let path = dir.join(name);
+        if !path.is_file() {
+            continue;
+        }
+        // SAFETY: these are Microsoft's runtime DLLs; loading them runs no untrusted code.
+        match unsafe { libloading::Library::new(&path) } {
+            // Kept loaded for the life of the process.
+            Ok(lib) => std::mem::forget(lib),
+            Err(e) => tracing::warn!("loading {}: {e}", path.display()),
+        }
+    }
 }
 
 fn display_list(paths: &[PathBuf]) -> String {
