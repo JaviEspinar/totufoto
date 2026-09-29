@@ -1,3 +1,4 @@
 /target
 /totufoto-data
 /models/*.onnx
+/onnxruntime

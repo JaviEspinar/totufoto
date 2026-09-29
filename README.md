@@ -24,17 +24,34 @@ You need Rust 1.88 or newer. If you don't have it:
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-On macOS you also need the Xcode command line tools (`xcode-select --install`). On Linux you need a C compiler (for example `sudo apt install build-essential`).
+On macOS you also need the Xcode command line tools (`xcode-select --install`). On Linux you need a C compiler (for example `sudo apt install build-essential`). On Windows, install Rust with [rustup-init.exe](https://rustup.rs), which also sets up the Visual Studio C++ build tools it needs.
 
-### 2. Get the code and the face models
+Any 64-bit x86 or ARM CPU works. AVX2 is **not** required: ONNX Runtime picks the best instructions your CPU has when it starts, so older processors such as the AMD FX series are fine.
+
+### 2. Get the code, the face models and ONNX Runtime
+
+macOS and Linux:
 
 ```sh
 git clone https://github.com/JaviEspinar/totufoto.git
 cd totufoto
 scripts/fetch-models.sh
+scripts/fetch-onnxruntime.sh
 ```
 
-`fetch-models.sh` downloads the face detection and recognition models (about 16 MB) into `./models`. They are not stored in the repository because of their license (see below). Without them the gallery still works, just without people.
+Windows (PowerShell):
+
+```powershell
+git clone https://github.com/JaviEspinar/totufoto.git
+cd totufoto
+powershell -ExecutionPolicy Bypass -File scripts\fetch-models.ps1
+powershell -ExecutionPolicy Bypass -File scripts\fetch-onnxruntime.ps1
+```
+
+- `fetch-models` downloads the face detection and recognition models (about 16 MB) into `./models`. They are not stored in the repository because of their license (see below).
+- `fetch-onnxruntime` downloads Microsoft's official [ONNX Runtime](https://github.com/microsoft/onnxruntime) library, which runs the face models, into `./onnxruntime`.
+
+Without either of them the gallery still works, just without people. When you add them later, the next start finds the faces in photos that were indexed without them.
 
 ### 3. Start it on a photo folder
 
@@ -50,7 +67,9 @@ Subfolders are included automatically, and you can pass several folders:
 cargo run --release -- ~/Pictures/2023 ~/Pictures/2024 /Volumes/Backup/Photos
 ```
 
-To skip the build step next time, run the compiled binary directly: `./target/release/totufoto ~/Pictures/Holidays`.
+To skip the build step next time, run the compiled binary directly from the project folder: `./target/release/totufoto ~/Pictures/Holidays` (on Windows `.\target\release\totufoto.exe C:\Users\me\Pictures`).
+
+The startup log shows whether face recognition is on, which ONNX Runtime library it loaded, and on x86 which SIMD instructions the CPU has (for example `avx2=no avx=yes`).
 
 ### Apple Photos library
 
@@ -88,6 +107,7 @@ Run `totufoto --help` for the full list:
 |---|---|---|
 | `--data DIR` | `totufoto-data` | where the SQLite index (with thumbnails) is stored |
 | `--models DIR` | `models` | folder with `det_500m.onnx` and `w600k_mbf.onnx` |
+| `--onnxruntime PATH` | | ONNX Runtime library file or folder. By default it looks at `ORT_DYLIB_PATH`, next to the executable, and in `./onnxruntime` |
 | `--port` / `--host` | `7878` / `127.0.0.1` | |
 | `--face-threshold` | `0.42` | cosine similarity to treat two faces as the same person; raise it if different people get mixed, lower it if one person is split |
 | `--no-faces` | | skip face recognition |
@@ -96,6 +116,11 @@ Run `totufoto --help` for the full list:
 When passing options through cargo, put them after `--`, for example `cargo run --release -- ~/Pictures --port 8080`.
 
 Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP, and HEIC/HEIF on macOS (decoded with `sips`).
+
+## Troubleshooting
+
+- **"face recognition disabled: ... not found"**: run `scripts/fetch-onnxruntime.sh` (or the `.ps1` on Windows) from the project folder, or point `--onnxruntime` at the library.
+- **Crash with "illegal instruction" on an older CPU**: you are running a build from before ONNX Runtime was loaded as a separate library. Pull the latest code, run the fetch script and rebuild.
 
 ## How it's fast
 

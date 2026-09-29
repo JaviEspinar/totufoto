@@ -52,6 +52,69 @@ impl ModelPaths {
     }
 }
 
+#[cfg(target_os = "windows")]
+const ORT_LIBRARY: &str = "onnxruntime.dll";
+#[cfg(target_os = "macos")]
+const ORT_LIBRARY: &str = "libonnxruntime.dylib";
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
+const ORT_LIBRARY: &str = "libonnxruntime.so";
+
+/// Places searched for the ONNX Runtime library, most specific first.
+/// A path given explicitly is the only one tried.
+fn runtime_candidates(explicit: Option<&Path>) -> Vec<PathBuf> {
+    if let Some(p) = explicit {
+        return vec![if p.is_dir() { p.join(ORT_LIBRARY) } else { p.to_path_buf() }];
+    }
+    let mut out = Vec::new();
+    if let Some(p) = std::env::var_os("ORT_DYLIB_PATH") {
+        out.push(PathBuf::from(p));
+    }
+    if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(Path::to_path_buf)) {
+        out.push(dir.join(ORT_LIBRARY));
+        out.push(dir.join("onnxruntime").join(ORT_LIBRARY));
+    }
+    // Where scripts/fetch-onnxruntime.* puts it when running from the project folder.
+    out.push(PathBuf::from("onnxruntime").join(ORT_LIBRARY));
+    out
+}
+
+/// Loads the ONNX Runtime shared library. Must succeed before any model is loaded.
+pub fn init_runtime(explicit: Option<&Path>) -> Result<PathBuf> {
+    let candidates = runtime_candidates(explicit);
+    let path = candidates
+        .iter()
+        .find(|p| p.is_file())
+        .ok_or_else(|| anyhow!("{ORT_LIBRARY} not found (looked in: {})", display_list(&candidates)))?;
+    let committed = ort::init_from(path).map_err(|e| anyhow!("loading {}: {e}", path.display()))?.commit();
+    if !committed {
+        tracing::debug!("ONNX Runtime environment was already configured");
+    }
+    Ok(path.clone())
+}
+
+fn display_list(paths: &[PathBuf]) -> String {
+    paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+}
+
+/// SIMD level the CPU offers, for the startup log.
+pub fn cpu_features() -> String {
+    #[cfg(target_arch = "x86_64")]
+    {
+        let f = [
+            ("avx512f", std::arch::is_x86_feature_detected!("avx512f")),
+            ("avx2", std::arch::is_x86_feature_detected!("avx2")),
+            ("fma", std::arch::is_x86_feature_detected!("fma")),
+            ("avx", std::arch::is_x86_feature_detected!("avx")),
+            ("sse4.1", std::arch::is_x86_feature_detected!("sse4.1")),
+        ];
+        f.iter().map(|(n, on)| format!("{n}={}", if *on { "yes" } else { "no" })).collect::<Vec<_>>().join(" ")
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        std::env::consts::ARCH.to_string()
+    }
+}
+
 fn session(path: &Path) -> Result<Session> {
     Session::builder()?
         .with_optimization_level(GraphOptimizationLevel::Level3)
