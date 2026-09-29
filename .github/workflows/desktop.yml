@@ -1,9 +1,10 @@
 name: Desktop apps
 
-# Builds the Windows and Linux desktop apps, checks each one with its self-test, and
-# attaches them to a GitHub Release when a version tag (v*) is pushed.
+# Builds the Windows and Linux desktop apps and checks each one with its self-test on
+# every push to main. For a version tag (v*) it also attaches them to a GitHub Release.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
   workflow_dispatch:
 
@@ -83,7 +84,22 @@ jobs:
         run: |
           app=$(ls dist/*.AppImage)
           chmod +x "$app"
-          "$app" --self-test test-photos report.txt
+          set +e
+          "$app" --self-test test-photos report.txt > out.txt 2>&1
+          code=$?
+          if [ $code -ne 0 ]; then
+            # Tell a packaging problem apart from an app problem: run the binary outside the AppImage.
+            echo "--- AppImage exit code $code; running the extracted binary" >> out.txt
+            "$app" --appimage-extract > /dev/null 2>&1
+            ./squashfs-root/usr/bin/totufoto-desktop --self-test test-photos >> out.txt 2>&1
+            echo "extracted binary exit code: $?" >> out.txt
+            ldd ./squashfs-root/usr/bin/totufoto-desktop | grep "not found" >> out.txt
+          fi
+          cat out.txt
+          # Also as an annotation, which shows on the run page without opening the log.
+          level=$([ $code -eq 0 ] && echo notice || echo error)
+          echo "::$level title=Self-test (Linux)::$(tail -n 60 out.txt | sed 's/\x1b\[[0-9;]*m//g' | awk '{printf "%s%%0A", $0}')"
+          exit $code
 
       - name: Self-test (Windows)
         if: runner.os == 'Windows'
@@ -92,7 +108,10 @@ jobs:
           # The exe is a GUI app, so wait for it explicitly and read the report file.
           $exe = Get-ChildItem dist\*.exe | Select-Object -First 1
           $p = Start-Process -FilePath $exe.FullName -ArgumentList '--self-test', 'test-photos', 'report.txt' -Wait -PassThru -NoNewWindow
-          Get-Content report.txt
+          $report = if (Test-Path report.txt) { Get-Content report.txt -Raw } else { "no report written" }
+          Write-Output $report
+          $level = if ($p.ExitCode -eq 0) { "notice" } else { "error" }
+          Write-Output "::$level title=Self-test (Windows)::$($report -replace "`r?`n", '%0A')"
           exit $p.ExitCode
 
       - uses: actions/upload-artifact@v7
