@@ -112,8 +112,8 @@ fn start(app: &mut tauri::App) -> Result<()> {
 /// `totufoto-desktop --self-test [photos-folder] [report-file]`: checks, without a window,
 /// that the embedded runtime loads and indexes photos. Used by CI on every platform.
 fn self_test(args: &[String]) -> i32 {
-    let report_path = args.get(1).map(PathBuf::from);
-    let (ok, report) = match run_self_test(args.first().map(PathBuf::from)) {
+    let report_path = args.get(1).map(|a| launch_relative(a));
+    let (ok, report) = match run_self_test(args.first().map(|a| launch_relative(a))) {
         Ok((ok, report)) => (ok, report),
         Err(e) => (false, format!("self-test error: {e:#}")),
     };
@@ -123,6 +123,16 @@ fn self_test(args: &[String]) -> i32 {
         let _ = std::fs::write(path, &report);
     }
     if ok { 0 } else { 1 }
+}
+
+/// Resolves a command-line path against the folder the app was launched from. The AppImage
+/// launcher changes the working directory and passes the original one in `OWD`.
+fn launch_relative(arg: &str) -> PathBuf {
+    let path = PathBuf::from(arg);
+    match std::env::var_os("OWD") {
+        Some(owd) if path.is_relative() => PathBuf::from(owd).join(path),
+        _ => path,
+    }
 }
 
 fn run_self_test(photos: Option<PathBuf>) -> Result<(bool, String)> {

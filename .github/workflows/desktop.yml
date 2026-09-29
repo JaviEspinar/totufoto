@@ -85,13 +85,14 @@ jobs:
           app=$(ls dist/*.AppImage)
           chmod +x "$app"
           set +e
-          "$app" --self-test test-photos report.txt > out.txt 2>&1
+          # Relative paths also work (resolved from the launch folder); absolute keeps it explicit.
+          "$app" --self-test "$PWD/test-photos" "$PWD/report.txt" > out.txt 2>&1
           code=$?
           if [ $code -ne 0 ]; then
             # Tell a packaging problem apart from an app problem: run the binary outside the AppImage.
             echo "--- AppImage exit code $code; running the extracted binary" >> out.txt
             "$app" --appimage-extract > /dev/null 2>&1
-            ./squashfs-root/usr/bin/totufoto-desktop --self-test test-photos >> out.txt 2>&1
+            ./squashfs-root/usr/bin/totufoto-desktop --self-test "$PWD/test-photos" >> out.txt 2>&1
             echo "extracted binary exit code: $?" >> out.txt
             ldd ./squashfs-root/usr/bin/totufoto-desktop | grep "not found" >> out.txt
           fi
