@@ -1,0 +1,623 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Totufoto</title>
+<style>
+:root {
+  --bg: #f6f5f2; --panel: #ffffff; --ink: #1c1b19; --muted: #6d6a64; --line: #e4e1da;
+  --accent: #2f6fdf; --accent-ink: #ffffff; --chip: #eceae4; --hover: #efede8;
+  --row: 200px; --gap: 4px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121211; --panel: #1b1b1a; --ink: #edebe6; --muted: #9a968e; --line: #2c2b29;
+    --accent: #6b9cff; --accent-ink: #0d0d0c; --chip: #262523; --hover: #232321;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
+  display: grid; grid-template-columns: 260px 1fr; grid-template-rows: auto 1fr;
+}
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+
+header {
+  grid-column: 1 / -1; display: flex; align-items: center; gap: 16px;
+  padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 5;
+}
+.brand { font-weight: 700; font-size: 17px; letter-spacing: -0.02em; margin-right: 8px; }
+nav { display: flex; gap: 2px; }
+nav button, .seg button {
+  border: 0; background: transparent; padding: 6px 12px; border-radius: 8px; color: var(--muted);
+}
+nav button:hover, .seg button:hover { background: var(--hover); color: var(--ink); }
+nav button.on, .seg button.on { background: var(--chip); color: var(--ink); font-weight: 600; }
+.spacer { flex: 1; }
+.tools { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.tools select { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
+#scan { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+#scan progress { width: 90px; accent-color: var(--accent); }
+.btn {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 5px 10px;
+}
+.btn:hover { background: var(--hover); }
+
+aside {
+  background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto;
+  padding: 14px 12px; height: calc(100vh - 53px); position: sticky; top: 53px;
+}
+aside h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 4px 4px 8px; }
+.seg { display: flex; background: var(--bg); border-radius: 10px; padding: 3px; margin-bottom: 10px; }
+.seg button { flex: 1; padding: 5px 4px; font-size: 12px; }
+.person {
+  display: flex; align-items: center; gap: 10px; padding: 5px 6px; border-radius: 8px; cursor: pointer;
+  user-select: none;
+}
+.person:hover { background: var(--hover); }
+.person input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
+.person img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; background: var(--chip); }
+.person .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person .n.unnamed { color: var(--muted); font-style: italic; }
+.person .c { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.empty-side { color: var(--muted); font-size: 13px; padding: 4px; }
+
+main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 0 0; min-height: 12px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; background: var(--chip); border-radius: 999px;
+  padding: 3px 4px 3px 10px; font-size: 12px;
+}
+.chip button { border: 0; background: transparent; color: var(--muted); padding: 0 6px; font-size: 14px; line-height: 1; }
+.chip button:hover { color: var(--ink); }
+.count { color: var(--muted); font-size: 12px; padding: 12px 0 0; }
+
+.group h2 {
+  font-size: 15px; font-weight: 650; margin: 0; padding: 18px 0 8px; position: sticky; top: 0;
+  background: linear-gradient(var(--bg) 75%, transparent); z-index: 2;
+}
+.group h2 small { font-weight: 400; color: var(--muted); margin-left: 8px; font-size: 12px; }
+.group h4 { font-size: 13px; color: var(--muted); font-weight: 500; margin: 10px 0 6px; }
+.grid { display: flex; flex-wrap: wrap; gap: var(--gap); }
+.grid::after { content: ""; flex-grow: 1000000000; }
+.tile {
+  position: relative; height: var(--row); flex-grow: calc(var(--r) * 100); width: calc(var(--r) * var(--row));
+  background: var(--chip); overflow: hidden; border-radius: 3px; cursor: zoom-in;
+}
+.tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tile:hover img { filter: brightness(1.06); }
+#sentinel { height: 1px; }
+
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; padding-top: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; cursor: pointer; }
+.card:hover { border-color: var(--muted); }
+.card img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; display: block; background: var(--chip); }
+.card .meta { padding: 8px 10px 10px; }
+.card .t { font-weight: 600; }
+.card .s { color: var(--muted); font-size: 12px; }
+
+.people-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.face-card { text-align: center; padding: 14px 10px 10px; cursor: default; }
+.face-card img { width: 110px; height: 110px; border-radius: 50%; aspect-ratio: auto; margin: 0 auto 8px; cursor: pointer; }
+.face-card input {
+  width: 100%; border: 1px solid transparent; background: transparent; text-align: center; border-radius: 6px;
+  padding: 3px; font-weight: 600;
+}
+.face-card input:hover, .face-card input:focus { border-color: var(--line); background: var(--bg); outline: none; }
+.face-card input::placeholder { color: var(--muted); font-weight: 400; font-style: italic; }
+.face-card .row { display: flex; gap: 4px; justify-content: center; margin-top: 6px; }
+.face-card select, .face-card .btn { font-size: 11px; padding: 3px 6px; max-width: 100%; }
+.face-card.hidden-person { opacity: 0.5; }
+
+.upbar { display: flex; align-items: center; gap: 10px; padding-top: 16px; color: var(--muted); }
+.upbar .seg { margin: 0; }
+.upbar .seg button { white-space: nowrap; padding: 5px 10px; }
+.blank { color: var(--muted); padding: 60px 0; text-align: center; }
+
+#viewer {
+  position: fixed; inset: 0; background: rgba(8, 8, 8, 0.96); z-index: 20; display: none;
+  grid-template-columns: 1fr 300px; color: #eee;
+}
+#viewer.open { display: grid; }
+#viewer .stage { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+#viewer .frame { position: relative; max-width: calc(100% - 120px); max-height: calc(100vh - 40px); }
+#viewer .frame img { display: block; max-width: 100%; max-height: calc(100vh - 40px); object-fit: contain; }
+#viewer .box { position: absolute; border: 2px solid rgba(255, 255, 255, 0.85); border-radius: 4px; display: none; }
+#viewer.boxes .box { display: block; }
+#viewer .box span {
+  position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 3px; white-space: nowrap;
+  background: rgba(0, 0, 0, 0.7); padding: 1px 6px; border-radius: 4px; font-size: 11px;
+}
+#viewer .nav {
+  position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255, 255, 255, 0.08); border: 0;
+  color: #fff; width: 44px; height: 64px; border-radius: 10px; font-size: 22px;
+}
+#viewer .nav:hover { background: rgba(255, 255, 255, 0.18); }
+#viewer .prev { left: 12px; } #viewer .next { right: 12px; }
+#viewer .close { position: absolute; top: 12px; left: 12px; background: transparent; border: 0; color: #fff; font-size: 24px; }
+#viewer .info { background: #161615; border-left: 1px solid #2a2a28; padding: 20px 18px; overflow-y: auto; }
+#viewer .info h3 { margin: 0 0 4px; font-size: 16px; }
+#viewer .info .s { color: #a5a29b; font-size: 12px; margin-bottom: 14px; word-break: break-all; }
+#viewer .info h5 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8b8880; margin: 16px 0 8px; }
+.vface { display: flex; align-items: center; gap: 10px; padding: 5px; border-radius: 8px; }
+.vface:hover { background: #242422; }
+.vface img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; }
+.vface .n { flex: 1; cursor: pointer; }
+.vface .n.unnamed { color: #9a968e; font-style: italic; }
+.vface button { background: transparent; border: 1px solid #3a3936; color: #bbb; border-radius: 6px; font-size: 11px; padding: 2px 6px; }
+.vface button:hover { color: #fff; border-color: #777; }
+.info a { color: #9dbaff; }
+.info label { display: flex; gap: 8px; align-items: center; color: #bbb; font-size: 12px; margin-top: 16px; }
+
+@media (max-width: 760px) {
+  body { grid-template-columns: 1fr; }
+  aside { display: none; }
+  header { flex-wrap: wrap; gap: 8px; }
+  .tools { width: 100%; }
+  :root { --row: 120px; }
+  #viewer { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+  #viewer .info { max-height: 35vh; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">totufoto</div>
+  <nav id="tabs">
+    <button data-view="photos" class="on">Photos</button>
+    <button data-view="places">Places</button>
+    <button data-view="upcoming">Upcoming</button>
+    <button data-view="people">People</button>
+  </nav>
+  <div class="spacer"></div>
+  <div class="tools">
+    <label>Group
+      <select id="groupBy">
+        <option value="month">by month</option>
+        <option value="day">by day</option>
+        <option value="year">by year</option>
+        <option value="place">by place</option>
+        <option value="none">no groups</option>
+      </select>
+    </label>
+    <select id="sort" title="Sort by capture date">
+      <option value="desc">Newest first</option>
+      <option value="asc">Oldest first</option>
+    </select>
+    <div id="scan"></div>
+  </div>
+</header>
+
+<aside>
+  <h3>People in the photo</h3>
+  <div class="seg" id="match" title="How to combine the selected people">
+    <button data-m="all" class="on" title="Photos where all selected people appear together">Together</button>
+    <button data-m="any" title="Photos with at least one of the selected people">Any</button>
+    <button data-m="only" title="Photos with exactly the selected people and nobody else you know">Only them</button>
+  </div>
+  <div id="peopleList"></div>
+</aside>
+
+<main id="main"></main>
+
+<div id="viewer">
+  <div class="stage">
+    <button class="close" title="Close (Esc)">✕</button>
+    <button class="nav prev" title="Previous (←)">‹</button>
+    <div class="frame"><img alt=""><div class="boxes"></div></div>
+    <button class="nav next" title="Next (→)">›</button>
+  </div>
+  <div class="info"></div>
+</div>
+
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const regionName = (() => {
+  try { const d = new Intl.DisplayNames([navigator.language], { type: "region" }); return cc => { try { return d.of(cc); } catch { return cc; } }; }
+  catch { return cc => cc; }
+})();
+const MONTHS = Array.from({ length: 12 }, (_, i) => new Date(2000, i, 1).toLocaleString(undefined, { month: "long" }));
+const fmtDay = t => new Date(+t.slice(0, 4), +t.slice(5, 7) - 1, +t.slice(8, 10))
+  .toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "long", day: "numeric" });
+const fmtFull = t => fmtDay(t) + " · " + t.slice(11, 16);
+
+const state = {
+  view: "photos", sort: "desc", groupBy: "month", match: "all",
+  people: new Set(), place: null, date: null, upcoming: 30,
+};
+let people = [], places = [], placeById = new Map(), photos = [], viewerIndex = -1, renderToken = 0;
+
+// ---- URL state -------------------------------------------------------------
+function saveHash() {
+  const p = new URLSearchParams();
+  if (state.view !== "photos") p.set("view", state.view);
+  if (state.sort !== "desc") p.set("sort", state.sort);
+  if (state.groupBy !== "month") p.set("group", state.groupBy);
+  if (state.match !== "all") p.set("match", state.match);
+  if (state.people.size) p.set("people", [...state.people].join(","));
+  if (state.place) p.set("place", state.place);
+  if (state.date) p.set("date", state.date);
+  if (state.upcoming !== 30) p.set("days", state.upcoming);
+  history.replaceState(null, "", "#" + p.toString());
+}
+function loadHash() {
+  const p = new URLSearchParams(location.hash.slice(1));
+  state.view = p.get("view") || "photos";
+  state.sort = p.get("sort") || "desc";
+  state.groupBy = p.get("group") || "month";
+  state.match = p.get("match") || "all";
+  state.people = new Set((p.get("people") || "").split(",").filter(Boolean).map(Number));
+  state.place = p.get("place") ? Number(p.get("place")) : null;
+  state.date = p.get("date");
+  state.upcoming = Number(p.get("days") || 30);
+}
+
+// ---- data ------------------------------------------------------------------
+const api = async (url, opts) => {
+  const r = await fetch(url, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.status === 204 || r.status === 202 ? null : r.json();
+};
+const post = (url, body) => api(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+
+async function loadMeta() {
+  [people, places] = await Promise.all([api("/api/people"), api("/api/places")]);
+  placeById = new Map(places.map(p => [p.id, p]));
+  const known = new Set(people.map(p => p.id));
+  for (const id of state.people) if (!known.has(id)) state.people.delete(id);
+  renderPeopleList();
+}
+const personName = p => p.name || `Unnamed #${p.id}`;
+const placeLabel = id => { const p = placeById.get(id); return p ? `${p.city}, ${regionName(p.country)}` : "Unknown place"; };
+
+function photoQuery(extra = {}) {
+  const q = new URLSearchParams({ sort: state.sort, ...extra });
+  if (state.people.size) { q.set("people", [...state.people].join(",")); q.set("match", state.match); }
+  if (state.place) q.set("place", state.place);
+  if (state.date) q.set("date", state.date);
+  return "/api/photos?" + q;
+}
+
+// ---- sidebar ---------------------------------------------------------------
+function renderPeopleList() {
+  const list = $("#peopleList");
+  const visible = people.filter(p => !p.hidden);
+  if (!visible.length) {
+    list.innerHTML = `<div class="empty-side">No people yet. Faces are grouped automatically while the library is indexed.</div>`;
+    return;
+  }
+  list.innerHTML = visible.map(p => `
+    <label class="person" title="${esc(personName(p))}">
+      <input type="checkbox" data-id="${p.id}" ${state.people.has(p.id) ? "checked" : ""}>
+      <img src="/face/${p.face}" loading="lazy" alt="">
+      <span class="n ${p.name ? "" : "unnamed"}">${esc(personName(p))}</span>
+      <span class="c">${p.count}</span>
+    </label>`).join("");
+  for (const b of $("#match").children) b.classList.toggle("on", b.dataset.m === state.match);
+}
+$("#peopleList").addEventListener("change", e => {
+  const id = Number(e.target.dataset.id);
+  e.target.checked ? state.people.add(id) : state.people.delete(id);
+  if (state.view !== "photos" && state.view !== "upcoming") state.view = "photos";
+  render();
+});
+$("#match").addEventListener("click", e => {
+  if (!e.target.dataset.m) return;
+  state.match = e.target.dataset.m;
+  renderPeopleList();
+  if (state.people.size) render();
+  else saveHash();
+});
+
+// ---- photo grid ------------------------------------------------------------
+function groupKey(p) {
+  const t = p[3];
+  switch (state.groupBy) {
+    case "day": return t.slice(0, 10);
+    case "month": return t.slice(0, 7);
+    case "year": return t.slice(0, 4);
+    case "place": return "p" + (p[4] ?? "");
+    default: return "";
+  }
+}
+function groupTitle(key, sample) {
+  switch (state.groupBy) {
+    case "day": return fmtDay(key);
+    case "month": return `${MONTHS[+key.slice(5, 7) - 1]} ${key.slice(0, 4)}`;
+    case "year": return key;
+    case "place": return sample[4] == null ? "No location" : placeLabel(sample[4]);
+    default: return "";
+  }
+}
+function groupPhotos(list, keyFn) {
+  const groups = [], index = new Map();
+  for (const p of list) {
+    const k = keyFn(p);
+    let g = index.get(k);
+    if (!g) { g = { key: k, items: [] }; index.set(k, g); groups.push(g); }
+    g.items.push(p);
+  }
+  return groups;
+}
+const tile = p => `<a class="tile" data-id="${p[0]}" style="--r:${(p[1] / p[2]).toFixed(3)}" href="/original/${p[0]}">` +
+  `<img src="/thumb/${p[0]}" loading="lazy" decoding="async" alt=""></a>`;
+
+/** Renders groups progressively so huge libraries stay responsive. */
+function renderGroups(container, groups, headerFn, subFn) {
+  const token = renderToken;
+  const sentinel = document.createElement("div");
+  sentinel.id = "sentinel";
+  container.append(sentinel);
+  let gi = 0, ii = 0, currentGrid = null, currentSub = null;
+  const BATCH = 400;
+  function pump() {
+    if (token !== renderToken) return observer.disconnect();
+    let budget = BATCH, html = "";
+    const frag = document.createDocumentFragment();
+    while (budget > 0 && gi < groups.length) {
+      const g = groups[gi];
+      if (ii === 0) {
+        const sec = document.createElement("section");
+        sec.className = "group";
+        if (headerFn) sec.innerHTML = headerFn(g);
+        frag.append(sec);
+        currentGrid = null; currentSub = sec;
+      }
+      const sub = subFn ? subFn(g.items[ii], ii ? g.items[ii - 1] : null) : null;
+      if (sub || !currentGrid) {
+        if (sub) currentSub.insertAdjacentHTML("beforeend", `<h4>${sub}</h4>`);
+        currentGrid = document.createElement("div");
+        currentGrid.className = "grid";
+        currentSub.append(currentGrid);
+      }
+      html = "";
+      let end = ii;
+      while (end < g.items.length && budget > 0) {
+        if (end > ii && subFn && subFn(g.items[end], g.items[end - 1])) break;
+        html += tile(g.items[end]); end++; budget--;
+      }
+      currentGrid.insertAdjacentHTML("beforeend", html);
+      ii = end;
+      if (ii >= g.items.length) { gi++; ii = 0; }
+    }
+    container.insertBefore(frag, sentinel);
+    if (gi >= groups.length) { observer.disconnect(); sentinel.remove(); }
+  }
+  const observer = new IntersectionObserver(es => { if (es.some(e => e.isIntersecting)) pump(); }, { root: $("#main"), rootMargin: "1500px" });
+  pump();
+  observer.observe(sentinel);
+}
+
+function filterChips() {
+  const chips = [];
+  if (state.people.size) {
+    const names = [...state.people].map(id => people.find(p => p.id === id)).filter(Boolean).map(personName);
+    const joiner = { all: " & ", any: " or ", only: " & " }[state.match];
+    chips.push([`${state.match === "only" ? "Only " : ""}${names.join(joiner)}`, "people"]);
+  }
+  if (state.place) chips.push([placeLabel(state.place), "place"]);
+  if (state.date) chips.push([state.date, "date"]);
+  return `<div class="filters">${chips.map(([label, k]) =>
+    `<span class="chip">${esc(label)}<button data-clear="${k}" title="Remove filter">×</button></span>`).join("")}</div>`;
+}
+function onChipClick(e) {
+  const k = e.target.dataset.clear;
+  if (!k) return;
+  if (k === "people") state.people.clear();
+  else state[k] = null;
+  renderPeopleList();
+  render();
+}
+
+async function renderPhotos(main, token) {
+  const data = await api(photoQuery());
+  if (token !== renderToken) return;
+  photos = data.photos;
+  main.innerHTML = filterChips() + `<div class="count">${photos.length.toLocaleString()} photos</div>`;
+  if (!photos.length) { main.insertAdjacentHTML("beforeend", `<div class="blank">No photos match these filters.</div>`); return; }
+  const groups = groupPhotos(photos, groupKey);
+  const header = state.groupBy === "none" ? null :
+    g => `<h2>${esc(groupTitle(g.key, g.items[0]))}<small>${g.items.length}</small></h2>`;
+  renderGroups(main, groups, header);
+}
+
+async function renderUpcoming(main, token) {
+  const data = await api(photoQuery({ upcoming: state.upcoming }));
+  if (token !== renderToken) return;
+  const order = new Map(data.days.map((d, i) => [d, i]));
+  // Upcoming days first (today, tomorrow...), and within a day the most recent year first.
+  photos = data.photos.slice().sort((a, b) =>
+    order.get(a[3].slice(5, 10)) - order.get(b[3].slice(5, 10)) || b[3].localeCompare(a[3]));
+  const opts = [7, 14, 30, 60, 90].map(d => `<button data-d="${d}" class="${d === state.upcoming ? "on" : ""}">${d} days</button>`).join("");
+  main.innerHTML = `<div class="upbar">Memories from past years for the next <div class="seg" id="days">${opts}</div></div>` + filterChips();
+  $("#days").addEventListener("click", e => { if (e.target.dataset.d) { state.upcoming = +e.target.dataset.d; render(); } });
+  if (!photos.length) { main.insertAdjacentHTML("beforeend", `<div class="blank">No photos were taken on these dates in previous years.</div>`); return; }
+  const thisYear = new Date().getFullYear();
+  const groups = groupPhotos(photos, p => p[3].slice(5, 10));
+  const header = g => {
+    const idx = order.get(g.key);
+    const [m, d] = g.key.split("-").map(Number);
+    const label = new Date(thisYear, m - 1, d).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+    const when = idx === 0 ? "Today" : idx === 1 ? "Tomorrow" : `In ${idx} days`;
+    return `<h2>${when} · ${esc(label)}<small>${g.items.length}</small></h2>`;
+  };
+  const sub = (p, prev) => {
+    if (prev && prev[3].slice(0, 4) === p[3].slice(0, 4)) return null;
+    const y = +p[3].slice(0, 4), ago = thisYear - y;
+    return `${ago} year${ago === 1 ? "" : "s"} ago · ${y}`;
+  };
+  renderGroups(main, groups, header, sub);
+}
+
+function renderPlaces(main) {
+  if (!places.length) { main.innerHTML = `<div class="blank">No photos with GPS location yet.</div>`; return; }
+  main.innerHTML = `<div class="cards">${places.map(p => `
+    <div class="card" data-place="${p.id}">
+      <img src="/thumb/${p.cover}" loading="lazy" alt="">
+      <div class="meta"><div class="t">${esc(p.city)}</div>
+      <div class="s">${esc([p.region, regionName(p.country)].filter(Boolean).join(", "))} · ${p.count} photo${p.count === 1 ? "" : "s"}</div></div>
+    </div>`).join("")}</div>`;
+}
+
+function renderPeople(main) {
+  if (!people.length) { main.innerHTML = `<div class="blank">No faces found yet.</div>`; return; }
+  const options = people.map(o => `<option value="${o.id}">${esc(personName(o))}</option>`).join("");
+  main.innerHTML = `<div class="cards people-grid">${people.map(p => `
+    <div class="card face-card ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}">
+      <img src="/face/${p.face}" alt="" title="Show photos">
+      <input value="${esc(p.name || "")}" placeholder="Add a name" data-rename="${p.id}">
+      <div class="s">${p.count} photo${p.count === 1 ? "" : "s"}</div>
+      <div class="row">
+        <select data-merge="${p.id}" title="Merge this person into another one"><option value="">Same as…</option>${options}</select>
+        <button class="btn" data-hide="${p.id}">${p.hidden ? "Show" : "Hide"}</button>
+      </div>
+    </div>`).join("")}</div>`;
+  for (const sel of main.querySelectorAll("select[data-merge]"))
+    sel.querySelector(`option[value="${sel.dataset.merge}"]`)?.remove();
+}
+
+async function render() {
+  saveHash();
+  for (const b of $("#tabs").children) b.classList.toggle("on", b.dataset.view === state.view);
+  $("#groupBy").value = state.groupBy;
+  $("#sort").value = state.sort;
+  const main = $("#main");
+  const token = ++renderToken;
+  try {
+    if (state.view === "photos") await renderPhotos(main, token);
+    else if (state.view === "upcoming") await renderUpcoming(main, token);
+    else if (state.view === "places") renderPlaces(main);
+    else renderPeople(main);
+    main.scrollTop = 0;
+  } catch (err) {
+    main.innerHTML = `<div class="blank">Something went wrong: ${esc(err.message)}</div>`;
+  }
+}
+
+// ---- main area events ---------------------------------------------------------
+$("#main").addEventListener("click", e => {
+  if (e.target.dataset.clear) return onChipClick(e);
+  const t = e.target.closest(".tile");
+  if (t) { e.preventDefault(); return openViewer(photos.findIndex(p => p[0] === +t.dataset.id)); }
+  const place = e.target.closest("[data-place]");
+  if (place) { state.place = +place.dataset.place; state.view = "photos"; return render(); }
+  const hide = e.target.dataset.hide;
+  if (hide) {
+    const p = people.find(p => p.id === +hide);
+    return post(`/api/people/${hide}`, { hidden: !p.hidden }).then(loadMeta).then(render);
+  }
+  if (e.target.matches(".face-card img")) {
+    state.people = new Set([+e.target.closest("[data-person]").dataset.person]);
+    state.view = "photos"; renderPeopleList(); return render();
+  }
+});
+$("#main").addEventListener("change", e => {
+  const rename = e.target.dataset.rename, merge = e.target.dataset.merge;
+  if (rename) post(`/api/people/${rename}`, { name: e.target.value }).then(loadMeta);
+  if (merge && e.target.value) {
+    const into = +e.target.value, from = +merge;
+    const a = people.find(p => p.id === from), b = people.find(p => p.id === into);
+    if (confirm(`Merge "${personName(a)}" into "${personName(b)}"?`)) {
+      post(`/api/people/${from}/merge`, { into }).then(() => {
+        if (state.people.delete(from)) state.people.add(into);
+        return loadMeta();
+      }).then(render);
+    } else e.target.value = "";
+  }
+});
+$("#main").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset.rename) e.target.blur(); });
+
+$("#tabs").addEventListener("click", e => { if (e.target.dataset.view) { state.view = e.target.dataset.view; render(); } });
+$("#groupBy").addEventListener("change", e => { state.groupBy = e.target.value; if (state.view !== "photos") state.view = "photos"; render(); });
+$("#sort").addEventListener("change", e => { state.sort = e.target.value; render(); });
+
+// ---- viewer ----------------------------------------------------------------
+const viewer = $("#viewer");
+async function openViewer(i) {
+  if (i < 0 || i >= photos.length) return;
+  viewerIndex = i;
+  const id = photos[i][0];
+  viewer.classList.add("open");
+  const img = $(".frame img", viewer);
+  img.src = `/thumb/${id}`;
+  const full = new Image();
+  full.onload = () => { if (viewerIndex === i) img.src = full.src; };
+  full.src = `/original/${id}`;
+  for (const j of [i - 1, i + 1]) if (photos[j]) new Image().src = `/thumb/${photos[j][0]}`;
+  const d = await api(`/api/photos/${id}`);
+  if (viewerIndex !== i) return;
+  $(".boxes", viewer).innerHTML = d.faces.map(f => {
+    const person = people.find(p => p.id === f.person);
+    const label = person ? personName(person) : "";
+    return `<div class="box" style="left:${f.box[0] * 100}%;top:${f.box[1] * 100}%;width:${f.box[2] * 100}%;height:${f.box[3] * 100}%">${label ? `<span>${esc(label)}</span>` : ""}</div>`;
+  }).join("");
+  const place = d.city ? `${d.city}${d.region ? ", " + d.region : ""}, ${regionName(d.country)}` : null;
+  $(".info", viewer).innerHTML = `
+    <h3>${esc(fmtFull(d.taken))}</h3>
+    <div class="s">${d.dateFromExif ? "" : "Date from file (no EXIF) · "}${d.width} × ${d.height}</div>
+    ${place ? `<h5>Place</h5><div>${esc(place)}</div><div class="s"><a href="https://www.openstreetmap.org/?mlat=${d.lat}&mlon=${d.lon}#map=14/${d.lat}/${d.lon}" target="_blank" rel="noopener">Open map</a></div>` : ""}
+    <h5>People (${d.faces.length})</h5>
+    ${d.faces.length ? d.faces.map(f => {
+      const person = people.find(p => p.id === f.person);
+      return `<div class="vface"><img src="/face/${f.id}" alt="">
+        <span class="n ${person?.name ? "" : "unnamed"}" data-person="${f.person ?? ""}">${person ? esc(personName(person)) : "Not grouped"}</span>
+        ${person ? `<button data-reject="${f.id}" title="This face is not ${esc(personName(person))}">Not them</button>` : ""}</div>`;
+    }).join("") : `<div class="s">No faces detected.</div>`}
+    <label><input type="checkbox" id="showBoxes" ${viewer.classList.contains("boxes") ? "checked" : ""}> Show face boxes</label>
+    <h5>File</h5><div class="s">${esc(d.path)}</div>`;
+}
+function closeViewer() { viewer.classList.remove("open"); viewerIndex = -1; $(".frame img", viewer).src = ""; }
+$(".close", viewer).onclick = closeViewer;
+$(".prev", viewer).onclick = () => openViewer(viewerIndex - 1);
+$(".next", viewer).onclick = () => openViewer(viewerIndex + 1);
+$(".stage", viewer).addEventListener("click", e => { if (e.target.classList.contains("stage")) closeViewer(); });
+$(".info", viewer).addEventListener("change", e => { if (e.target.id === "showBoxes") viewer.classList.toggle("boxes", e.target.checked); });
+$(".info", viewer).addEventListener("click", async e => {
+  if (e.target.dataset.reject) {
+    await post(`/api/faces/${e.target.dataset.reject}/reject`);
+    await loadMeta();
+    openViewer(viewerIndex);
+  } else if (e.target.dataset.person) {
+    state.people = new Set([+e.target.dataset.person]);
+    state.view = "photos"; closeViewer(); renderPeopleList(); render();
+  }
+});
+document.addEventListener("keydown", e => {
+  if (!viewer.classList.contains("open")) return;
+  if (e.key === "Escape") closeViewer();
+  else if (e.key === "ArrowLeft") openViewer(viewerIndex - 1);
+  else if (e.key === "ArrowRight") openViewer(viewerIndex + 1);
+});
+
+// ---- scan status -----------------------------------------------------------------
+let wasRunning = false;
+async function pollStatus() {
+  let s;
+  try { s = await api("/api/status"); } catch { return setTimeout(pollStatus, 5000); }
+  const el = $("#scan");
+  if (s.running) {
+    el.innerHTML = `<span>${esc(s.phase)} ${s.done}/${s.total}</span><progress max="${s.total || 1}" value="${s.done}"></progress>`;
+  } else {
+    el.innerHTML = `<button class="btn" id="rescan" title="Look for new or changed photos">Rescan</button>`;
+    $("#rescan").onclick = () => post("/api/scan").then(() => setTimeout(pollStatus, 300));
+  }
+  if (wasRunning && !s.running) { await loadMeta(); render(); }
+  wasRunning = s.running;
+  setTimeout(pollStatus, s.running ? 1500 : 10000);
+}
+
+loadHash();
+loadMeta().then(render);
+pollStatus();
+</script>
+</body>
+</html>
