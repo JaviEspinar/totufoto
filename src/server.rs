@@ -4,8 +4,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{StatusCode, header};
+use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -16,6 +17,7 @@ use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 use tower_http::compression::CompressionLayer;
 
+use crate::app::Host;
 use crate::imaging;
 use crate::scan::{self, ScanConfig, ScanStatus};
 
@@ -49,6 +51,7 @@ pub struct AppState {
     pub pool: Pool,
     pub status: Arc<ScanStatus>,
     pub scan: Arc<ScanConfig>,
+    pub host: Option<Arc<dyn Host>>,
 }
 
 type Shared = Arc<AppState>;
@@ -78,11 +81,15 @@ async fn db<T: Send + 'static>(
     Ok(tokio::task::spawn_blocking(move || state.pool.with(f)).await??)
 }
 
-pub fn router(state: AppState) -> Router {
-    Router::new()
+pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
+    let router = Router::new()
         .route("/", get(|| async { Html(INDEX_HTML) }))
         .route("/api/status", get(status))
         .route("/api/scan", post(start_scan))
+        .route("/api/folders", get(folders).post(add_folder))
+        .route("/api/folders/pick", post(pick_folder))
+        .route("/api/folders/remove", post(remove_folder))
+        .route("/api/open", post(open_url))
         .route("/api/photos", get(photos))
         .route("/api/photos/{id}", get(photo_detail))
         .route("/api/places", get(places))
@@ -94,15 +101,20 @@ pub fn router(state: AppState) -> Router {
         .route("/face/{id}", get(face_thumb))
         .route("/original/{id}", get(original))
         .layer(CompressionLayer::new())
-        .with_state(Arc::new(state))
+        .with_state(Arc::new(state));
+    match allowed_hosts {
+        Some(hosts) => router.layer(middleware::from_fn_with_state(Arc::new(hosts), check_host)),
+        None => router,
+    }
 }
 
-pub fn spawn_scan(scan: Arc<ScanConfig>, status: Arc<ScanStatus>) {
-    std::thread::spawn(move || {
-        if let Err(e) = scan::run(&scan, &status) {
-            tracing::error!("scan failed: {e:#}");
-        }
-    });
+async fn check_host(State(allowed): State<Arc<Vec<String>>>, req: Request, next: Next) -> Response {
+    let host = req.headers().get(header::HOST).and_then(|h| h.to_str().ok());
+    if host.is_some_and(|h| allowed.iter().any(|a| a.eq_ignore_ascii_case(h))) {
+        next.run(req).await
+    } else {
+        (StatusCode::FORBIDDEN, "unexpected Host header").into_response()
+    }
 }
 
 async fn status(State(s): State<Shared>) -> Json<scan::StatusView> {
@@ -110,8 +122,98 @@ async fn status(State(s): State<Shared>) -> Json<scan::StatusView> {
 }
 
 async fn start_scan(State(s): State<Shared>) -> StatusCode {
-    spawn_scan(s.scan.clone(), s.status.clone());
+    scan::spawn(s.scan.clone(), s.status.clone());
     StatusCode::ACCEPTED
+}
+
+async fn folders(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
+    let scan_cfg = s.scan.clone();
+    let managed = s.scan.fixed_roots.is_empty();
+    let desktop = s.host.is_some();
+    let list = db(&s, move |conn| {
+        let mut count = conn.prepare_cached("SELECT COUNT(*) FROM photos WHERE substr(path, 1, ?1) = ?2")?;
+        let mut out = Vec::new();
+        for root in scan_cfg.roots(conn)? {
+            // Match "<root><separator>" so /photos doesn't also count /photos2.
+            let prefix = root.join("").to_string_lossy().into_owned();
+            let photos: i64 = count.query_row(params![prefix.chars().count() as i64, prefix], |r| r.get(0))?;
+            out.push(json!({ "path": root.to_string_lossy(), "available": root.is_dir(), "photos": photos }));
+        }
+        Ok(out)
+    })
+    .await?;
+    Ok(Json(json!({ "folders": list, "managed": managed, "desktop": desktop })))
+}
+
+#[derive(Deserialize)]
+struct FolderBody {
+    path: String,
+}
+
+/// Saves a folder and indexes it. Only when folders aren't fixed on the command line.
+async fn save_folder(s: &Shared, path: PathBuf) -> ApiResult<Response> {
+    if !s.scan.fixed_roots.is_empty() {
+        return Ok((StatusCode::CONFLICT, "folders are set on the command line").into_response());
+    }
+    let Ok(path) = dunce::canonicalize(&path) else {
+        return Ok((StatusCode::BAD_REQUEST, format!("{} does not exist", path.display())).into_response());
+    };
+    if !path.is_dir() {
+        return Ok((StatusCode::BAD_REQUEST, format!("{} is not a folder", path.display())).into_response());
+    }
+    let stored = path.to_string_lossy().into_owned();
+    db(s, move |conn| {
+        conn.execute("INSERT OR IGNORE INTO folders (path) VALUES (?)", [stored])?;
+        Ok(())
+    })
+    .await?;
+    scan::spawn(s.scan.clone(), s.status.clone());
+    Ok(Json(json!({ "path": path.to_string_lossy() })).into_response())
+}
+
+async fn add_folder(State(s): State<Shared>, Json(body): Json<FolderBody>) -> ApiResult<Response> {
+    save_folder(&s, PathBuf::from(body.path.trim())).await
+}
+
+/// Opens the native folder picker (desktop app only).
+async fn pick_folder(State(s): State<Shared>) -> ApiResult<Response> {
+    let Some(host) = s.host.clone() else { return Ok(StatusCode::NOT_IMPLEMENTED.into_response()) };
+    match tokio::task::spawn_blocking(move || host.pick_folder()).await? {
+        Some(path) => save_folder(&s, path).await,
+        None => Ok(StatusCode::NO_CONTENT.into_response()),
+    }
+}
+
+async fn remove_folder(State(s): State<Shared>, Json(body): Json<FolderBody>) -> ApiResult<StatusCode> {
+    if !s.scan.fixed_roots.is_empty() {
+        return Ok(StatusCode::CONFLICT);
+    }
+    db(&s, move |conn| {
+        conn.execute("DELETE FROM folders WHERE path = ?", [body.path])?;
+        Ok(())
+    })
+    .await?;
+    // The scan removes the photos of folders that are no longer in the list.
+    scan::spawn(s.scan.clone(), s.status.clone());
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct OpenBody {
+    url: String,
+}
+
+/// Opens a map link in the system browser (desktop app only). Limited to the map site
+/// the UI links to, so the endpoint can't be used to launch arbitrary URLs.
+async fn open_url(State(s): State<Shared>, Json(body): Json<OpenBody>) -> StatusCode {
+    match &s.host {
+        Some(host) if body.url.starts_with("https://www.openstreetmap.org/") => {
+            host.open_url(&body.url);
+            StatusCode::NO_CONTENT
+        }
+        Some(_) => StatusCode::FORBIDDEN,
+        None => StatusCode::NOT_IMPLEMENTED,
+    }
 }
 
 #[derive(Deserialize)]

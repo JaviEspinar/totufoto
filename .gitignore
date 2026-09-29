@@ -2,3 +2,4 @@
 /totufoto-data
 /models/*.onnx
 /onnxruntime
+/desktop/gen

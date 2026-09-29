@@ -1,0 +1,115 @@
+name: Desktop apps
+
+# Builds the Windows and Linux desktop apps, checks each one with its self-test, and
+# attaches them to a GitHub Release when a version tag (v*) is pushed.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x86_64
+            os: ubuntu-22.04 # oldest supported glibc, so the AppImage runs on most distros
+          - name: windows-x64
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Version
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="dev-${GITHUB_SHA::7}"; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: System libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Face models and ONNX Runtime (Linux)
+        if: runner.os == 'Linux'
+        run: scripts/fetch-models.sh && scripts/fetch-onnxruntime.sh
+
+      - name: Face models and ONNX Runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./scripts/fetch-models.ps1
+          ./scripts/fetch-onnxruntime.ps1
+
+      - name: Build AppImage
+        if: runner.os == 'Linux'
+        working-directory: desktop
+        run: |
+          cargo install tauri-cli --version "^2" --locked
+          cargo tauri build --bundles appimage
+          mkdir -p ../dist
+          cp ../target/release/bundle/appimage/*.AppImage "../dist/Totufoto-${VERSION}-linux-x86_64.AppImage"
+
+      - name: Build exe
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cargo build --release -p totufoto-desktop --features custom-protocol
+          mkdir -p dist
+          cp target/release/totufoto-desktop.exe "dist/Totufoto-${VERSION}-windows-x64.exe"
+
+      - name: Test photos
+        shell: bash
+        run: |
+          mkdir -p test-photos
+          # Public-domain official portrait (one face) and an EXIF sample with GPS data.
+          curl -fsSL -A "totufoto-ci/1.0 (https://github.com/JaviEspinar/totufoto)" -o test-photos/portrait.jpg \
+            https://upload.wikimedia.org/wikipedia/commons/8/8d/President_Barack_Obama.jpg
+          curl -fsSL -o test-photos/gps.jpg https://raw.githubusercontent.com/ianare/exif-samples/master/jpg/gps/DSCN0010.jpg
+
+      - name: Self-test (Linux)
+        if: runner.os == 'Linux'
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1" # runners have no FUSE
+        run: |
+          app=$(ls dist/*.AppImage)
+          chmod +x "$app"
+          "$app" --self-test test-photos report.txt
+
+      - name: Self-test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # The exe is a GUI app, so wait for it explicitly and read the report file.
+          $exe = Get-ChildItem dist\*.exe | Select-Object -First 1
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList '--self-test', 'test-photos', 'report.txt' -Wait -PassThru -NoNewWindow
+          Get-Content report.txt
+          exit $p.ExitCode
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: totufoto-${{ matrix.name }}
+          path: dist/*
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

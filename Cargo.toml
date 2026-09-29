@@ -4,10 +4,14 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 
+[workspace]
+members = ["desktop"]
+
 [dependencies]
 anyhow = "1"
 axum = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
+dunce = "1"
 clap = { version = "4", features = ["derive"] }
 fast_image_resize = { version = "6", features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "tiff", "gif", "bmp", "rayon"] }
@@ -24,6 +28,9 @@ tower-http = { version = "0.7", features = ["compression-gzip"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 walkdir = "2"
+
+[target.'cfg(windows)'.dependencies]
+libloading = "0.9"
 
 [profile.release]
 lto = "thin"

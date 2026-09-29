@@ -9,7 +9,13 @@ use fast_image_resize::Resizer;
 use image::codecs::jpeg::JpegEncoder;
 use image::{DynamicImage, ImageDecoder, ImageReader, RgbImage};
 
-pub const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "tif", "tiff", "gif", "bmp", "heic", "heif"];
+const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "tif", "tiff", "gif", "bmp"];
+
+pub fn is_supported(path: &Path) -> bool {
+    let ext = extension(path);
+    // HEIC/HEIF is decoded with macOS `sips`.
+    IMAGE_EXTENSIONS.contains(&ext.as_str()) || (cfg!(target_os = "macos") && matches!(ext.as_str(), "heic" | "heif"))
+}
 
 /// Formats a browser can display directly, so originals can be served untouched.
 pub const BROWSER_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp", "gif", "bmp"];

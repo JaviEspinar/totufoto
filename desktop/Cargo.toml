@@ -1,0 +1,24 @@
+[package]
+name = "totufoto-desktop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Totufoto desktop app"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1"
+image = { version = "0.25", default-features = false }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tokio = { version = "1", features = ["net"] }
+totufoto = { path = ".." }
+tracing = "0.1"
+
+[features]
+# Set by the Tauri CLI for release builds; use `cargo build --release --features custom-protocol` without it.
+custom-protocol = ["tauri/custom-protocol"]

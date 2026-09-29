@@ -4,9 +4,9 @@
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::io::Cursor;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Mutex, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Instant, UNIX_EPOCH};
 
 use anyhow::Result;
@@ -33,16 +33,18 @@ pub struct ScanStatus {
     pub errors: AtomicU64,
     pub faces: AtomicU64,
     pub phase: Mutex<String>,
+    /// Another scan was requested while one was running (for example a folder was added).
+    rerun: AtomicBool,
 }
 
 #[derive(Serialize)]
 pub struct StatusView {
-    running: bool,
-    phase: String,
-    total: u64,
-    done: u64,
-    errors: u64,
-    faces: u64,
+    pub running: bool,
+    pub phase: String,
+    pub total: u64,
+    pub done: u64,
+    pub errors: u64,
+    pub faces: u64,
 }
 
 impl ScanStatus {
@@ -63,10 +65,43 @@ impl ScanStatus {
 }
 
 pub struct ScanConfig {
-    pub roots: Vec<PathBuf>,
+    /// Folders given on the command line. When empty, the folders saved in the index are used.
+    pub fixed_roots: Vec<PathBuf>,
     pub db_path: PathBuf,
     pub models: Option<ModelPaths>,
     pub cluster_threshold: f32,
+}
+
+impl ScanConfig {
+    pub fn roots(&self, conn: &Connection) -> Result<Vec<PathBuf>> {
+        if !self.fixed_roots.is_empty() {
+            return Ok(self.fixed_roots.clone());
+        }
+        let roots = conn
+            .prepare("SELECT path FROM folders ORDER BY path")?
+            .query_map([], |r| r.get::<_, String>(0))?
+            .map(|r| r.map(PathBuf::from))
+            .collect::<Result<_, _>>()?;
+        Ok(roots)
+    }
+}
+
+/// Scans in a background thread. If a scan is already running, another one follows it.
+pub fn spawn(cfg: Arc<ScanConfig>, status: Arc<ScanStatus>) {
+    if status.running.load(Ordering::SeqCst) {
+        status.rerun.store(true, Ordering::SeqCst);
+        return;
+    }
+    std::thread::spawn(move || {
+        loop {
+            if let Err(e) = run(&cfg, &status) {
+                tracing::error!("scan failed: {e:#}");
+            }
+            if !status.rerun.swap(false, Ordering::SeqCst) {
+                break;
+            }
+        }
+    });
 }
 
 struct FileEntry {
@@ -100,6 +135,7 @@ thread_local! {
 
 pub fn run(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     if status.running.swap(true, Ordering::SeqCst) {
+        status.rerun.store(true, Ordering::SeqCst);
         return Ok(());
     }
     let result = scan(cfg, status);
@@ -117,9 +153,15 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
         counter.store(0, Ordering::Relaxed);
     }
     status.set_phase("listing files");
-    let files = list_files(&cfg.roots);
-
     let mut conn = crate::db::open(&cfg.db_path)?;
+    let roots = cfg.roots(&conn)?;
+    let files = list_files(&roots);
+    // Photos on a folder that is currently unavailable (say, an unplugged drive) are kept.
+    let offline: Vec<&PathBuf> = roots.iter().filter(|r| !r.is_dir()).collect();
+    for r in &offline {
+        tracing::warn!("folder {} is not available; keeping its photos", r.display());
+    }
+
     let models = cfg.models.clone().filter(ModelPaths::exist);
     let known: HashMap<String, (i64, i64, i64, bool)> = {
         let mut stmt = conn.prepare("SELECT path, id, mtime, size, faces_scanned FROM photos")?;
@@ -128,7 +170,11 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     };
 
     let present: HashSet<String> = files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
-    let mut stale: Vec<i64> = known.iter().filter(|(p, _)| !present.contains(*p)).map(|(_, v)| v.0).collect();
+    let mut stale: Vec<i64> = known
+        .iter()
+        .filter(|(p, _)| !present.contains(*p) && !offline.iter().any(|r| Path::new(p).starts_with(r)))
+        .map(|(_, v)| v.0)
+        .collect();
     let removed = stale.len();
     let todo: Vec<FileEntry> = files
         .into_iter()
@@ -201,7 +247,7 @@ fn list_files(roots: &[PathBuf]) -> Vec<FileEntry> {
                 .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
                 .filter_map(|e| e.ok())
                 .filter(|e| e.file_type().is_file())
-                .filter(|e| imaging::IMAGE_EXTENSIONS.contains(&imaging::extension(e.path()).as_str()))
+                .filter(|e| imaging::is_supported(e.path()))
                 .filter_map(|e| {
                     let meta = e.metadata().ok()?;
                     let mtime = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
