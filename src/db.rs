@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS photos (
     date_from_exif INTEGER NOT NULL,
     lat       REAL,
     lon       REAL,
-    place_id  INTEGER REFERENCES places(id)
+    place_id  INTEGER REFERENCES places(id),
+    -- 0 when indexed without face recognition, so a later run can add the faces
+    faces_scanned INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS photos_taken ON photos(taken);
 CREATE INDEX IF NOT EXISTS photos_md ON photos(substr(taken, 6, 5));
@@ -71,5 +73,19 @@ pub fn open(path: &Path) -> Result<Connection> {
          PRAGMA mmap_size = 1073741824;",
     )?;
     conn.execute_batch(SCHEMA)?;
+    migrate(&conn)?;
     Ok(conn)
+}
+
+/// Upgrades indexes created by older versions in place.
+fn migrate(conn: &Connection) -> Result<()> {
+    let has_column: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'faces_scanned'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has_column {
+        conn.execute_batch("ALTER TABLE photos ADD COLUMN faces_scanned INTEGER NOT NULL DEFAULT 1")?;
+    }
+    Ok(())
 }

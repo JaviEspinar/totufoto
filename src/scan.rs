@@ -91,6 +91,7 @@ struct Processed {
     gps: Option<(f64, f64)>,
     thumb: Vec<u8>,
     faces: Vec<FaceOut>,
+    faces_scanned: bool,
 }
 
 thread_local! {
@@ -119,18 +120,23 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     let files = list_files(&cfg.roots);
 
     let mut conn = crate::db::open(&cfg.db_path)?;
-    let known: HashMap<String, (i64, i64, i64)> = {
-        let mut stmt = conn.prepare("SELECT path, id, mtime, size FROM photos")?;
-        stmt.query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?, r.get(3)?))))?
+    let models = cfg.models.clone().filter(ModelPaths::exist);
+    let known: HashMap<String, (i64, i64, i64, bool)> = {
+        let mut stmt = conn.prepare("SELECT path, id, mtime, size, faces_scanned FROM photos")?;
+        stmt.query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))))?
             .collect::<Result<_, _>>()?
     };
 
     let present: HashSet<String> = files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
     let mut stale: Vec<i64> = known.iter().filter(|(p, _)| !present.contains(*p)).map(|(_, v)| v.0).collect();
+    let removed = stale.len();
     let todo: Vec<FileEntry> = files
         .into_iter()
         .filter(|f| match known.get(f.path.to_string_lossy().as_ref()) {
-            Some(&(id, mtime, size)) if mtime != f.mtime || size != f.size => {
+            // Changed files, and photos indexed while face recognition was unavailable.
+            Some(&(id, mtime, size, faces_scanned))
+                if mtime != f.mtime || size != f.size || (models.is_some() && !faces_scanned) =>
+            {
                 stale.push(id);
                 true
             }
@@ -149,9 +155,8 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
 
     status.total.store(todo.len() as u64, Ordering::Relaxed);
     status.set_phase("indexing photos");
-    tracing::info!("{} photos to index, {} removed", todo.len(), stale.len());
+    tracing::info!("{} photos to index ({} updated), {} removed", todo.len(), stale.len() - removed, removed);
 
-    let models = cfg.models.clone().filter(ModelPaths::exist);
     let (sender, receiver) = mpsc::sync_channel::<Processed>(256);
     std::thread::scope(|s| -> Result<()> {
         s.spawn(|| {
@@ -234,7 +239,8 @@ fn process_inner(file: FileEntry, models: Option<&ModelPaths>) -> Result<Process
         None => Vec::new(),
     };
 
-    Ok(Processed { file, width, height, taken, from_exif: exif_date.is_some(), gps, thumb, faces })
+    let faces_scanned = models.is_some();
+    Ok(Processed { file, width, height, taken, from_exif: exif_date.is_some(), gps, thumb, faces, faces_scanned })
 }
 
 fn detect_faces(work: &image::RgbImage, paths: &ModelPaths) -> Result<Vec<FaceOut>> {
@@ -277,8 +283,8 @@ fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Processed>, sta
                 None => None,
             };
             tx.execute(
-                "INSERT INTO photos (path, mtime, size, width, height, taken, date_from_exif, lat, lon, place_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT INTO photos (path, mtime, size, width, height, taken, date_from_exif, lat, lon, place_id, faces_scanned)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 params![
                     p.file.path.to_string_lossy(),
                     p.file.mtime,
@@ -289,7 +295,8 @@ fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Processed>, sta
                     p.from_exif,
                     p.gps.map(|g| g.0),
                     p.gps.map(|g| g.1),
-                    place_id
+                    place_id,
+                    p.faces_scanned
                 ],
             )?;
             let photo_id = tx.last_insert_rowid();

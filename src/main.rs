@@ -35,12 +35,42 @@ struct Args {
     /// Cosine similarity needed to consider two faces the same person (higher = stricter)
     #[arg(long, default_value_t = 0.42)]
     face_threshold: f32,
+    /// ONNX Runtime library (file or folder); by default looked up next to the
+    /// executable and in ./onnxruntime (see scripts/fetch-onnxruntime.sh)
+    #[arg(long)]
+    onnxruntime: Option<PathBuf>,
     /// Skip face detection
     #[arg(long)]
     no_faces: bool,
     /// Index the library and exit, without starting the web server
     #[arg(long)]
     scan_only: bool,
+}
+
+/// Face recognition is optional: when the models or ONNX Runtime can't be loaded the
+/// gallery still works, just without people.
+fn face_models(args: &Args) -> Option<ModelPaths> {
+    let paths = ModelPaths::in_dir(&args.models);
+    if !paths.exist() {
+        tracing::warn!(
+            "face models not found in {}; run scripts/fetch-models.sh (faces will be skipped)",
+            args.models.display()
+        );
+        return None;
+    }
+    tracing::info!("CPU: {}", faces::cpu_features());
+    let loaded = faces::init_runtime(args.onnxruntime.as_deref())
+        .and_then(|lib| faces::FaceModels::load(&paths).map(|_| lib));
+    match loaded {
+        Ok(lib) => {
+            tracing::info!("face recognition enabled (ONNX Runtime: {})", lib.display());
+            Some(paths)
+        }
+        Err(e) => {
+            tracing::warn!("face recognition disabled: {e:#}. Run scripts/fetch-onnxruntime.sh to install ONNX Runtime");
+            None
+        }
+    }
 }
 
 #[tokio::main]
@@ -56,15 +86,7 @@ async fn main() -> Result<()> {
     let db_path = args.data.join("index.sqlite");
     db::open(&db_path)?;
 
-    let models = (!args.no_faces).then(|| ModelPaths::in_dir(&args.models));
-    if let Some(m) = &models
-        && !m.exist()
-    {
-        tracing::warn!(
-            "face models not found in {}; run scripts/fetch-models.sh (faces will be skipped)",
-            args.models.display()
-        );
-    }
+    let models = if args.no_faces { None } else { face_models(&args) };
     let library = args
         .library
         .iter()
