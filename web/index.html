@@ -478,7 +478,8 @@ $("#peopleFilter").addEventListener("input", renderPeopleList);
 $("#peopleList").addEventListener("change", e => {
   const id = Number(e.target.dataset.id);
   e.target.checked ? state.people.add(id) : state.people.delete(id);
-  if (state.view !== "photos" && state.view !== "upcoming") state.view = "photos";
+  // Photos, Upcoming and Places filter by the selected people; People switches to Photos.
+  if (!["photos", "upcoming", "places"].includes(state.view)) state.view = "photos";
   render();
 });
 $("#match").addEventListener("click", e => {
@@ -568,15 +569,16 @@ function renderGroups(container, groups, headerFn, subFn) {
   observer.observe(sentinel);
 }
 
-function filterChips() {
+/** Chips for the active filters. `peopleOnly` for views where place and date don't apply. */
+function filterChips({ peopleOnly = false } = {}) {
   const chips = [];
   if (state.people.size) {
     const names = [...state.people].map(id => people.find(p => p.id === id)).filter(Boolean).map(personName);
     const joiner = { all: " & ", any: " or ", only: " & " }[state.match];
     chips.push([`${state.match === "only" ? "Only " : ""}${names.join(joiner)}`, "people"]);
   }
-  if (state.place) chips.push([placeLabel(state.place), "place"]);
-  if (state.date) chips.push([state.date, "date"]);
+  if (state.place && !peopleOnly) chips.push([placeLabel(state.place), "place"]);
+  if (state.date && !peopleOnly) chips.push([state.date, "date"]);
   return `<div class="filters">${chips.map(([label, k]) =>
     `<span class="chip">${esc(label)}<button data-clear="${k}" title="Remove filter">×</button></span>`).join("")}</div>`;
 }
@@ -641,9 +643,24 @@ async function renderUpcoming(main, token) {
   renderGroups(main, groups, header, sub);
 }
 
-function renderPlaces(main) {
+/** Place cards. With people selected, only places with photos of them, counted that way. */
+async function renderPlaces(main, token) {
   if (!places.length) { main.innerHTML = `<div class="blank">No photos with GPS location yet.</div>`; return; }
-  main.innerHTML = `<div class="cards">${places.map(p => `
+  let list = places;
+  if (state.people.size) {
+    // The current cards stay until the filtered ones arrive, so nothing flashes.
+    list = await api("/api/places?" + new URLSearchParams({ people: [...state.people].join(","), match: state.match }));
+    if (token !== renderToken) return;
+  }
+  const chips = state.people.size ? filterChips({ peopleOnly: true }) : "";
+  if (!list.length) {
+    const who = state.people.size === 1 ? "this person" : state.match === "any" ? "any of these people" : "these people together";
+    main.innerHTML = `${chips}<div class="blank">No places have photos of ${who}.</div>`;
+    return;
+  }
+  const photoCount = list.reduce((n, p) => n + p.count, 0);
+  main.innerHTML = `${chips}${state.people.size ? `<div class="count">${list.length} place${list.length === 1 ? "" : "s"}, ${photoCount.toLocaleString()} photo${photoCount === 1 ? "" : "s"}</div>` : ""}
+    <div class="cards">${list.map(p => `
     <div class="card" data-place="${p.id}">
       <img src="/thumb/${p.cover}" loading="lazy" alt="">
       <div class="meta"><div class="t">${esc(p.city)}</div>
@@ -983,7 +1000,7 @@ async function render() {
   try {
     if (state.view === "photos") await renderPhotos(main, token);
     else if (state.view === "upcoming") await renderUpcoming(main, token);
-    else if (state.view === "places") renderPlaces(main);
+    else if (state.view === "places") await renderPlaces(main, token);
     else await renderPeople(main, token);
   } catch (err) {
     main.innerHTML = `<div class="blank">Something went wrong: ${esc(err.message)}</div>`;

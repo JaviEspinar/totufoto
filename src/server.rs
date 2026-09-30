@@ -249,6 +249,35 @@ fn parse_ids(s: &str) -> Vec<i64> {
     s.split(',').filter_map(|p| p.trim().parse().ok()).collect()
 }
 
+/// SQL condition (starting with " AND") keeping photos, by their `photo_id` column, where
+/// the given people appear. `match_mode`: "all" (default) all of them together, "any" at
+/// least one, "only" all of them and no other known person. Empty without people.
+fn people_filter(photo_id: &str, people: Option<&str>, match_mode: Option<&str>) -> String {
+    let people = people.map(parse_ids).unwrap_or_default();
+    if people.is_empty() {
+        return String::new();
+    }
+    // ids are parsed integers, so inlining them is safe
+    let list = people.iter().map(i64::to_string).collect::<Vec<_>>().join(",");
+    match match_mode.unwrap_or("all") {
+        "any" => format!(" AND {photo_id} IN (SELECT photo_id FROM faces WHERE person_id IN ({list}))"),
+        mode => {
+            let mut sql = format!(
+                " AND {photo_id} IN (SELECT photo_id FROM faces WHERE person_id IN ({list})
+                                     GROUP BY photo_id HAVING COUNT(DISTINCT person_id) = {})",
+                people.len()
+            );
+            if mode == "only" {
+                sql.push_str(&format!(
+                    " AND {photo_id} NOT IN (SELECT photo_id FROM faces f JOIN persons pe ON pe.id = f.person_id
+                                             WHERE pe.hidden = 0 AND f.person_id NOT IN ({list}))"
+                ));
+            }
+            sql
+        }
+    }
+}
+
 /// `MM-DD` for today and the following days, and the current year.
 fn upcoming_days(days: u32) -> (Vec<String>, i32) {
     let today = Local::now().date_naive();
@@ -279,27 +308,7 @@ async fn photos(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResu
             args.push((year as i64).into());
             days = list;
         }
-        let people = q.people.as_deref().map(parse_ids).unwrap_or_default();
-        if !people.is_empty() {
-            // ids are parsed integers, so inlining them is safe
-            let list = people.iter().map(i64::to_string).collect::<Vec<_>>().join(",");
-            match q.match_mode.as_deref().unwrap_or("all") {
-                "any" => sql.push_str(&format!(" AND id IN (SELECT photo_id FROM faces WHERE person_id IN ({list}))")),
-                mode => {
-                    sql.push_str(&format!(
-                        " AND id IN (SELECT photo_id FROM faces WHERE person_id IN ({list})
-                                     GROUP BY photo_id HAVING COUNT(DISTINCT person_id) = {})",
-                        people.len()
-                    ));
-                    if mode == "only" {
-                        sql.push_str(&format!(
-                            " AND id NOT IN (SELECT photo_id FROM faces f JOIN persons p ON p.id = f.person_id
-                                             WHERE p.hidden = 0 AND f.person_id NOT IN ({list}))"
-                        ));
-                    }
-                }
-            }
-        }
+        sql.push_str(&people_filter("id", q.people.as_deref(), q.match_mode.as_deref()));
         let desc = q.sort.as_deref() != Some("asc");
         sql.push_str(if desc { " ORDER BY taken DESC, id DESC" } else { " ORDER BY taken ASC, id ASC" });
 
@@ -370,14 +379,24 @@ async fn photo_detail(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult
     Ok(Json(result))
 }
 
-async fn places(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
-    let rows = db(&s, |conn| {
+#[derive(Deserialize)]
+struct PlacesQuery {
+    /// Only count photos of these people (comma separated ids), as in /api/photos.
+    people: Option<String>,
+    #[serde(rename = "match")]
+    match_mode: Option<String>,
+}
+
+async fn places(State(s): State<Shared>, Query(q): Query<PlacesQuery>) -> ApiResult<Json<JsonValue>> {
+    let rows = db(&s, move |conn| {
+        let filter = people_filter("p.id", q.people.as_deref(), q.match_mode.as_deref());
         let rows: Vec<JsonValue> = conn
-            .prepare_cached(
+            .prepare_cached(&format!(
                 "SELECT pl.id, pl.city, pl.region, pl.country, COUNT(*) AS n, MAX(p.id)
                  FROM photos p JOIN places pl ON pl.id = p.place_id
-                 GROUP BY pl.id ORDER BY n DESC, pl.city",
-            )?
+                 WHERE 1 = 1{filter}
+                 GROUP BY pl.id ORDER BY n DESC, pl.city"
+            ))?
             .query_map([], |r| {
                 Ok(json!({
                     "id": r.get::<_, i64>(0)?,
