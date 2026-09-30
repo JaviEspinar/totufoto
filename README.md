@@ -127,7 +127,7 @@ Only photos stored on the Mac are found. Photos kept only in iCloud ("Optimize M
 
 ## Using the gallery
 
-- **Photos**: the timeline. Use *Group* (day, month, year, place, none) and *Newest/Oldest first* in the top bar.
+- **Photos**: the timeline. With *Group* set to a year, month, day or place, the groups show as cards (cover, title, number of photos); click one to see its photos, with a chip for that group, and close the chip to go back to the cards. *No groups* shows all photos. *Newest/Oldest first* in the top bar sets the order.
 - **Places**: one card per city. Click a card to see its photos.
 - **Upcoming**: memories from past years for the next 7 to 90 days.
 - **People**: name each person by typing under their face, use *Same as…* to merge two groups of the same person, and *Hide* for people you don't care about. Switch between *Cards* (big faces) and *List* (compact rows, several times more people on screen; the actions show when you point at a row). The size slider next to it makes cards or rows bigger or smaller. Sort people by *Most photos* or by *Name* (A to Z, unnamed last); the sidebar uses the same order.
