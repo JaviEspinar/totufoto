@@ -304,10 +304,22 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 #viewer .stage { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 #viewer .frame { position: relative; max-width: calc(100% - 120px); max-height: calc(100vh - 40px); }
 #viewer .frame img { display: block; max-width: 100%; max-height: calc(100vh - 40px); object-fit: contain; background: #111; }
-#viewer .box { position: absolute; border: 2px solid rgba(255, 255, 255, 0.85); border-radius: 4px; display: none; }
+/* Zoom: the frame (photo and face boxes) is scaled and moved from its fitted place */
+#viewer .frame { z-index: 1; transform-origin: 0 0; cursor: zoom-in; touch-action: none; }
+#viewer .frame.animate-zoom { transition: transform 0.25s ease; }
+#viewer.zoomed .frame { cursor: grab; }
+#viewer .frame.dragging { cursor: grabbing; }
+#viewer .frame img { -webkit-user-drag: none; user-select: none; }
+#viewer .nav, #viewer .close { z-index: 2; }
+/* The outline is a shadow, not a border: borders can't be thinner than a pixel before
+   zooming, so they'd look thicker on a zoomed photo. */
+#viewer .box {
+  position: absolute; box-shadow: inset 0 0 0 calc(2px / var(--zs, 1)) rgba(255, 255, 255, 0.85);
+  border-radius: calc(4px / var(--zs, 1)); display: none;
+}
 #viewer.boxes .box { display: block; }
 #viewer .box span {
-  position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 3px; white-space: nowrap;
+  position: absolute; top: 100%; left: 50%; transform: translateX(-50%) scale(calc(1 / var(--zs, 1))); transform-origin: top center; margin-top: 3px; white-space: nowrap;
   background: rgba(0, 0, 0, 0.7); padding: 1px 6px; border-radius: 4px; font-size: 11px;
 }
 #viewer .nav {
@@ -1559,11 +1571,16 @@ function fitViewerImage(w, h) {
   img.style.width = `${Math.max(1, Math.round(w * scale))}px`;
   img.style.height = `${Math.max(1, Math.round(h * scale))}px`;
 }
-window.addEventListener("resize", () => { if (viewerIndex >= 0) fitViewerImage(photos[viewerIndex][1], photos[viewerIndex][2]); });
+window.addEventListener("resize", () => {
+  if (viewerIndex < 0) return;
+  resetZoom();
+  fitViewerImage(photos[viewerIndex][1], photos[viewerIndex][2]);
+});
 
 async function openViewer(i) {
   if (i < 0 || i >= photos.length) return;
   viewerIndex = i;
+  resetZoom();
   const [id, w, h] = photos[i];
   viewer.classList.add("open");
   const img = $(".frame img", viewer);
@@ -1606,7 +1623,91 @@ async function openViewer(i) {
     <label><input type="checkbox" id="showBoxes" ${viewer.classList.contains("boxes") ? "checked" : ""}> Show face boxes</label>
     <h5>File</h5><div class="s">${esc(d.path)}</div>`;
 }
-function closeViewer() { viewer.classList.remove("open"); viewerIndex = -1; $(".frame img", viewer).src = ""; }
+function closeViewer() { resetZoom(); viewer.classList.remove("open"); viewerIndex = -1; $(".frame img", viewer).src = ""; }
+
+// ---- viewer zoom ----------------------------------------------------------------------
+// Click zooms in where clicked (click again to fit), drag moves the zoomed photo, the wheel
+// (or a trackpad pinch) zooms around the pointer. The frame holding the photo and its face
+// boxes is scaled from its top left corner and moved from its fitted place.
+const zoom = { s: 1, x: 0, y: 0 };
+const ZOOM_MAX = 8;
+const frameEl = () => $(".frame", viewer);
+function applyZoom(animate = false) {
+  const frame = frameEl();
+  frame.classList.toggle("animate-zoom", animate);
+  frame.style.transform = zoom.s === 1 ? "" : `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.s})`;
+  frame.style.setProperty("--zs", zoom.s);
+  viewer.classList.toggle("zoomed", zoom.s > 1);
+}
+function resetZoom(animate = false) {
+  zoom.s = 1; zoom.x = 0; zoom.y = 0;
+  applyZoom(animate);
+}
+/** Keeps the zoomed photo in view: centred while smaller than the stage, and never with
+ *  a gap at an edge once larger. */
+function clampZoom() {
+  const stage = $(".stage", viewer), frame = frameEl();
+  const axis = (t, offset, size, limit) => {
+    const scaled = size * zoom.s;
+    if (scaled <= limit) return (limit - scaled) / 2 - offset;
+    return Math.min(-offset, Math.max(limit - scaled - offset, t));
+  };
+  zoom.x = axis(zoom.x, frame.offsetLeft, frame.offsetWidth, stage.clientWidth);
+  zoom.y = axis(zoom.y, frame.offsetTop, frame.offsetHeight, stage.clientHeight);
+}
+/** Zooms to `scale`, keeping the point under the pointer where it is. */
+function zoomAt(clientX, clientY, scale, animate = false) {
+  const next = Math.min(ZOOM_MAX, Math.max(1, scale));
+  if (next === 1) return resetZoom(animate);
+  const frame = frameEl(), stage = $(".stage", viewer).getBoundingClientRect();
+  const px = clientX - stage.left - frame.offsetLeft, py = clientY - stage.top - frame.offsetTop;
+  zoom.x = px - ((px - zoom.x) * next) / zoom.s;
+  zoom.y = py - ((py - zoom.y) * next) / zoom.s;
+  zoom.s = next;
+  clampZoom();
+  applyZoom(animate);
+}
+{
+  const frame = frameEl();
+  let press = null; // { x, y, zx, zy, moved }
+  frame.addEventListener("pointerdown", e => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    frame.setPointerCapture(e.pointerId);
+    press = { x: e.clientX, y: e.clientY, zx: zoom.x, zy: zoom.y, moved: false };
+  });
+  frame.addEventListener("pointermove", e => {
+    if (!press) return;
+    const dx = e.clientX - press.x, dy = e.clientY - press.y;
+    if (!press.moved && Math.hypot(dx, dy) < 5) return; // still a click
+    press.moved = true;
+    if (zoom.s === 1) return;
+    frame.classList.add("dragging");
+    zoom.x = press.zx + dx;
+    zoom.y = press.zy + dy;
+    clampZoom();
+    applyZoom();
+  });
+  const release = e => {
+    if (!press) return;
+    const wasClick = !press.moved;
+    press = null;
+    frame.classList.remove("dragging");
+    if (!wasClick || e.type === "pointercancel") return;
+    if (zoom.s > 1) return resetZoom(true);
+    // Zoom to the photo's real pixels (between 2x and 4x) where it was clicked.
+    const width = photos[viewerIndex]?.[1] ?? 0;
+    zoomAt(e.clientX, e.clientY, Math.min(4, Math.max(2, width / frame.offsetWidth)), true);
+  };
+  frame.addEventListener("pointerup", release);
+  frame.addEventListener("pointercancel", release);
+  $(".stage", viewer).addEventListener("wheel", e => {
+    if (viewerIndex < 0) return;
+    e.preventDefault();
+    // Trackpad pinches come as wheel events with ctrlKey and small steps.
+    zoomAt(e.clientX, e.clientY, zoom.s * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)));
+  }, { passive: false });
+}
 $(".close", viewer).onclick = closeViewer;
 $(".prev", viewer).onclick = () => openViewer(viewerIndex - 1);
 $(".next", viewer).onclick = () => openViewer(viewerIndex + 1);
