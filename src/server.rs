@@ -352,9 +352,14 @@ async fn photos(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResu
     let result = db(&s, move |conn| {
         let mut sql = String::from("SELECT id, width, height, taken, place_id FROM photos WHERE 1 = 1");
         let mut args: Vec<Value> = Vec::new();
-        if let Some(place) = q.place {
-            sql.push_str(" AND place_id = ?");
-            args.push(place.into());
+        match q.place {
+            // 0: photos without a location
+            Some(0) => sql.push_str(" AND place_id IS NULL"),
+            Some(place) => {
+                sql.push_str(" AND place_id = ?");
+                args.push(place.into());
+            }
+            None => {}
         }
         if let Some(date) = q.date.filter(|d| !d.is_empty()) {
             sql.push_str(" AND taken LIKE ? || '%'");
