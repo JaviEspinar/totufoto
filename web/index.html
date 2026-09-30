@@ -238,7 +238,7 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 #viewer.open { display: grid; }
 #viewer .stage { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 #viewer .frame { position: relative; max-width: calc(100% - 120px); max-height: calc(100vh - 40px); }
-#viewer .frame img { display: block; max-width: 100%; max-height: calc(100vh - 40px); object-fit: contain; }
+#viewer .frame img { display: block; max-width: 100%; max-height: calc(100vh - 40px); object-fit: contain; background: #111; }
 #viewer .box { position: absolute; border: 2px solid rgba(255, 255, 255, 0.85); border-radius: 4px; display: none; }
 #viewer.boxes .box { display: block; }
 #viewer .box span {
@@ -1220,17 +1220,37 @@ $("#sort").addEventListener("change", e => { state.sort = e.target.value; render
 
 // ---- viewer ----------------------------------------------------------------
 const viewer = $("#viewer");
+/** Sizes the photo to its final on-screen size from its known dimensions, so the thumbnail
+ *  shown first and the full photo that replaces it occupy exactly the same box. */
+function fitViewerImage(w, h) {
+  const stage = $(".stage", viewer), img = $(".frame img", viewer);
+  const maxW = stage.clientWidth - 120, maxH = stage.clientHeight - 40;
+  const scale = Math.min(maxW / w, maxH / h, 1);
+  img.style.width = `${Math.max(1, Math.round(w * scale))}px`;
+  img.style.height = `${Math.max(1, Math.round(h * scale))}px`;
+}
+window.addEventListener("resize", () => { if (viewerIndex >= 0) fitViewerImage(photos[viewerIndex][1], photos[viewerIndex][2]); });
+
 async function openViewer(i) {
   if (i < 0 || i >= photos.length) return;
   viewerIndex = i;
-  const id = photos[i][0];
+  const [id, w, h] = photos[i];
   viewer.classList.add("open");
   const img = $(".frame img", viewer);
-  img.src = `/thumb/${id}`;
+  // Keep the current photo until the next thumbnail is ready (they're cached, so this is
+  // quick), then show it at the final size; the full photo sharpens it in place.
+  const thumb = new Image();
+  thumb.src = `/thumb/${id}`;
+  await thumb.decode().catch(() => {});
+  if (viewerIndex !== i) return;
+  fitViewerImage(w, h);
+  img.src = thumb.src;
   const full = new Image();
-  full.onload = () => { if (viewerIndex === i) img.src = full.src; };
   full.src = `/original/${id}`;
+  full.decode().then(() => { if (viewerIndex === i) img.src = full.src; }).catch(() => {});
+  // Ready for the arrows: neighbours' thumbnails, and the next photo in full size.
   for (const j of [i - 1, i + 1]) if (photos[j]) new Image().src = `/thumb/${photos[j][0]}`;
+  if (photos[i + 1]) new Image().src = `/original/${photos[i + 1][0]}`;
   const d = await api(`/api/photos/${id}`);
   if (viewerIndex !== i) return;
   $(".boxes", viewer).innerHTML = d.faces.map(f => {
