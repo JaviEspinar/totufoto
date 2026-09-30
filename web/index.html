@@ -208,7 +208,7 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 .zoom input { width: 110px; accent-color: var(--accent); }
 
 /* Loading placeholders */
-.shimmer, .avatar:has(img:not(.ok)), .candidate .avatar-sm:has(img:not(.ok)) {
+.shimmer, .avatar:has(img:not(.ok)), .candidate .avatar-sm:has(img:not(.ok)), .tile:has(> img:not(.ok)) {
   background: linear-gradient(90deg, var(--chip) 0%, var(--hover) 50%, var(--chip) 100%);
   background-size: 200% 100%; animation: shimmer 1.2s linear infinite;
 }
@@ -221,7 +221,18 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
   border-top-color: var(--accent); animation: spin 0.8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .shimmer, .avatar, .spinner { animation-duration: 3s; } }
+@media (prefers-reduced-motion: reduce) { .shimmer, .avatar, .spinner, .tile { animation-duration: 3s; } }
+/* Results that are being replaced, and placeholders while they load */
+.view-area { transition: opacity 0.15s; }
+.view-area.stale { opacity: 0.45; pointer-events: none; }
+.view-area.fade-in { animation: fade-in 0.22s ease both; }
+.tile img { opacity: 0; transition: opacity 0.25s; }
+.tile img.ok { opacity: 1; }
+.tile.skeleton { cursor: default; }
+.sk-title { height: 16px; width: 180px; border-radius: 8px; margin: 22px 0 12px; }
+.card.skeleton { cursor: default; }
+.card.skeleton .sk-img { aspect-ratio: 4 / 3; }
+.card.skeleton .line { margin: 4px 0 8px; }
 
 /* Short notices after an action */
 #toast {
@@ -624,8 +635,52 @@ function groupPhotos(list, keyFn) {
   }
   return groups;
 }
+// Thumbnails load lazily with a shimmer behind them and fade in the first time only.
+const loadedThumbs = new Set();
+function thumbLoaded(img) { loadedThumbs.add(img.dataset.thumb); img.classList.add("ok"); }
 const tile = p => `<a class="tile" data-id="${p[0]}" style="--r:${(p[1] / p[2]).toFixed(3)}" href="/original/${p[0]}">` +
-  `<img src="/thumb/${p[0]}" loading="lazy" decoding="async" alt=""></a>`;
+  (loadedThumbs.has(String(p[0]))
+    ? `<img src="/thumb/${p[0]}" loading="lazy" alt="" data-thumb="${p[0]}" class="ok"></a>`
+    : `<img src="/thumb/${p[0]}" loading="lazy" decoding="async" alt="" data-thumb="${p[0]}" onload="thumbLoaded(this)" onerror="thumbLoaded(this)"></a>`);
+
+// ---- loading views: filters change at once, results follow --------------------------
+const LOADING_DELAY = 150;
+const TILE_SHAPES = [1.5, 0.67, 1.33, 1.5, 1, 1.78, 0.75, 1.5, 1.33, 0.67, 1.5, 1.2];
+const photoPlaceholders = () => `<section class="group"><div class="sk-title shimmer"></div><div class="grid">${
+  Array.from({ length: 36 }, (_, i) => `<div class="tile skeleton shimmer" style="--r:${TILE_SHAPES[i % TILE_SHAPES.length]}"></div>`).join("")}</div></section>`;
+const placePlaceholders = () => `<div class="cards">${
+  `<div class="card skeleton" aria-hidden="true"><div class="sk-img shimmer"></div><div class="meta"><div class="line shimmer"></div><div class="line short shimmer"></div></div></div>`.repeat(10)}</div>`;
+/**
+ * Prepares `main` as a head (filters, counts) and an area (results) for `view`. The head is
+ * updated at once; the current results stay, dimmed, while new ones load, and placeholders
+ * replace them if loading is slow. Call `finish()` when the new results are ready.
+ */
+function beginViewLoad(main, view, headHtml, placeholders, token) {
+  let head = main.querySelector(`:scope > .view-head[data-view="${view}"]`);
+  let area = main.querySelector(`:scope > .view-area[data-view="${view}"]`);
+  if (!head || !area) {
+    main.innerHTML = `<div class="view-head" data-view="${view}"></div><div class="view-area" data-view="${view}"></div>`;
+    head = main.firstElementChild; area = main.lastElementChild;
+  }
+  head.innerHTML = headHtml;
+  area.classList.add("stale");
+  let shown = false;
+  const timer = setTimeout(() => {
+    if (token !== renderToken) return;
+    shown = true;
+    area.classList.remove("stale");
+    area.innerHTML = placeholders();
+  }, LOADING_DELAY);
+  return {
+    head, area,
+    finish() {
+      clearTimeout(timer);
+      area.classList.remove("stale", "fade-in");
+      area.innerHTML = "";
+      if (shown) { void area.offsetWidth; area.classList.add("fade-in"); } // restart the animation
+    },
+  };
+}
 
 /** Renders groups progressively so huge libraries stay responsive. */
 function renderGroups(container, groups, headerFn, subFn) {
@@ -701,11 +756,13 @@ function onChipClick(e) {
   render();
 }
 
-async function renderPhotos(main, token) {
-  const data = await api(photoQuery());
+async function renderPhotos(main, token, signal) {
+  const load = beginViewLoad(main, "photos", filterChips() + `<div class="count">Loading photos…</div>`, photoPlaceholders, token);
+  const data = await api(photoQuery(), { signal });
   if (token !== renderToken) return;
   photos = data.photos;
-  main.innerHTML = filterChips() + `<div class="count">${photos.length.toLocaleString()} photos</div>`;
+  load.finish();
+  load.head.querySelector(".count").textContent = `${photos.length.toLocaleString()} photos`;
   if (!photos.length) {
     const filtered = state.people.size || state.place || state.date;
     if (!filtered && !folderInfo.folders.length && folderInfo.managed) {
@@ -716,26 +773,29 @@ async function renderPhotos(main, token) {
       return;
     }
     const msg = filtered ? "No photos match these filters." : "No photos yet. They appear here while the folders are indexed.";
-    main.insertAdjacentHTML("beforeend", `<div class="blank">${msg}</div>`);
+    load.area.innerHTML = `<div class="blank">${msg}</div>`;
     return;
   }
   const groups = groupPhotos(photos, groupKey);
   const header = state.groupBy === "none" ? null :
     g => `<h2>${esc(groupTitle(g.key, g.items[0]))}<small>${g.items.length}</small></h2>`;
-  renderGroups(main, groups, header);
+  renderGroups(load.area, groups, header);
 }
 
-async function renderUpcoming(main, token) {
-  const data = await api(photoQuery({ upcoming: state.upcoming }));
+async function renderUpcoming(main, token, signal) {
+  const opts = [7, 14, 30, 60, 90].map(d => `<button data-d="${d}" class="${d === state.upcoming ? "on" : ""}">${d} days</button>`).join("");
+  const load = beginViewLoad(main, "upcoming",
+    `<div class="upbar">Memories from past years for the next <div class="seg" id="days">${opts}</div></div>` + filterChips(),
+    photoPlaceholders, token);
+  $("#days").addEventListener("click", e => { if (e.target.dataset.d) { state.upcoming = +e.target.dataset.d; render(); } });
+  const data = await api(photoQuery({ upcoming: state.upcoming }), { signal });
   if (token !== renderToken) return;
+  load.finish();
   const order = new Map(data.days.map((d, i) => [d, i]));
   // Upcoming days first (today, tomorrow...), and within a day the most recent year first.
   photos = data.photos.slice().sort((a, b) =>
     order.get(a[3].slice(5, 10)) - order.get(b[3].slice(5, 10)) || b[3].localeCompare(a[3]));
-  const opts = [7, 14, 30, 60, 90].map(d => `<button data-d="${d}" class="${d === state.upcoming ? "on" : ""}">${d} days</button>`).join("");
-  main.innerHTML = `<div class="upbar">Memories from past years for the next <div class="seg" id="days">${opts}</div></div>` + filterChips();
-  $("#days").addEventListener("click", e => { if (e.target.dataset.d) { state.upcoming = +e.target.dataset.d; render(); } });
-  if (!photos.length) { main.insertAdjacentHTML("beforeend", `<div class="blank">No photos were taken on these dates in previous years.</div>`); return; }
+  if (!photos.length) { load.area.innerHTML = `<div class="blank">No photos were taken on these dates in previous years.</div>`; return; }
   const thisYear = new Date().getFullYear();
   const groups = groupPhotos(photos, p => p[3].slice(5, 10));
   const header = g => {
@@ -750,26 +810,31 @@ async function renderUpcoming(main, token) {
     const y = +p[3].slice(0, 4), ago = thisYear - y;
     return `${ago} year${ago === 1 ? "" : "s"} ago · ${y}`;
   };
-  renderGroups(main, groups, header, sub);
+  renderGroups(load.area, groups, header, sub);
 }
 
 /** Place cards. With people selected, only places with photos of them, counted that way. */
-async function renderPlaces(main, token) {
+async function renderPlaces(main, token, signal) {
   if (!places.length) { main.innerHTML = `<div class="blank">No photos with GPS location yet.</div>`; return; }
+  const filtered = state.people.size > 0;
+  const chips = filtered ? filterChips({ peopleOnly: true }) : "";
+  const load = beginViewLoad(main, "places", chips + (filtered ? `<div class="count">Loading places…</div>` : ""), placePlaceholders, token);
   let list = places;
-  if (state.people.size) {
-    // The current cards stay until the filtered ones arrive, so nothing flashes.
-    list = await api("/api/places?" + new URLSearchParams({ people: [...state.people].join(","), match: state.match }));
+  if (filtered) {
+    list = await api("/api/places?" + new URLSearchParams({ people: [...state.people].join(","), match: state.match }), { signal });
     if (token !== renderToken) return;
   }
-  const chips = state.people.size ? filterChips({ peopleOnly: true }) : "";
+  load.finish();
   if (!list.length) {
     const who = state.people.size === 1 ? "this person" : state.match === "any" ? "any of these people" : "these people together";
-    main.innerHTML = `${chips}<div class="blank">No places have photos of ${who}.</div>`;
+    load.head.querySelector(".count")?.remove();
+    load.area.innerHTML = `<div class="blank">No places have photos of ${who}.</div>`;
     return;
   }
   const photoCount = list.reduce((n, p) => n + p.count, 0);
-  main.innerHTML = `${chips}${state.people.size ? `<div class="count">${list.length} place${list.length === 1 ? "" : "s"}, ${photoCount.toLocaleString()} photo${photoCount === 1 ? "" : "s"}</div>` : ""}
+  const count = load.head.querySelector(".count");
+  if (count) count.textContent = `${list.length} place${list.length === 1 ? "" : "s"}, ${photoCount.toLocaleString()} photo${photoCount === 1 ? "" : "s"}`;
+  load.area.innerHTML = `
     <div class="cards">${list.map(p => `
     <div class="card" data-place="${p.id}">
       <img src="/thumb/${p.cover}" loading="lazy" alt="">
@@ -1226,6 +1291,7 @@ async function renamePerson(id, value) {
     .catch(err => { toast(`Couldn't save the name: ${err.message}`, true); resync(); });
 }
 
+let viewRequest = null; // the current view's request, cancelled when another view replaces it
 async function render() {
   saveHash();
   for (const b of $("#tabs").children) b.classList.toggle("on", b.dataset.view === state.view);
@@ -1234,15 +1300,20 @@ async function render() {
   $("#sort").value = state.sort;
   const main = $("#main");
   const token = ++renderToken;
+  // A newer view replaces the one still loading: cancel its request.
+  viewRequest?.abort();
+  viewRequest = new AbortController();
+  const signal = viewRequest.signal;
   peopleGrid?.destroy();
   peopleGrid = null;
   main.scrollTop = 0;
   try {
-    if (state.view === "photos") await renderPhotos(main, token);
-    else if (state.view === "upcoming") await renderUpcoming(main, token);
-    else if (state.view === "places") await renderPlaces(main, token);
+    if (state.view === "photos") await renderPhotos(main, token, signal);
+    else if (state.view === "upcoming") await renderUpcoming(main, token, signal);
+    else if (state.view === "places") await renderPlaces(main, token, signal);
     else await renderPeople(main, token);
   } catch (err) {
+    if (err.name === "AbortError" || token !== renderToken) return;
     main.innerHTML = `<div class="blank">Something went wrong: ${esc(err.message)}</div>`;
   }
 }
