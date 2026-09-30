@@ -14,7 +14,7 @@ It comes as a desktop app for Windows and Linux, and as a command-line app that 
   - *Together*: every selected person is in the photo,
   - *Any*: at least one of them,
   - *Only them*: all of them and no other known person.
-- All filters combine (people + place + date + upcoming) and live in the URL, so views can be bookmarked.
+- All filters combine (people + place + date range + upcoming) and live in the URL, so views can be bookmarked.
 
 ## Desktop app (Windows and Linux)
 
@@ -132,7 +132,8 @@ Only photos stored on the Mac are found. Photos kept only in iCloud ("Optimize M
 - **Upcoming**: memories from past years for the next 7 to 90 days.
 - **People**: name each person by typing under their face, use *Same as…* to merge two groups of the same person, and *Hide* for people you don't care about. Switch between *Cards* (big faces) and *List* (compact rows, several times more people on screen; the actions show when you point at a row). The size slider next to it makes cards or rows bigger or smaller.
 - **Sidebar**: tick people (click the checkbox or their picture) to filter Photos, Upcoming and Places, and pick *Together*, *Any* or *Only them* to decide how they combine. Click a name to rename that person right there (Enter saves, Esc cancels). Names are unique: using a name someone already has asks whether they are the same person (*Merge them*) or not (*Keep separate* adds a number, like "Ana (1)").
-- **Filter chips**: each selected person, place and date shows as a chip above the photos; × removes one, *Clear all* removes them all.
+- **Date range**: *From* and *to* in the top bar keep only photos taken between those days (both included; either can be left empty). It applies to Photos, Places and Upcoming.
+- **Filter chips**: each selected person, place and date range shows as a chip above the photos; × removes one, *Clear all* removes them all.
 - **Viewer**: click a photo to open it. Use the arrow keys to move and `Esc` to close. The side panel shows the date, place and people. For each face, *Same as…* moves just that face to the person you pick, and *Not them* moves it to a new unnamed group, which you can rename, hide or merge in People. Automatic grouping never moves a face you placed. *Show face boxes* draws the detected faces.
 - **Rescan**: picks up new, changed or deleted photos without restarting.
 
