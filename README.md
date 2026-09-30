@@ -132,7 +132,7 @@ Only photos stored on the Mac are found. Photos kept only in iCloud ("Optimize M
 - **Upcoming**: memories from past years for the next 7 to 90 days.
 - **People**: name each person by typing under their face, use *Same as…* to merge two groups of the same person, and *Hide* for people you don't care about.
 - **Sidebar checkboxes**: tick one or more people to filter any view, and pick *Together*, *Any* or *Only them* to decide how they combine.
-- **Viewer**: click a photo to open it. Use the arrow keys to move and `Esc` to close. The side panel shows the date, place and people. *Not them* moves a wrongly grouped face to a new unnamed group, which you can rename, hide or merge in People; automatic grouping never moves it back. *Show face boxes* draws the detected faces.
+- **Viewer**: click a photo to open it. Use the arrow keys to move and `Esc` to close. The side panel shows the date, place and people. For each face, *Same as…* moves just that face to the person you pick, and *Not them* moves it to a new unnamed group, which you can rename, hide or merge in People. Automatic grouping never moves a face you placed. *Show face boxes* draws the detected faces.
 - **Rescan**: picks up new, changed or deleted photos without restarting.
 
 ## The index

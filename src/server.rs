@@ -97,6 +97,7 @@ pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
         .route("/api/people/{id}", post(update_person))
         .route("/api/people/{id}/merge", post(merge_person))
         .route("/api/faces/{id}/reject", post(reject_face))
+        .route("/api/faces/{id}/assign", post(assign_face))
         .route("/thumb/{id}", get(thumb))
         .route("/face/{id}", get(face_thumb))
         .route("/original/{id}", get(original))
@@ -485,6 +486,17 @@ async fn reject_face(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<
         Some(person) => Json(json!({ "person": person })).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     })
+}
+
+#[derive(Deserialize)]
+struct AssignBody {
+    person: i64,
+}
+
+/// "Same as" in the photo viewer: moves this one face to another person.
+async fn assign_face(State(s): State<Shared>, Path(id): Path<i64>, Json(body): Json<AssignBody>) -> ApiResult<StatusCode> {
+    let done = db(&s, move |conn| crate::db::assign_face(conn, id, body.person)).await?;
+    Ok(if done { StatusCode::NO_CONTENT } else { StatusCode::NOT_FOUND })
 }
 
 fn jpeg(bytes: Vec<u8>, cache: &'static str) -> Response {
