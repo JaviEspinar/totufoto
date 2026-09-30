@@ -82,6 +82,11 @@ aside h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; c
 .more { color: var(--muted); font-size: 12px; padding: 6px; }
 .people-bar { display: flex; align-items: center; gap: 12px; padding-top: 16px; color: var(--muted); }
 .people-bar .search { max-width: 320px; margin: 0; }
+.people-bar .seg { margin: 0 0 0 auto; }
+.people-bar .seg button { padding: 5px 12px; }
+/* The People tab has no "People in the photo" column */
+body.no-aside { grid-template-columns: 1fr; }
+body.no-aside aside { display: none; }
 .candidates { max-height: 50vh; overflow-y: auto; margin-top: 8px; }
 .candidate { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; cursor: pointer; }
 .candidate:hover { background: var(--hover); }
@@ -171,7 +176,30 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 .face-card input::placeholder { color: var(--muted); font-weight: 400; font-style: italic; }
 .face-card .row { display: flex; gap: 4px; justify-content: center; margin-top: 6px; }
 .face-card .btn { font-size: 11px; padding: 3px 6px; max-width: 100%; }
-.face-card.hidden-person { opacity: 0.5; }
+.face-card.hidden-person, .face-row.hidden-person { opacity: 0.5; }
+
+/* List layout: compact rows, several columns on wide screens */
+.face-row {
+  display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+}
+.face-row .avatar { width: 32px; height: 32px; margin: 0; flex: none; }
+.face-row input {
+  flex: 1; min-width: 0; border: 1px solid transparent; background: transparent; border-radius: 6px;
+  padding: 3px 6px; font-weight: 600;
+}
+.face-row input:hover, .face-row input:focus { border-color: var(--line); background: var(--bg); outline: none; }
+.face-row input::placeholder { color: var(--muted); font-weight: 400; font-style: italic; }
+.face-row .s { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.face-row .btn { font-size: 11px; padding: 3px 6px; white-space: nowrap; flex: none; }
+/* Actions appear on the row under the pointer (or being edited), so rows stay narrow */
+@media (hover: hover) {
+  .face-row .btn { display: none; }
+  .face-row:hover .btn, .face-row:focus-within .btn { display: inline-block; }
+  .face-row:hover .s, .face-row:focus-within .s { display: none; }
+}
+.face-row.skeleton .line { flex: 1; margin: 0; max-width: 60%; }
+.people-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px; margin-top: 16px; }
 
 /* Loading placeholders */
 .shimmer, .avatar:has(img:not(.ok)), .candidate .avatar-sm:has(img:not(.ok)) {
@@ -757,23 +785,44 @@ const skeletonCard = () => `
   <div class="card face-card skeleton" aria-hidden="true">
     <div class="avatar shimmer"></div><div class="line shimmer"></div><div class="line short shimmer"></div>
   </div>`;
+const faceRow = p => `
+  <div class="face-row ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}">
+    <div class="avatar" title="Show photos">${faceImg(p.face)}</div>
+    <input value="${esc(p.name || "")}" placeholder="Add a name" data-rename="${p.id}">
+    <span class="s">${p.count} photo${p.count === 1 ? "" : "s"}</span>
+    <button class="btn" data-merge="${p.id}" title="Merge with another person">Same as…</button>
+    <button class="btn" data-hide="${p.id}">${p.hidden ? "Show" : "Hide"}</button>
+  </div>`;
+const skeletonRow = () => `
+  <div class="face-row skeleton" aria-hidden="true"><div class="avatar shimmer"></div><div class="line shimmer"></div></div>`;
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
 
-function mountPeopleGrid(host, { fadeIn = false } = {}) {
+// Cards show big faces; the list fits several times more people on screen.
+const PEOPLE_LAYOUTS = {
+  cards: { minW: CARD_MIN_W, h: CARD_H, gap: GRID_GAP, item: faceCard,
+    skeleton: () => `<div class="cards people-grid">${skeletonCard().repeat(18)}</div>` },
+  list: { minW: 250, h: 44, gap: 6, item: faceRow,
+    skeleton: () => `<div class="people-list">${skeletonRow().repeat(24)}</div>` },
+};
+let peopleLayout = "cards";
+try { if (localStorage.getItem("totufoto.peopleLayout") === "list") peopleLayout = "list"; } catch {}
+
+function mountPeopleGrid(host, { fadeIn = false, layout: L = PEOPLE_LAYOUTS.cards } = {}) {
   const main = $("#main");
   host.innerHTML = `<div class="vgrid${fadeIn ? " fade-in" : ""}"></div>`;
   const outer = host.firstElementChild;
-  const rowH = CARD_H + GRID_GAP;
+  const rowH = L.h + L.gap;
+  const overscan = Math.max(OVERSCAN_ROWS, Math.ceil(400 / rowH)); // about 400 px above and below
   const cards = new Map(); // person id -> .vcard element
-  const grid = { items: [], cols: 1, cardW: CARD_MIN_W };
+  const grid = { items: [], cols: 1, cardW: L.minW };
   let animateTimer = 0;
-  const pos = i => `translate(${(i % grid.cols) * (grid.cardW + GRID_GAP)}px, ${Math.floor(i / grid.cols) * rowH}px)`;
+  const pos = i => `translate(${(i % grid.cols) * (grid.cardW + L.gap)}px, ${Math.floor(i / grid.cols) * rowH}px)`;
 
   function layout() {
     const w = outer.clientWidth;
-    grid.cols = Math.max(1, Math.floor((w + GRID_GAP) / (CARD_MIN_W + GRID_GAP)));
-    grid.cardW = (w - GRID_GAP * (grid.cols - 1)) / grid.cols;
-    outer.style.height = `${Math.max(0, Math.ceil(grid.items.length / grid.cols) * rowH - GRID_GAP)}px`;
+    grid.cols = Math.max(1, Math.floor((w + L.gap) / (L.minW + L.gap)));
+    grid.cardW = (w - L.gap * (grid.cols - 1)) / grid.cols;
+    outer.style.height = `${Math.max(0, Math.ceil(grid.items.length / grid.cols) * rowH - L.gap)}px`;
   }
   /** Updates a card's contents in place (no rebuild, so pictures and typing are kept). */
   function update(el, p) {
@@ -792,8 +841,8 @@ function mountPeopleGrid(host, { fadeIn = false } = {}) {
       animateTimer = setTimeout(() => outer.classList.remove("animate"), 350);
     }
     const top = outer.getBoundingClientRect().top - main.getBoundingClientRect().top;
-    const firstRow = Math.max(0, Math.floor(-top / rowH) - OVERSCAN_ROWS);
-    const lastRow = Math.ceil((main.clientHeight - top) / rowH) + OVERSCAN_ROWS;
+    const firstRow = Math.max(0, Math.floor(-top / rowH) - overscan);
+    const lastRow = Math.ceil((main.clientHeight - top) / rowH) + overscan;
     const first = firstRow * grid.cols, last = Math.min(grid.items.length, lastRow * grid.cols);
     const keep = new Set();
     for (let i = first; i < last; i++) {
@@ -803,7 +852,7 @@ function mountPeopleGrid(host, { fadeIn = false } = {}) {
       if (!el) {
         el = document.createElement("div");
         el.className = animate ? "vcard enter" : "vcard";
-        el.innerHTML = faceCard(p);
+        el.innerHTML = L.item(p);
         el.style.transform = pos(i);
         el.style.width = `${grid.cardW}px`;
         outer.append(el);
@@ -853,8 +902,24 @@ async function renderPeople(main, token) {
   main.innerHTML = `<div class="people-bar">
       <input class="search" id="peopleSearch" type="search" placeholder="Search people" autocomplete="off" value="${esc(peopleQuery)}">
       <span id="peopleCount"></span>
+      <div class="seg" id="peopleLayout" role="group" aria-label="Layout">
+        <button data-layout="cards" class="${peopleLayout === "cards" ? "on" : ""}" title="Big pictures">Cards</button>
+        <button data-layout="list" class="${peopleLayout === "list" ? "on" : ""}" title="More people on screen">List</button>
+      </div>
     </div>
     <div id="peopleHost"></div>`;
+  $("#peopleLayout").addEventListener("click", e => {
+    const next = e.target.dataset.layout;
+    if (!next || next === peopleLayout) return;
+    peopleLayout = next;
+    try { localStorage.setItem("totufoto.peopleLayout", next); } catch {}
+    for (const b of $("#peopleLayout").children) b.classList.toggle("on", b.dataset.layout === next);
+    if (!peopleGrid) return;
+    peopleGrid.destroy();
+    peopleGrid = mountPeopleGrid(host, { layout: PEOPLE_LAYOUTS[next] });
+    main.scrollTop = 0;
+    refreshPeopleViews({ animate: false });
+  });
   $("#peopleSearch").addEventListener("input", e => {
     peopleQuery = e.target.value;
     main.scrollTop = 0;
@@ -867,7 +932,7 @@ async function renderPeople(main, token) {
     if (!people.length) { host.innerHTML = `<div class="blank">No faces found yet.</div>`; $("#peopleCount").textContent = ""; return; }
     if (!peopleGrid) {
       resetPeopleOrder(); // opening the tab is when the list gets sorted again
-      peopleGrid = mountPeopleGrid(host, { fadeIn: placeholders });
+      peopleGrid = mountPeopleGrid(host, { fadeIn: placeholders, layout: PEOPLE_LAYOUTS[peopleLayout] });
     }
     refreshPeopleViews({ animate: false });
   };
@@ -878,7 +943,7 @@ async function renderPeople(main, token) {
     setTimeout(() => {
       if (token === renderToken && !peopleGrid && !people.length) {
         placeholders = true;
-        host.innerHTML = `<div class="cards people-grid">${skeletonCard().repeat(18)}</div>`;
+        host.innerHTML = PEOPLE_LAYOUTS[peopleLayout].skeleton();
       }
     }, SKELETON_DELAY);
   }
@@ -1054,6 +1119,7 @@ function renamePerson(id, value) {
 async function render() {
   saveHash();
   for (const b of $("#tabs").children) b.classList.toggle("on", b.dataset.view === state.view);
+  document.body.classList.toggle("no-aside", state.view === "people");
   $("#groupBy").value = state.groupBy;
   $("#sort").value = state.sort;
   const main = $("#main");
@@ -1080,7 +1146,7 @@ $("#main").addEventListener("click", e => {
   if (place) { state.place = +place.dataset.place; state.view = "photos"; return render(); }
   if (e.target.dataset.merge) return openMerge(+e.target.dataset.merge);
   if (e.target.dataset.hide) return toggleHidden(+e.target.dataset.hide);
-  if (e.target.closest(".face-card:not(.skeleton) .avatar")) {
+  if (e.target.closest(".face-card:not(.skeleton) .avatar, .face-row:not(.skeleton) .avatar")) {
     state.people = new Set([+e.target.closest("[data-person]").dataset.person]);
     state.view = "photos"; renderPeopleList(); return render();
   }
