@@ -163,3 +163,54 @@ pub fn give_moved_faces_a_person(conn: &mut Connection) -> Result<usize> {
     tx.commit()?;
     Ok(faces.len())
 }
+
+/// Names people so no two share a name (ignoring case): a taken name gets the first free
+/// " (n)" suffix, as file managers do ("Ana", "Ana (1)", "Ana (2)"...). Returns the name
+/// saved, `None` when the person was left unnamed.
+pub fn rename_person(conn: &mut Connection, id: i64, name: Option<&str>) -> Result<Option<String>> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let name = name.map(str::trim).filter(|n| !n.is_empty()).map(str::to_string);
+    let name = match name {
+        Some(wanted) => {
+            let taken: std::collections::HashSet<String> = tx
+                .prepare("SELECT name FROM persons WHERE name IS NOT NULL AND id != ?")?
+                .query_map([id], |r| r.get::<_, String>(0))?
+                .map(|n| n.map(|n| n.to_lowercase()))
+                .collect::<Result<_, _>>()?;
+            Some(unique_name(&wanted, |candidate| taken.contains(&candidate.to_lowercase())))
+        }
+        None => None,
+    };
+    tx.execute("UPDATE persons SET name = ? WHERE id = ?", params![name, id])?;
+    tx.commit()?;
+    Ok(name)
+}
+
+/// `wanted` if free, else "<base> (n)" with the smallest free n, where base drops an
+/// existing " (n)" suffix so "Ana (1)" becomes "Ana (2)" rather than "Ana (1) (1)".
+fn unique_name(wanted: &str, taken: impl Fn(&str) -> bool) -> String {
+    if !taken(wanted) {
+        return wanted.to_string();
+    }
+    let base = match wanted.strip_suffix(')').and_then(|w| w.rsplit_once(" (")) {
+        Some((base, n)) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => base,
+        _ => wanted,
+    };
+    (1..).map(|n| format!("{base} ({n})")).find(|c| !taken(c)).expect("some number is free")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unique_name;
+
+    #[test]
+    fn unique_names() {
+        let taken = |list: &'static [&'static str]| move |c: &str| list.iter().any(|t| t.eq_ignore_ascii_case(c));
+        assert_eq!(unique_name("Ana", taken(&[])), "Ana");
+        assert_eq!(unique_name("Ana", taken(&["ana"])), "Ana (1)");
+        assert_eq!(unique_name("Ana", taken(&["Ana", "Ana (1)"])), "Ana (2)");
+        assert_eq!(unique_name("Ana (1)", taken(&["Ana", "Ana (1)"])), "Ana (2)");
+        assert_eq!(unique_name("Ana (x)", taken(&["Ana (x)"])), "Ana (x) (1)");
+        assert_eq!(unique_name("Ana", taken(&["Ana", "Ana (2)"])), "Ana (1)");
+    }
+}

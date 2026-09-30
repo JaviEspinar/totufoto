@@ -346,6 +346,19 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 
 <div id="toast" role="status" aria-live="polite"></div>
 
+<dialog id="nameDlg">
+  <div class="dlg-head"><h3 id="nameTitle"></h3><button data-choice="cancel" title="Cancel">✕</button></div>
+  <div class="dlg-body">
+    <div class="merge-pair" id="namePair"></div>
+    <p class="merge-note" id="nameNote"></p>
+    <div class="dlg-actions">
+      <button class="btn" data-choice="cancel">Cancel</button>
+      <button class="btn" data-choice="keep" id="nameKeep">Keep separate</button>
+      <button class="btn primary" data-choice="merge">Merge them</button>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="mergeDlg">
   <div class="dlg-head"><h3 id="mergeTitle">Same person as…</h3><button data-close title="Close">✕</button></div>
   <div class="dlg-body">
@@ -1103,15 +1116,60 @@ function toggleHidden(id) {
     .catch(err => { toast(`Couldn't save: ${err.message}`, true); resync(); });
 }
 
-function renamePerson(id, value) {
+// Names are unique. Giving someone a name another person already has asks whether they're
+// the same person (merge) or not (the name gets the next free " (n)", like file names).
+const sameName = (a, b) => a.trim().toLocaleLowerCase() === b.trim().toLocaleLowerCase();
+function uniqueName(wanted, id) {
+  const taken = n => people.some(o => o.id !== id && o.name && sameName(o.name, n));
+  if (!taken(wanted)) return wanted;
+  const base = wanted.match(/^(.*) \((\d+)\)$/)?.[1] ?? wanted; // "Ana (1)" -> "Ana (2)"
+  for (let n = 1; ; n++) if (!taken(`${base} (${n})`)) return `${base} (${n})`;
+}
+/** Resolves to "merge", "keep" or "cancel". */
+function askSameName(p, other, name, keepName) {
+  const dlg = $("#nameDlg");
+  const face = x => `<figure>
+      <div class="avatar">${faceImg(x.face)}</div>
+      <figcaption class="${x.name ? "" : "unnamed"}">${esc(personName(x))}</figcaption>
+      <div class="s">${x.count} photo${x.count === 1 ? "" : "s"}</div>
+    </figure>`;
+  $("#nameTitle").textContent = `"${other.name}" already exists`;
+  $("#namePair").innerHTML = `${face(p)}<span class="arrow" aria-hidden="true">?</span>${face(other)}`;
+  $("#nameNote").innerHTML = `Is this the same person? <b>Merge them</b> to combine their photos, or keep them apart and name this one <b>${esc(keepName)}</b>.`;
+  $("#nameKeep").textContent = `Keep separate as "${keepName}"`;
+  dlg.returnValue = "cancel";
+  return new Promise(resolve => {
+    // Opened after the key press that saved the name has finished, so that Enter can't also
+    // press a button here. Focus starts on the close button: a stray Enter cancels rather
+    // than merging, which can't be undone.
+    setTimeout(() => dlg.showModal(), 0);
+    const onClick = e => {
+      const choice = e.target.closest("[data-choice]")?.dataset.choice ?? (e.target === dlg ? "cancel" : null);
+      if (choice) { dlg.returnValue = choice; dlg.close(); }
+    };
+    dlg.addEventListener("click", onClick);
+    dlg.addEventListener("close", () => { dlg.removeEventListener("click", onClick); resolve(dlg.returnValue || "cancel"); }, { once: true });
+  });
+}
+
+async function renamePerson(id, value) {
   const p = people.find(p => p.id === id);
-  const name = value.trim() || null;
+  let name = value.trim() || null;
   if (!p || p.name === name) return;
+  const other = name && people.find(o => o.id !== id && o.name && sameName(o.name, name));
+  if (other) {
+    const keepName = uniqueName(name, id);
+    const choice = await askSameName(p, other, name, keepName);
+    if (choice === "cancel") { refreshPeopleViews({ animate: false }); return; } // old name back in the fields
+    if (choice === "merge") { mergePeople(id, other.id); return; }
+    name = keepName;
+  }
   p.name = name;
   alphabeticalCache = null;
-  renderPeopleList();
+  refreshPeopleViews({ animate: false });
   for (const label of document.querySelectorAll(`[data-person-chip="${id}"] .label`)) label.textContent = personName(p);
-  post(`/api/people/${id}`, { name: value })
+  post(`/api/people/${id}`, { name: name ?? "" })
+    .then(saved => { if (saved && saved.name !== p.name) toast(`Saved as "${saved.name}", a name that was free`); })
     .then(resync)
     .catch(err => { toast(`Couldn't save the name: ${err.message}`, true); resync(); });
 }
