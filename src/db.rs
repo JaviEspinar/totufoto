@@ -65,6 +65,8 @@ CREATE TABLE IF NOT EXISTS faces (
 );
 CREATE INDEX IF NOT EXISTS faces_photo ON faces(photo_id);
 CREATE INDEX IF NOT EXISTS faces_person ON faces(person_id, photo_id);
+-- each person's cover face is their highest-scoring one
+CREATE INDEX IF NOT EXISTS faces_person_score ON faces(person_id, score);
 ";
 
 pub fn open(path: &Path) -> Result<Connection> {
