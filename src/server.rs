@@ -189,12 +189,23 @@ async fn remove_folder(State(s): State<Shared>, Json(body): Json<FolderBody>) ->
         return Ok(StatusCode::CONFLICT);
     }
     db(&s, move |conn| {
-        conn.execute("DELETE FROM folders WHERE path = ?", [body.path])?;
+        // Match "<folder><separator>" so removing /photos doesn't also remove /photos2.
+        let prefix = PathBuf::from(&body.path).join("").to_string_lossy().into_owned();
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM folders WHERE path = ?", [&body.path])?;
+        let removed = tx.execute(
+            "DELETE FROM photos WHERE substr(path, 1, ?1) = ?2",
+            params![prefix.chars().count() as i64, prefix],
+        )?;
+        tx.execute(
+            "DELETE FROM persons WHERE name IS NULL AND id NOT IN (SELECT DISTINCT person_id FROM faces WHERE person_id IS NOT NULL)",
+            [],
+        )?;
+        tx.commit()?;
+        tracing::info!("removed folder {} ({removed} photos)", body.path);
         Ok(())
     })
     .await?;
-    // The scan removes the photos of folders that are no longer in the list.
-    scan::spawn(s.scan.clone(), s.status.clone());
     Ok(StatusCode::NO_CONTENT)
 }
 
