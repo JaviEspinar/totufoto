@@ -40,7 +40,11 @@ impl Gallery {
     pub fn open(cfg: Config) -> Result<Self> {
         std::fs::create_dir_all(&cfg.data_dir).with_context(|| format!("creating {}", cfg.data_dir.display()))?;
         let db_path = cfg.data_dir.join("index.sqlite");
-        db::open(&db_path)?;
+        let moved = db::give_moved_faces_a_person(&mut db::open(&db_path)?)?;
+        if moved > 0 {
+            let faces = if moved == 1 { "face" } else { "faces" };
+            tracing::info!("gave {moved} {faces} marked \"Not them\" a group of their own");
+        }
         let folders = cfg
             .folders
             .iter()

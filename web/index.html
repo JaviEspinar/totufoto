@@ -1004,7 +1004,7 @@ async function openViewer(i) {
       const person = people.find(p => p.id === f.person);
       return `<div class="vface"><img src="/face/${f.id}" alt="">
         <span class="n ${person?.name ? "" : "unnamed"}" data-person="${f.person ?? ""}">${person ? esc(personName(person)) : "Not grouped"}</span>
-        ${person ? `<button data-reject="${f.id}" title="This face is not ${esc(personName(person))}">Not them</button>` : ""}</div>`;
+        ${person ? `<button data-reject="${f.id}" title="This face is not ${esc(personName(person))}: move it to a new group you can rename or hide">Not them</button>` : ""}</div>`;
     }).join("") : `<div class="s">No faces detected.</div>`}
     <label><input type="checkbox" id="showBoxes" ${viewer.classList.contains("boxes") ? "checked" : ""}> Show face boxes</label>
     <h5>File</h5><div class="s">${esc(d.path)}</div>`;
@@ -1019,7 +1019,13 @@ $(".info", viewer).addEventListener("click", async e => {
   const link = e.target.closest("a[target=_blank]");
   if (link && folderInfo.desktop) { e.preventDefault(); return post("/api/open", { url: link.href }); }
   if (e.target.dataset.reject) {
-    await post(`/api/faces/${e.target.dataset.reject}/reject`);
+    e.target.disabled = true;
+    try {
+      const { person } = await post(`/api/faces/${e.target.dataset.reject}/reject`);
+      toast(`Moved to a new group, Unnamed #${person}. Rename or hide it in People.`);
+    } catch (err) {
+      toast(`Couldn't move the face: ${err.message}`, true);
+    }
     await loadMeta();
     openViewer(viewerIndex);
   } else if (e.target.dataset.person) {

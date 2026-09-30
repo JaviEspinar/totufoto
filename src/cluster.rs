@@ -1,6 +1,8 @@
 //! Groups face embeddings into people.
 //!
-//! Faces of persons the user has named are fixed. Every other face is first matched
+//! Faces of persons the user has named are fixed. Faces the user took out of a person
+//! ("Not them") live in their own group and are never moved; once that group is named it
+//! counts as a named person. Every other face is first matched
 //! against the named persons, and the rest are clustered by cosine similarity
 //! (greedy centroid clustering followed by refinement passes). Unnamed clusters keep
 //! their previous person id when most of their faces had it, so ids stay stable.
@@ -20,6 +22,8 @@ struct Face {
     id: i64,
     person: Option<i64>,
     embedding: Vec<f32>,
+    /// "Not them": the user moved this face out of a person.
+    moved_by_user: bool,
 }
 
 fn normalize(v: &mut [f32]) {
@@ -58,14 +62,22 @@ pub fn recluster(conn: &mut Connection, threshold: f32) -> Result<()> {
     let mut fixed: HashMap<i64, Vec<usize>> = HashMap::new();
     let mut free: Vec<usize> = Vec::new();
     let faces: Vec<Face> = conn
-        .prepare("SELECT id, person_id, embedding FROM faces WHERE rejected = 0 ORDER BY score DESC")?
+        .prepare("SELECT id, person_id, embedding, rejected FROM faces ORDER BY score DESC")?
         .query_map([], |r| {
-            Ok(Face { id: r.get(0)?, person: r.get(1)?, embedding: embedding_from_bytes(&r.get::<_, Vec<u8>>(2)?) })
+            Ok(Face {
+                id: r.get(0)?,
+                person: r.get(1)?,
+                embedding: embedding_from_bytes(&r.get::<_, Vec<u8>>(2)?),
+                moved_by_user: r.get(3)?,
+            })
         })?
         .collect::<Result<_, _>>()?;
     for (i, f) in faces.iter().enumerate() {
         match f.person {
             Some(p) if named.contains(&p) => fixed.entry(p).or_default().push(i),
+            // Taken out of a person by the user: stays in its own group, attracts nothing
+            // until that group is named.
+            _ if f.moved_by_user => {}
             _ => free.push(i),
         }
     }
