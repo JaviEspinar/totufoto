@@ -33,8 +33,13 @@ pub struct ScanStatus {
     pub errors: AtomicU64,
     pub faces: AtomicU64,
     pub phase: Mutex<String>,
+    /// Progress of the "grouping faces" step.
+    pub group_done: AtomicU64,
+    pub group_total: AtomicU64,
     /// Another scan was requested while one was running (for example a folder was added).
     rerun: AtomicBool,
+    /// Regroup every face at the end of the next scan, not just the new ones.
+    regroup: AtomicBool,
 }
 
 #[derive(Serialize)]
@@ -45,6 +50,8 @@ pub struct StatusView {
     pub done: u64,
     pub errors: u64,
     pub faces: u64,
+    pub group_done: u64,
+    pub group_total: u64,
 }
 
 impl ScanStatus {
@@ -56,7 +63,14 @@ impl ScanStatus {
             done: self.done.load(Ordering::Relaxed),
             errors: self.errors.load(Ordering::Relaxed),
             faces: self.faces.load(Ordering::Relaxed),
+            group_done: self.group_done.load(Ordering::Relaxed),
+            group_total: self.group_total.load(Ordering::Relaxed),
         }
+    }
+
+    /// Makes the next scan regroup every face from scratch.
+    pub fn request_regroup(&self) {
+        self.regroup.store(true, Ordering::SeqCst);
     }
 
     fn set_phase(&self, phase: &str) {
@@ -149,7 +163,7 @@ pub fn run(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
 
 fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     let started = Instant::now();
-    for counter in [&status.total, &status.done, &status.errors, &status.faces] {
+    for counter in [&status.total, &status.done, &status.errors, &status.faces, &status.group_done, &status.group_total] {
         counter.store(0, Ordering::Relaxed);
     }
     status.set_phase("listing files");
@@ -175,7 +189,19 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
             .collect::<Result<_, _>>()?
     };
 
+    // Files that failed before are only retried once they change.
+    let failed: HashMap<String, (i64, i64)> = conn
+        .prepare("SELECT path, mtime, size FROM failures")?
+        .query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?
+        .collect::<Result<_, _>>()?;
+
     let present: HashSet<String> = files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
+    {
+        let mut forget = conn.prepare("DELETE FROM failures WHERE path = ?")?;
+        for path in failed.keys().filter(|p| !present.contains(*p) && !offline.iter().any(|r| Path::new(p).starts_with(r))) {
+            forget.execute([path])?;
+        }
+    }
     // Folders given on the command line define the whole library, so photos outside them go.
     // Folders managed from the UI remove their own photos when removed, so a scan only drops
     // photos inside the current folders whose files are gone.
@@ -202,7 +228,7 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
                 true
             }
             Some(_) => false,
-            None => true,
+            None => failed.get(f.path.to_string_lossy().as_ref()) != Some(&(f.mtime, f.size)),
         })
         .collect();
 
@@ -218,20 +244,18 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     status.set_phase("indexing photos");
     tracing::info!("{} photos to index ({} updated), {} removed", todo.len(), stale.len() - removed, removed);
 
-    let (sender, receiver) = mpsc::sync_channel::<Processed>(256);
+    let (sender, receiver) = mpsc::sync_channel::<Outcome>(256);
     std::thread::scope(|s| -> Result<()> {
         s.spawn(|| {
             todo.into_par_iter().for_each_with(sender, |sender, file| {
-                match process(file, models.as_ref()) {
-                    Ok(p) => {
-                        let _ = sender.send(p);
+                let outcome = match process(file, models.as_ref()) {
+                    Ok(p) => Outcome::Indexed(p),
+                    Err((file, e)) => {
+                        tracing::warn!("{}: {e:#}", file.path.display());
+                        Outcome::Failed(file, format!("{e:#}"))
                     }
-                    Err((path, e)) => {
-                        status.errors.fetch_add(1, Ordering::Relaxed);
-                        status.done.fetch_add(1, Ordering::Relaxed);
-                        tracing::warn!("{}: {e:#}", path.display());
-                    }
-                }
+                };
+                let _ = sender.send(outcome);
             });
         });
         write_results(&mut conn, receiver, status)
@@ -239,7 +263,9 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
 
     if models.is_some() {
         status.set_phase("grouping faces");
-        cluster::recluster(&mut conn, cfg.cluster_threshold)?;
+        let progress = cluster::Progress { done: &status.group_done, total: &status.group_total };
+        let full = status.regroup.swap(false, Ordering::SeqCst);
+        cluster::update_groups(&mut conn, cfg.cluster_threshold, full, &progress)?;
     }
     conn.execute_batch("PRAGMA optimize;")?;
     tracing::info!(
@@ -272,9 +298,15 @@ fn list_files(roots: &[PathBuf]) -> Vec<FileEntry> {
         .collect()
 }
 
-fn process(file: FileEntry, models: Option<&ModelPaths>) -> Result<Processed, (PathBuf, anyhow::Error)> {
-    let path = file.path.clone();
-    process_inner(file, models).map_err(|e| (path, e))
+enum Outcome {
+    Indexed(Processed),
+    /// The file couldn't be indexed; saved with the reason and retried when it changes.
+    Failed(FileEntry, String),
+}
+
+fn process(file: FileEntry, models: Option<&ModelPaths>) -> Result<Processed, (FileEntry, anyhow::Error)> {
+    let copy = FileEntry { path: file.path.clone(), mtime: file.mtime, size: file.size };
+    process_inner(file, models).map_err(|e| (copy, e))
 }
 
 fn process_inner(file: FileEntry, models: Option<&ModelPaths>) -> Result<Processed> {
@@ -333,12 +365,26 @@ fn detect_faces(work: &image::RgbImage, paths: &ModelPaths) -> Result<Vec<FaceOu
     })
 }
 
-fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Processed>, status: &ScanStatus) -> Result<()> {
+fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Outcome>, status: &ScanStatus) -> Result<()> {
     let mut places: HashMap<(String, String, String), i64> = HashMap::new();
     let mut batch = Vec::with_capacity(64);
-    let flush = |conn: &mut Connection, batch: &mut Vec<Processed>, places: &mut HashMap<_, _>| -> Result<()> {
+    let flush = |conn: &mut Connection, batch: &mut Vec<Outcome>, places: &mut HashMap<_, _>| -> Result<()> {
         let tx = conn.transaction()?;
-        for p in batch.drain(..) {
+        for outcome in batch.drain(..) {
+            let p = match outcome {
+                Outcome::Indexed(p) => p,
+                Outcome::Failed(file, error) => {
+                    let error: String = error.chars().take(300).collect();
+                    tx.execute(
+                        "INSERT OR REPLACE INTO failures (path, mtime, size, error) VALUES (?, ?, ?, ?)",
+                        params![file.path.to_string_lossy(), file.mtime, file.size, error],
+                    )?;
+                    status.errors.fetch_add(1, Ordering::Relaxed);
+                    status.done.fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
+            };
+            tx.execute("DELETE FROM failures WHERE path = ?", [p.file.path.to_string_lossy()])?;
             let place_id = match p.gps {
                 Some((lat, lon)) => Some(place_id(&tx, places, lat, lon)?),
                 None => None,
@@ -364,7 +410,7 @@ fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Processed>, sta
             tx.execute("INSERT INTO thumbs (photo_id, data) VALUES (?, ?)", params![photo_id, p.thumb])?;
             for f in &p.faces {
                 tx.execute(
-                    "INSERT INTO faces (photo_id, x, y, w, h, score, embedding, thumb) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO faces (photo_id, x, y, w, h, score, embedding, thumb, grouped) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)",
                     params![
                         photo_id,
                         f.rel[0],
