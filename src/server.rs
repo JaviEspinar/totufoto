@@ -478,13 +478,13 @@ async fn merge_person(State(s): State<Shared>, Path(id): Path<i64>, Json(body): 
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn reject_face(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<StatusCode> {
-    db(&s, move |conn| {
-        conn.execute("UPDATE faces SET person_id = NULL, rejected = 1 WHERE id = ?", [id])?;
-        Ok(())
+/// "Not them": moves the face into a new unnamed person, which can be renamed, hidden or
+/// merged later. Clustering never moves it back.
+async fn reject_face(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
+    Ok(match db(&s, move |conn| crate::db::move_face_to_new_person(conn, id)).await? {
+        Some(person) => Json(json!({ "person": person })).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
     })
-    .await?;
-    Ok(StatusCode::NO_CONTENT)
 }
 
 fn jpeg(bytes: Vec<u8>, cache: &'static str) -> Response {

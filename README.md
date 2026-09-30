@@ -9,7 +9,7 @@ It comes as a desktop app for Windows and Linux, and as a command-line app that 
 - **Timeline** sorted by capture date (EXIF `DateTimeOriginal`, falling back to the file date), newest or oldest first, grouped by day, month, year or place.
 - **Places**: GPS coordinates are turned into cities with an offline reverse geocoder (GeoNames cities with more than 1000 inhabitants). No network calls.
 - **Upcoming**: photos from previous years whose anniversary falls in the next 7 to 90 days ("2 years ago today").
-- **People**: faces are detected (SCRFD), aligned and turned into 512-d ArcFace embeddings, then grouped into people automatically. Name them, merge duplicates, hide people, or remove a wrong face ("Not them").
+- **People**: faces are detected (SCRFD), aligned and turned into 512-d ArcFace embeddings, then grouped into people automatically. Name them, merge duplicates, hide people, or move a wrongly grouped face to a group of its own ("Not them").
 - **People combinations**: tick people in the sidebar and choose
   - *Together*: every selected person is in the photo,
   - *Any*: at least one of them,
@@ -132,7 +132,7 @@ Only photos stored on the Mac are found. Photos kept only in iCloud ("Optimize M
 - **Upcoming**: memories from past years for the next 7 to 90 days.
 - **People**: name each person by typing under their face, use *Same as…* to merge two groups of the same person, and *Hide* for people you don't care about.
 - **Sidebar checkboxes**: tick one or more people to filter any view, and pick *Together*, *Any* or *Only them* to decide how they combine.
-- **Viewer**: click a photo to open it. Use the arrow keys to move and `Esc` to close. The side panel shows the date, place and people. *Not them* removes a wrongly grouped face, and *Show face boxes* draws the detected faces.
+- **Viewer**: click a photo to open it. Use the arrow keys to move and `Esc` to close. The side panel shows the date, place and people. *Not them* moves a wrongly grouped face to a new unnamed group, which you can rename, hide or merge in People; automatic grouping never moves it back. *Show face boxes* draws the detected faces.
 - **Rescan**: picks up new, changed or deleted photos without restarting.
 
 ## The index
