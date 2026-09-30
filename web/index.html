@@ -64,7 +64,15 @@ aside h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; c
 .person:hover { background: var(--hover); }
 .person input { accent-color: var(--accent); width: 16px; height: 16px; margin: 0; }
 .person img { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; background: var(--chip); }
-.person .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.person .n {
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: text;
+  border-radius: 4px; padding: 1px 3px; margin: -1px -3px;
+}
+.person .n:hover { background: var(--panel); box-shadow: inset 0 0 0 1px var(--line); }
+.person .rename {
+  flex: 1; min-width: 0; font: inherit; border: 1px solid var(--accent); border-radius: 4px; padding: 1px 3px;
+  margin: -2px -4px; background: var(--panel); outline: none;
+}
 .person .n.unnamed { color: var(--muted); font-style: italic; }
 .person .c { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .empty-side { color: var(--muted); font-size: 13px; padding: 4px; }
@@ -103,6 +111,11 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 }
 .chip button { border: 0; background: transparent; color: var(--muted); padding: 0 6px; font-size: 14px; line-height: 1; }
 .chip button:hover { color: var(--ink); }
+.chip-mode { color: var(--muted); font-size: 12px; align-self: center; }
+.clear-all {
+  border: 0; background: transparent; color: var(--accent); font-size: 12px; padding: 3px 6px; border-radius: 999px;
+}
+.clear-all:hover { background: var(--hover); }
 .count { color: var(--muted); font-size: 12px; padding: 12px 0 0; }
 
 .group h2 {
@@ -434,22 +447,26 @@ const sidebarRows = new Map();
 function sidebarRow(p) {
   let row = sidebarRows.get(p.id);
   if (!row) {
-    row = document.createElement("label");
+    // The checkbox, the picture and the count select; the name is edited in place.
+    row = document.createElement("div");
     row.className = "person";
-    row.innerHTML = `<input type="checkbox" data-id="${p.id}"><img loading="lazy" alt=""><span class="n"></span><span class="c"></span>`;
+    row.dataset.person = p.id;
+    row.innerHTML = `<input type="checkbox" data-id="${p.id}" aria-label="Select">
+      <img loading="lazy" alt="" title="Select"><span class="n" title="Click to rename"></span><span class="c"></span>`;
     sidebarRows.set(p.id, row);
   }
   const img = row.querySelector("img"), name = row.querySelector(".n");
   if (img.dataset.face !== String(p.face)) { img.dataset.face = p.face; img.src = `/face/${p.face}`; }
-  row.title = personName(p);
   name.textContent = personName(p);
   name.classList.toggle("unnamed", !p.name);
   row.querySelector(".c").textContent = p.count;
   row.querySelector("input").checked = state.people.has(p.id);
   return row;
 }
+let sidebarEditing = false;
 function renderPeopleList() {
   const list = $("#peopleList");
+  if (sidebarEditing) return; // redrawn when the edit ends
   const all = orderedPeople();
   const visible = all.filter(p => !p.hidden);
   $("#peopleFilter").hidden = visible.length <= 12;
@@ -476,12 +493,52 @@ function renderPeopleList() {
 }
 $("#peopleFilter").addEventListener("input", renderPeopleList);
 $("#peopleList").addEventListener("change", e => {
+  if (e.target.type !== "checkbox") return;
   const id = Number(e.target.dataset.id);
   e.target.checked ? state.people.add(id) : state.people.delete(id);
   // Photos, Upcoming and Places filter by the selected people; People switches to Photos.
   if (!["photos", "upcoming", "places"].includes(state.view)) state.view = "photos";
   render();
 });
+$("#peopleList").addEventListener("click", e => {
+  const row = e.target.closest(".person");
+  if (!row || e.target.type === "checkbox" || e.target.classList.contains("rename")) return;
+  if (e.target.classList.contains("n")) return startSidebarRename(row);
+  // Anywhere else on the row (picture, count) toggles the checkbox.
+  row.querySelector("input[type=checkbox]").click();
+});
+/** Turns a sidebar name into a text field: Enter or leaving it saves, Esc cancels. */
+function startSidebarRename(row) {
+  const p = people.find(p => p.id === +row.dataset.person);
+  if (!p || sidebarEditing) return;
+  const label = row.querySelector(".n");
+  const input = document.createElement("input");
+  input.className = "rename";
+  input.value = p.name || "";
+  input.placeholder = "Add a name";
+  input.setAttribute("aria-label", "Name");
+  label.hidden = true;
+  label.after(input);
+  sidebarEditing = true;
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = save => {
+    if (done) return;
+    done = true;
+    sidebarEditing = false;
+    const value = input.value;
+    input.remove();
+    label.hidden = false;
+    if (save) renamePerson(p.id, value);
+    renderPeopleList();
+  };
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
 $("#match").addEventListener("click", e => {
   if (!e.target.dataset.m) return;
   state.match = e.target.dataset.m;
@@ -571,21 +628,27 @@ function renderGroups(container, groups, headerFn, subFn) {
 
 /** Chips for the active filters. `peopleOnly` for views where place and date don't apply. */
 function filterChips({ peopleOnly = false } = {}) {
-  const chips = [];
-  if (state.people.size) {
-    const names = [...state.people].map(id => people.find(p => p.id === id)).filter(Boolean).map(personName);
-    const joiner = { all: " & ", any: " or ", only: " & " }[state.match];
-    chips.push([`${state.match === "only" ? "Only " : ""}${names.join(joiner)}`, "people"]);
-  }
-  if (state.place && !peopleOnly) chips.push([placeLabel(state.place), "place"]);
-  if (state.date && !peopleOnly) chips.push([state.date, "date"]);
-  return `<div class="filters">${chips.map(([label, k]) =>
-    `<span class="chip">${esc(label)}<button data-clear="${k}" title="Remove filter">×</button></span>`).join("")}</div>`;
+  const chip = (label, key, person = "") =>
+    `<span class="chip"${person ? ` data-person-chip="${person}"` : ""}><span class="label">${esc(label)}</span>` +
+    `<button data-clear="${key}" title="Remove filter" aria-label="Remove ${esc(label)}">×</button></span>`;
+  const selected = [...state.people].map(id => people.find(p => p.id === id)).filter(Boolean);
+  const parts = [];
+  // How the people combine, when it matters.
+  if (selected.length > 1 || (selected.length && state.match === "only"))
+    parts.push(`<span class="chip-mode">${{ all: "Together:", any: "Any of:", only: "Only:" }[state.match]}</span>`);
+  for (const p of selected) parts.push(chip(personName(p), `person:${p.id}`, p.id));
+  let count = selected.length;
+  if (state.place && !peopleOnly) { parts.push(chip(placeLabel(state.place), "place")); count++; }
+  if (state.date && !peopleOnly) { parts.push(chip(state.date, "date")); count++; }
+  if (count) parts.push(`<button class="clear-all" data-clear="${peopleOnly ? "people" : "all"}">Clear all</button>`);
+  return `<div class="filters">${parts.join("")}</div>`;
 }
 function onChipClick(e) {
   const k = e.target.dataset.clear;
   if (!k) return;
-  if (k === "people") state.people.clear();
+  if (k.startsWith("person:")) state.people.delete(+k.slice(7));
+  else if (k === "people") state.people.clear();
+  else if (k === "all") { state.people.clear(); state.place = null; state.date = null; }
   else state[k] = null;
   renderPeopleList();
   render();
@@ -982,6 +1045,7 @@ function renamePerson(id, value) {
   p.name = name;
   alphabeticalCache = null;
   renderPeopleList();
+  for (const label of document.querySelectorAll(`[data-person-chip="${id}"] .label`)) label.textContent = personName(p);
   post(`/api/people/${id}`, { name: value })
     .then(resync)
     .catch(err => { toast(`Couldn't save the name: ${err.message}`, true); resync(); });
