@@ -46,7 +46,23 @@ nav button.on, .seg button.on { background: var(--chip); color: var(--ink); font
 .range { display: flex; align-items: center; gap: 6px; }
 .range input { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font-size: 13px; }
 body.no-aside .range { display: none; }
-#scan { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+#scan {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted);
+  border: 0; background: transparent; padding: 4px 6px; border-radius: 8px;
+}
+#scan[hidden] { display: none; }
+#scan:hover { background: var(--hover); color: var(--ink); }
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px;
+  border: 1px solid var(--line); background: var(--panel); border-radius: 8px; color: var(--muted);
+}
+.icon-btn:hover { background: var(--hover); color: var(--ink); }
+.dlg-body h4 { margin: 18px 0 4px; font-size: 13px; }
+.dlg-body h4:first-child { margin-top: 4px; }
+.scan-state { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
+.scan-state .what { flex: 1; font-size: 13px; }
+.scan-state .what small { display: block; color: var(--muted); font-size: 12px; }
+.scan-state progress { width: 100%; margin-top: 6px; accent-color: var(--accent); }
 #scan progress { width: 90px; accent-color: var(--accent); }
 .btn {
   border: 1px solid var(--line); background: var(--panel); border-radius: 8px; padding: 5px 10px;
@@ -351,8 +367,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
       <option value="desc">Newest first</option>
       <option value="asc">Oldest first</option>
     </select>
-    <div id="scan"></div>
-    <button class="btn" id="foldersBtn" title="Choose the folders with your photos">Folders</button>
+    <button id="scan" hidden title="Indexing photos: open Settings for details"></button>
+    <button class="icon-btn" id="settingsBtn" title="Settings: photo folders and indexing" aria-label="Settings"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
   </div>
 </header>
 
@@ -396,8 +412,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
   </div>
 </dialog>
 
-<dialog id="foldersDlg">
-  <div class="dlg-head"><h3>Photo folders</h3><button data-close title="Close">✕</button></div>
+<dialog id="settingsDlg">
+  <div class="dlg-head"><h3>Settings</h3><button data-close title="Close">✕</button></div>
   <div class="dlg-body"></div>
 </dialog>
 
@@ -807,7 +823,7 @@ async function renderPhotos(main, token, signal) {
       main.innerHTML = `<div class="welcome"><h2>Welcome to totufoto</h2>
         <p>Add a folder with photos. It is indexed in the background, and subfolders are included.</p>
         <button class="btn primary" id="welcomeAdd">Add folder…</button></div>`;
-      $("#welcomeAdd").onclick = () => folderInfo.desktop ? addFolder(null).then(ok => ok && render()).catch(err => alert(err.message)) : openFolders();
+      $("#welcomeAdd").onclick = () => folderInfo.desktop ? addFolder(null).then(ok => ok && render()).catch(err => alert(err.message)) : openSettings();
       return;
     }
     const msg = filtered ? "No photos match these filters." : "No photos yet. They appear here while the folders are indexed.";
@@ -1526,8 +1542,22 @@ async function addFolder(path) {
   setTimeout(pollStatus, 300);
   return true;
 }
-function renderFoldersDialog(error = "") {
-  const dlg = $("#foldersDlg"), body = $(".dlg-body", dlg);
+// ---- settings: photo folders and indexing -------------------------------------------
+let lastStatus = null;
+function scanStateHtml(st) {
+  if (!st) return `<div class="what">Checking…</div>`;
+  if (st.running) {
+    const counting = st.total ? `${st.done.toLocaleString()} of ${st.total.toLocaleString()} photos` : "";
+    return `<div class="what">Indexing ${counting}<small>${esc(st.phase)}${st.faces ? `, ${st.faces.toLocaleString()} faces found` : ""}</small>
+      <progress max="${st.total || 1}" value="${st.done}"></progress></div>
+      <button class="btn" data-rescan title="Scan again when this one ends">Rescan</button>`;
+  }
+  const problems = st.errors ? `<small>${st.errors.toLocaleString()} file${st.errors === 1 ? "" : "s"} could not be read in the last scan</small>` : "";
+  return `<div class="what">${st.phase === "failed" ? "The last scan failed" : "Up to date"}${problems}</div>
+    <button class="btn" data-rescan title="Look for new, changed or deleted photos">Rescan</button>`;
+}
+function renderSettings(error = "") {
+  const dlg = $("#settingsDlg"), body = $(".dlg-body", dlg);
   const { folders, managed, desktop } = folderInfo;
   const list = folders.length ? folders.map(f => `
     <div class="folder">
@@ -1538,44 +1568,56 @@ function renderFoldersDialog(error = "") {
   const add = !managed ? `<p>These folders were given on the command line. Start the app without folders to manage them here.</p>`
     : desktop ? `<div class="add-row"><button class="btn primary" data-pick>Add folder…</button></div>`
     : `<div class="add-row"><input id="folderPath" placeholder="/path/to/photos" spellcheck="false"><button class="btn primary" data-add>Add</button></div>`;
-  body.innerHTML = `<p>Subfolders are included. Photos are only read, never changed.</p>${list}${add}<div class="err">${esc(error)}</div>`;
+  body.innerHTML = `<h4>Photo folders</h4><p>Subfolders are included. Photos are only read, never changed.</p>${list}${add}<div class="err">${esc(error)}</div>
+    <h4>Library</h4><div class="scan-state" id="settingsScan">${scanStateHtml(lastStatus)}</div>`;
 }
-function openFolders() {
-  renderFoldersDialog();
-  const dlg = $("#foldersDlg");
+function openSettings() {
+  renderSettings();
+  const dlg = $("#settingsDlg");
   if (!dlg.open) dlg.showModal();
   $("#folderPath")?.focus();
 }
-$("#foldersBtn").onclick = () => loadFolders().then(openFolders);
-$("#foldersDlg").addEventListener("click", async e => {
-  const dlg = $("#foldersDlg");
+$("#settingsBtn").onclick = () => { openSettings(); loadFolders().then(() => { if ($("#settingsDlg").open) renderSettings(); }); };
+$("#scan").onclick = openSettings;
+$("#settingsDlg").addEventListener("click", async e => {
+  const dlg = $("#settingsDlg");
   if (e.target === dlg || e.target.dataset.close != null) return dlg.close();
+  if (e.target.dataset.rescan != null) {
+    e.target.disabled = true;
+    e.target.textContent = "Starting…";
+    await post("/api/scan").catch(err => renderSettings(err.message));
+    return setTimeout(pollStatus, 300);
+  }
   try {
-    if (e.target.dataset.pick != null) { if (await addFolder(null)) renderFoldersDialog(); }
-    else if (e.target.dataset.add != null) { await addFolder($("#folderPath").value); renderFoldersDialog(); }
+    if (e.target.dataset.pick != null) { if (await addFolder(null)) renderSettings(); }
+    else if (e.target.dataset.add != null) { await addFolder($("#folderPath").value); renderSettings(); }
     else if (e.target.dataset.remove) {
       if (!confirm(`Remove this folder from the gallery?\n\n${e.target.dataset.remove}\n\nThe photos stay on disk; they are only removed from the gallery.`)) return;
       await post("/api/folders/remove", { path: e.target.dataset.remove });
-      await loadFolders(); renderFoldersDialog(); setTimeout(pollStatus, 300);
+      await loadFolders(); renderSettings(); setTimeout(pollStatus, 300);
     }
-  } catch (err) { renderFoldersDialog(err.message); }
+  } catch (err) { renderSettings(err.message); }
 });
-$("#foldersDlg").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "folderPath") $("[data-add]")?.click(); });
-$("#foldersDlg").addEventListener("close", () => { if (!photos.length) render(); });
+$("#settingsDlg").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.id === "folderPath") $("[data-add]")?.click(); });
+$("#settingsDlg").addEventListener("close", () => { if (!photos.length) render(); });
 
 // ---- scan status -----------------------------------------------------------------
 let wasRunning = false;
 async function pollStatus() {
   let s;
   try { s = await api("/api/status"); } catch { return setTimeout(pollStatus, 5000); }
+  lastStatus = s;
+  // The top bar shows indexing progress only while it runs; details are in Settings.
   const el = $("#scan");
-  if (s.running) {
-    el.innerHTML = `<span>${esc(s.phase)} ${s.done}/${s.total}</span><progress max="${s.total || 1}" value="${s.done}"></progress>`;
-  } else {
-    el.innerHTML = `<button class="btn" id="rescan" title="Look for new or changed photos">Rescan</button>`;
-    $("#rescan").onclick = () => post("/api/scan").then(() => setTimeout(pollStatus, 300));
+  el.hidden = !s.running;
+  if (s.running) el.innerHTML = `<span>Indexing ${s.done.toLocaleString()}/${s.total.toLocaleString()}</span><progress max="${s.total || 1}" value="${s.done}"></progress>`;
+  const settingsScan = $("#settingsScan");
+  if (settingsScan) settingsScan.innerHTML = scanStateHtml(s);
+  if (wasRunning && !s.running) {
+    await Promise.all([loadMeta(), loadFolders()]);
+    if ($("#settingsDlg").open && !$("#settingsDlg").contains(document.activeElement?.closest("input"))) renderSettings(); // new photo counts
+    render();
   }
-  if (wasRunning && !s.running) { await Promise.all([loadMeta(), loadFolders()]); render(); }
   // During the first index, show photos as soon as some are in instead of waiting for the end.
   else if (s.running && s.done > 0 && !photos.length && state.view === "photos" && !viewer.classList.contains("open")) render();
   wasRunning = s.running;
