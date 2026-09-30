@@ -68,6 +68,18 @@ aside h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; c
 .person .n.unnamed { color: var(--muted); font-style: italic; }
 .person .c { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .empty-side { color: var(--muted); font-size: 13px; padding: 4px; }
+.search {
+  width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 6px 10px; margin-bottom: 8px;
+}
+.more { color: var(--muted); font-size: 12px; padding: 6px; }
+.people-bar { display: flex; align-items: center; gap: 12px; padding-top: 16px; color: var(--muted); }
+.people-bar .search { max-width: 320px; margin: 0; }
+.candidates { max-height: 50vh; overflow-y: auto; margin-top: 8px; }
+.candidate { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; cursor: pointer; }
+.candidate:hover { background: var(--hover); }
+.candidate img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--chip); }
+.candidate .n { flex: 1; }
+.candidate .c { color: var(--muted); font-size: 12px; }
 
 main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 .filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 0 0; min-height: 12px; }
@@ -226,10 +238,20 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
     <button data-m="any" title="Photos with at least one of the selected people">Any</button>
     <button data-m="only" title="Photos with exactly the selected people and nobody else you know">Only them</button>
   </div>
+  <input class="search" id="peopleFilter" type="search" placeholder="Search people" autocomplete="off">
   <div id="peopleList"></div>
 </aside>
 
 <main id="main"></main>
+
+<dialog id="mergeDlg">
+  <div class="dlg-head"><h3>Same person as…</h3><button data-close title="Close">✕</button></div>
+  <div class="dlg-body">
+    <p>Pick who this is. Their photos are combined into one person.</p>
+    <input class="search" id="mergeFilter" type="search" placeholder="Search people" autocomplete="off">
+    <div class="candidates"></div>
+  </div>
+</dialog>
 
 <dialog id="foldersDlg">
   <div class="dlg-head"><h3>Photo folders</h3><button data-close title="Close">✕</button></div>
@@ -317,22 +339,39 @@ function photoQuery(extra = {}) {
 }
 
 // ---- sidebar ---------------------------------------------------------------
+/** People whose name matches `query`, in list order (named first, then by photo count). */
+function matchPeople(query, list = people) {
+  const q = query.trim().toLowerCase();
+  return q ? list.filter(p => personName(p).toLowerCase().includes(q)) : list;
+}
+
+// Large libraries can have thousands of face groups: the sidebar shows the selected
+// people plus the top matches, and search finds the rest.
+const SIDEBAR_LIMIT = 150;
 function renderPeopleList() {
   const list = $("#peopleList");
   const visible = people.filter(p => !p.hidden);
+  $("#peopleFilter").hidden = visible.length <= 12;
   if (!visible.length) {
     list.innerHTML = `<div class="empty-side">No people yet. Faces are grouped automatically while the library is indexed.</div>`;
     return;
   }
-  list.innerHTML = visible.map(p => `
+  const matches = matchPeople($("#peopleFilter").value, visible);
+  const rest = matches.filter(p => !state.people.has(p.id));
+  const shown = [...visible.filter(p => state.people.has(p.id)), ...rest.slice(0, SIDEBAR_LIMIT)];
+  const hiddenCount = rest.length - SIDEBAR_LIMIT;
+  list.innerHTML = shown.map(p => `
     <label class="person" title="${esc(personName(p))}">
       <input type="checkbox" data-id="${p.id}" ${state.people.has(p.id) ? "checked" : ""}>
       <img src="/face/${p.face}" loading="lazy" alt="">
       <span class="n ${p.name ? "" : "unnamed"}">${esc(personName(p))}</span>
       <span class="c">${p.count}</span>
-    </label>`).join("");
+    </label>`).join("") +
+    (hiddenCount > 0 ? `<div class="more">${hiddenCount.toLocaleString()} more. Search to find them.</div>` : "") +
+    (!matches.length ? `<div class="empty-side">Nobody matches.</div>` : "");
   for (const b of $("#match").children) b.classList.toggle("on", b.dataset.m === state.match);
 }
+$("#peopleFilter").addEventListener("input", renderPeopleList);
 $("#peopleList").addEventListener("change", e => {
   const id = Number(e.target.dataset.id);
   e.target.checked ? state.people.add(id) : state.people.delete(id);
@@ -511,20 +550,68 @@ function renderPlaces(main) {
 
 function renderPeople(main) {
   if (!people.length) { main.innerHTML = `<div class="blank">No faces found yet.</div>`; return; }
-  const options = people.map(o => `<option value="${o.id}">${esc(personName(o))}</option>`).join("");
-  main.innerHTML = `<div class="cards people-grid">${people.map(p => `
-    <div class="card face-card ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}">
-      <img src="/face/${p.face}" alt="" title="Show photos">
+  main.innerHTML = `<div class="people-bar">
+      <input class="search" id="peopleSearch" type="search" placeholder="Search people" autocomplete="off">
+      <span id="peopleCount">${people.length.toLocaleString()} people</span>
+    </div>
+    <div class="cards people-grid">${people.map(p => `
+    <div class="card face-card ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}" data-name="${esc(personName(p).toLowerCase())}">
+      <img src="/face/${p.face}" alt="" title="Show photos" loading="lazy" decoding="async">
       <input value="${esc(p.name || "")}" placeholder="Add a name" data-rename="${p.id}">
       <div class="s">${p.count} photo${p.count === 1 ? "" : "s"}</div>
       <div class="row">
-        <select data-merge="${p.id}" title="Merge this person into another one"><option value="">Same as…</option>${options}</select>
+        <button class="btn" data-merge="${p.id}" title="Merge with another person">Same as…</button>
         <button class="btn" data-hide="${p.id}">${p.hidden ? "Show" : "Hide"}</button>
       </div>
     </div>`).join("")}</div>`;
-  for (const sel of main.querySelectorAll("select[data-merge]"))
-    sel.querySelector(`option[value="${sel.dataset.merge}"]`)?.remove();
+  $("#peopleSearch").addEventListener("input", e => {
+    const q = e.target.value.trim().toLowerCase();
+    let n = 0;
+    for (const card of main.querySelectorAll(".face-card")) {
+      const show = !q || card.dataset.name.includes(q);
+      card.style.display = show ? "" : "none";
+      n += show;
+    }
+    $("#peopleCount").textContent = `${n.toLocaleString()} ${q ? "matching" : "people"}`;
+  });
 }
+
+// ---- merge dialog ------------------------------------------------------------------
+let mergeFrom = null;
+const MERGE_LIMIT = 40;
+function openMerge(id) {
+  mergeFrom = id;
+  $("#mergeFilter").value = "";
+  renderMergeCandidates();
+  $("#mergeDlg").showModal();
+  $("#mergeFilter").focus();
+}
+function renderMergeCandidates() {
+  const all = matchPeople($("#mergeFilter").value).filter(p => p.id !== mergeFrom);
+  $("#mergeDlg .candidates").innerHTML = all.slice(0, MERGE_LIMIT).map(p => `
+    <div class="candidate" data-into="${p.id}">
+      <img src="/face/${p.face}" alt="" loading="lazy">
+      <span class="n ${p.name ? "" : "unnamed"}">${esc(personName(p))}</span>
+      <span class="c">${p.count} photo${p.count === 1 ? "" : "s"}</span>
+    </div>`).join("") +
+    (all.length > MERGE_LIMIT ? `<div class="more">${(all.length - MERGE_LIMIT).toLocaleString()} more. Type a name to narrow it down.</div>` : "") +
+    (!all.length ? `<div class="more">Nobody matches.</div>` : "");
+}
+$("#mergeFilter").addEventListener("input", renderMergeCandidates);
+$("#mergeDlg").addEventListener("click", async e => {
+  const dlg = $("#mergeDlg");
+  if (e.target === dlg || e.target.dataset.close != null) return dlg.close();
+  const row = e.target.closest("[data-into]");
+  if (!row) return;
+  const into = +row.dataset.into, from = mergeFrom;
+  const a = people.find(p => p.id === from), b = people.find(p => p.id === into);
+  if (!confirm(`Merge "${personName(a)}" into "${personName(b)}"?`)) return;
+  dlg.close();
+  await post(`/api/people/${from}/merge`, { into });
+  if (state.people.delete(from)) state.people.add(into);
+  await loadMeta();
+  render();
+});
 
 async function render() {
   saveHash();
@@ -551,6 +638,7 @@ $("#main").addEventListener("click", e => {
   if (t) { e.preventDefault(); return openViewer(photos.findIndex(p => p[0] === +t.dataset.id)); }
   const place = e.target.closest("[data-place]");
   if (place) { state.place = +place.dataset.place; state.view = "photos"; return render(); }
+  if (e.target.dataset.merge) return openMerge(+e.target.dataset.merge);
   const hide = e.target.dataset.hide;
   if (hide) {
     const p = people.find(p => p.id === +hide);
@@ -562,18 +650,8 @@ $("#main").addEventListener("click", e => {
   }
 });
 $("#main").addEventListener("change", e => {
-  const rename = e.target.dataset.rename, merge = e.target.dataset.merge;
+  const rename = e.target.dataset.rename;
   if (rename) post(`/api/people/${rename}`, { name: e.target.value }).then(loadMeta);
-  if (merge && e.target.value) {
-    const into = +e.target.value, from = +merge;
-    const a = people.find(p => p.id === from), b = people.find(p => p.id === into);
-    if (confirm(`Merge "${personName(a)}" into "${personName(b)}"?`)) {
-      post(`/api/people/${from}/merge`, { into }).then(() => {
-        if (state.people.delete(from)) state.people.add(into);
-        return loadMeta();
-      }).then(render);
-    } else e.target.value = "";
-  }
 });
 $("#main").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset.rename) e.target.blur(); });
 

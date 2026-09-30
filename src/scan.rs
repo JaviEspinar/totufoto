@@ -155,6 +155,12 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     status.set_phase("listing files");
     let mut conn = crate::db::open(&cfg.db_path)?;
     let roots = cfg.roots(&conn)?;
+    if roots.is_empty() {
+        // Nothing to compare against: never treat "no folders" as "every photo was deleted".
+        // Removing a folder from the UI removes its photos itself.
+        tracing::info!("no photo folders yet; add one from the Folders button");
+        return Ok(());
+    }
     let files = list_files(&roots);
     // Photos on a folder that is currently unavailable (say, an unplugged drive) are kept.
     let offline: Vec<&PathBuf> = roots.iter().filter(|r| !r.is_dir()).collect();
@@ -170,9 +176,18 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     };
 
     let present: HashSet<String> = files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
+    // Folders given on the command line define the whole library, so photos outside them go.
+    // Folders managed from the UI remove their own photos when removed, so a scan only drops
+    // photos inside the current folders whose files are gone.
+    let whole_library = !cfg.fixed_roots.is_empty();
     let mut stale: Vec<i64> = known
         .iter()
-        .filter(|(p, _)| !present.contains(*p) && !offline.iter().any(|r| Path::new(p).starts_with(r)))
+        .filter(|(p, _)| {
+            let path = Path::new(p);
+            !present.contains(*p)
+                && !offline.iter().any(|r| path.starts_with(r))
+                && (whole_library || roots.iter().any(|r| path.starts_with(r)))
+        })
         .map(|(_, v)| v.0)
         .collect();
     let removed = stale.len();
