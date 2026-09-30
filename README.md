@@ -131,7 +131,8 @@ Only photos stored on the Mac are found. Photos kept only in iCloud ("Optimize M
 - **Places**: one card per city. Click a card to see its photos.
 - **Upcoming**: memories from past years for the next 7 to 90 days.
 - **People**: name each person by typing under their face, use *Same as…* to merge two groups of the same person, and *Hide* for people you don't care about.
-- **Sidebar checkboxes**: tick one or more people to filter any view, and pick *Together*, *Any* or *Only them* to decide how they combine.
+- **Sidebar**: tick people (click the checkbox or their picture) to filter Photos, Upcoming and Places, and pick *Together*, *Any* or *Only them* to decide how they combine. Click a name to rename that person right there (Enter saves, Esc cancels).
+- **Filter chips**: each selected person, place and date shows as a chip above the photos; × removes one, *Clear all* removes them all.
 - **Viewer**: click a photo to open it. Use the arrow keys to move and `Esc` to close. The side panel shows the date, place and people. For each face, *Same as…* moves just that face to the person you pick, and *Not them* moves it to a new unnamed group, which you can rename, hide or merge in People. Automatic grouping never moves a face you placed. *Show face boxes* draws the detected faces.
 - **Rescan**: picks up new, changed or deleted photos without restarting.
 
