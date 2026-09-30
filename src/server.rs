@@ -86,6 +86,9 @@ pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
         .route("/", get(|| async { Html(INDEX_HTML) }))
         .route("/api/status", get(status))
         .route("/api/scan", post(start_scan))
+        .route("/api/regroup", post(regroup))
+        .route("/api/failures", get(failures))
+        .route("/api/failures/retry", post(retry_failures))
         .route("/api/folders", get(folders).post(add_folder))
         .route("/api/folders/pick", post(pick_folder))
         .route("/api/folders/remove", post(remove_folder))
@@ -118,8 +121,40 @@ async fn check_host(State(allowed): State<Arc<Vec<String>>>, req: Request, next:
     }
 }
 
-async fn status(State(s): State<Shared>) -> Json<scan::StatusView> {
-    Json(s.status.view())
+async fn status(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
+    let view = s.status.view();
+    // Files that could not be indexed, saved across scans (see /api/failures).
+    let failed: i64 = db(&s, |conn| Ok(conn.query_row("SELECT COUNT(*) FROM failures", [], |r| r.get(0))?)).await?;
+    let mut value = serde_json::to_value(view)?;
+    value["failed"] = failed.into();
+    Ok(Json(value))
+}
+
+/// Files that could not be indexed, with the reason (first 500).
+async fn failures(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
+    let rows = db(&s, |conn| {
+        let rows: Vec<JsonValue> = conn
+            .prepare_cached("SELECT path, error FROM failures ORDER BY path LIMIT 500")?
+            .query_map([], |r| Ok(json!({ "path": r.get::<_, String>(0)?, "error": r.get::<_, String>(1)? })))?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    })
+    .await?;
+    Ok(Json(rows.into()))
+}
+
+/// Forgets the failures and scans again, so those files are tried once more.
+async fn retry_failures(State(s): State<Shared>) -> ApiResult<StatusCode> {
+    db(&s, |conn| Ok(conn.execute("DELETE FROM failures", [])?)).await?;
+    scan::spawn(s.scan.clone(), s.status.clone());
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Scans and then regroups every face from scratch (named people are kept).
+async fn regroup(State(s): State<Shared>) -> StatusCode {
+    s.status.request_regroup();
+    scan::spawn(s.scan.clone(), s.status.clone());
+    StatusCode::ACCEPTED
 }
 
 async fn start_scan(State(s): State<Shared>) -> StatusCode {

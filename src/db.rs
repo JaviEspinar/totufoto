@@ -4,6 +4,14 @@ use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 
 const SCHEMA: &str = "
+-- files that could not be indexed, with the reason; retried when the file changes
+CREATE TABLE IF NOT EXISTS failures (
+    path  TEXT PRIMARY KEY,
+    mtime INTEGER NOT NULL,
+    size  INTEGER NOT NULL,
+    error TEXT NOT NULL
+);
+
 -- photo folders added from the UI (used when none are given on the command line)
 CREATE TABLE IF NOT EXISTS folders (
     path TEXT PRIMARY KEY
@@ -62,7 +70,9 @@ CREATE TABLE IF NOT EXISTS faces (
     person_id INTEGER REFERENCES persons(id) ON DELETE SET NULL,
     -- set when the user places a face (Not them: a group of its own; Same as: another
     -- person); clustering never moves it
-    rejected  INTEGER NOT NULL DEFAULT 0
+    rejected  INTEGER NOT NULL DEFAULT 0,
+    -- 0 until a grouping pass has looked at the face (new faces are grouped incrementally)
+    grouped   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS faces_photo ON faces(photo_id);
 CREATE INDEX IF NOT EXISTS faces_person ON faces(person_id, photo_id);
@@ -94,6 +104,15 @@ fn migrate(conn: &Connection) -> Result<()> {
     )?;
     if !has_column {
         conn.execute_batch("ALTER TABLE photos ADD COLUMN faces_scanned INTEGER NOT NULL DEFAULT 1")?;
+    }
+    let has_grouped: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('faces') WHERE name = 'grouped'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has_grouped {
+        // Faces in an existing index were grouped by the full passes of older versions.
+        conn.execute_batch("ALTER TABLE faces ADD COLUMN grouped INTEGER NOT NULL DEFAULT 1")?;
     }
     Ok(())
 }
