@@ -95,6 +95,7 @@ pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
         .route("/api/open", post(open_url))
         .route("/api/photos", get(photos))
         .route("/api/photos/{id}", get(photo_detail))
+        .route("/api/groups", get(groups))
         .route("/api/places", get(places))
         .route("/api/people", get(people))
         .route("/api/people/{id}", post(update_person))
@@ -281,6 +282,8 @@ struct PhotoQuery {
     to: Option<String>,
     /// photos from previous years whose anniversary falls within the next `upcoming` days
     upcoming: Option<u32>,
+    /// /api/groups only: "year", "month", "day" or "place"
+    by: Option<String>,
 }
 
 fn parse_ids(s: &str) -> Vec<i64> {
@@ -348,41 +351,49 @@ fn upcoming_days(days: u32) -> (Vec<String>, i32) {
     (list, today.year())
 }
 
+/// The filters of a photo query as SQL conditions (each starting with " AND") and their
+/// arguments, shared by the photo list and the group summaries so both always agree. Also
+/// returns the upcoming days (`MM-DD`) when `upcoming` is set.
+fn photo_filters(q: &PhotoQuery) -> (String, Vec<Value>, Vec<String>) {
+    let mut sql = String::new();
+    let mut args: Vec<Value> = Vec::new();
+    match q.place {
+        // 0: photos without a location
+        Some(0) => sql.push_str(" AND place_id IS NULL"),
+        Some(place) => {
+            sql.push_str(" AND place_id = ?");
+            args.push(place.into());
+        }
+        None => {}
+    }
+    if let Some(date) = q.date.as_deref().filter(|d| !d.is_empty()) {
+        sql.push_str(" AND taken LIKE ? || '%'");
+        args.push(date.to_string().into());
+    }
+    let (range, range_args) = date_range_filter("taken", q.from.as_deref(), q.to.as_deref());
+    sql.push_str(&range);
+    args.extend(range_args);
+    let mut days = Vec::new();
+    if let Some(n) = q.upcoming {
+        let (list, year) = upcoming_days(n);
+        sql.push_str(&format!(
+            " AND substr(taken, 6, 5) IN ({}) AND CAST(substr(taken, 1, 4) AS INTEGER) < ?",
+            vec!["?"; list.len()].join(",")
+        ));
+        args.extend(list.iter().cloned().map(Value::from));
+        args.push((year as i64).into());
+        days = list;
+    }
+    sql.push_str(&people_filter("id", q.people.as_deref(), q.match_mode.as_deref()));
+    (sql, args, days)
+}
+
 async fn photos(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResult<Json<JsonValue>> {
     let result = db(&s, move |conn| {
-        let mut sql = String::from("SELECT id, width, height, taken, place_id FROM photos WHERE 1 = 1");
-        let mut args: Vec<Value> = Vec::new();
-        match q.place {
-            // 0: photos without a location
-            Some(0) => sql.push_str(" AND place_id IS NULL"),
-            Some(place) => {
-                sql.push_str(" AND place_id = ?");
-                args.push(place.into());
-            }
-            None => {}
-        }
-        if let Some(date) = q.date.filter(|d| !d.is_empty()) {
-            sql.push_str(" AND taken LIKE ? || '%'");
-            args.push(date.into());
-        }
-        let (range, range_args) = date_range_filter("taken", q.from.as_deref(), q.to.as_deref());
-        sql.push_str(&range);
-        args.extend(range_args);
-        let mut days = Vec::new();
-        if let Some(n) = q.upcoming {
-            let (list, year) = upcoming_days(n);
-            sql.push_str(&format!(
-                " AND substr(taken, 6, 5) IN ({}) AND CAST(substr(taken, 1, 4) AS INTEGER) < ?",
-                vec!["?"; list.len()].join(",")
-            ));
-            args.extend(list.iter().cloned().map(Value::from));
-            args.push((year as i64).into());
-            days = list;
-        }
-        sql.push_str(&people_filter("id", q.people.as_deref(), q.match_mode.as_deref()));
+        let (filters, args, days) = photo_filters(&q);
         let desc = q.sort.as_deref() != Some("asc");
-        sql.push_str(if desc { " ORDER BY taken DESC, id DESC" } else { " ORDER BY taken ASC, id ASC" });
-
+        let order = if desc { "taken DESC, id DESC" } else { "taken ASC, id ASC" };
+        let sql = format!("SELECT id, width, height, taken, place_id FROM photos WHERE 1 = 1{filters} ORDER BY {order}");
         let mut stmt = conn.prepare_cached(&sql)?;
         let rows: Vec<JsonValue> = stmt
             .query_map(params_from_iter(args), |r| {
@@ -399,6 +410,46 @@ async fn photos(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResu
     })
     .await?;
     Ok(Json(result))
+}
+
+/// One line per group of the photos matching the filters, for the group cards: the key
+/// (year "2024", month "2024-10", day "2024-10-05", or place id with 0 for no location), the
+/// number of photos, and a cover photo (the newest, or the oldest when sorting oldest
+/// first). Dates follow the sort; places come with the most photos first.
+async fn groups(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResult<Response> {
+    let key = match q.by.as_deref() {
+        Some("year") => "substr(taken, 1, 4)",
+        Some("month") => "substr(taken, 1, 7)",
+        Some("day") => "substr(taken, 1, 10)",
+        Some("place") => "COALESCE(place_id, 0)",
+        _ => return Ok((StatusCode::BAD_REQUEST, "by must be year, month, day or place").into_response()),
+    };
+    let by_place = q.by.as_deref() == Some("place");
+    let result = db(&s, move |conn| {
+        let (filters, args, _) = photo_filters(&q);
+        let desc = q.sort.as_deref() != Some("asc");
+        // SQLite takes the other columns from the row that has the MAX/MIN: the cover.
+        let pick = if desc { "MAX(taken)" } else { "MIN(taken)" };
+        let order = if by_place { "n DESC, k" } else if desc { "k DESC" } else { "k ASC" };
+        let sql = format!("SELECT {key} AS k, COUNT(*) AS n, id, {pick} FROM photos WHERE 1 = 1{filters} GROUP BY k ORDER BY {order}");
+        let mut stmt = conn.prepare_cached(&sql)?;
+        let mut total = 0i64;
+        let rows: Vec<JsonValue> = stmt
+            .query_map(params_from_iter(args), |r| {
+                let key: JsonValue = if by_place { r.get::<_, i64>(0)?.into() } else { r.get::<_, String>(0)?.into() };
+                Ok((key, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+            })?
+            .map(|row| {
+                row.map(|(key, count, cover)| {
+                    total += count;
+                    json!({ "key": key, "count": count, "cover": cover })
+                })
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(json!({ "groups": rows, "total": total }))
+    })
+    .await?;
+    Ok(Json(result).into_response())
 }
 
 async fn photo_detail(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Json<JsonValue>> {

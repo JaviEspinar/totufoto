@@ -7,7 +7,7 @@ It comes as a desktop app for Windows and Linux, and as a command-line app that 
 ## Features
 
 - **Timeline** sorted by capture date (EXIF `DateTimeOriginal`, falling back to the file date), newest or oldest first, grouped by day, month, year or place.
-- **Places**: GPS coordinates are turned into cities with an offline reverse geocoder (GeoNames cities with more than 1000 inhabitants). No network calls.
+- **Places**: GPS coordinates are turned into cities with an offline reverse geocoder (GeoNames cities with more than 1000 inhabitants). No network calls. Group photos *by place* to see one card per city.
 - **Upcoming**: photos from previous years whose anniversary falls in the next 7 to 90 days ("2 years ago today").
 - **People**: faces are detected (SCRFD), aligned and turned into 512-d ArcFace embeddings, then grouped into people automatically. Name them, merge duplicates, hide people, or move a wrongly grouped face to a group of its own ("Not them").
 - **People combinations**: tick people in the sidebar and choose
@@ -127,12 +127,11 @@ Only photos stored on the Mac are found. Photos kept only in iCloud ("Optimize M
 
 ## Using the gallery
 
-- **Photos**: the timeline. With *Group* set to a year, month, day or place, the groups show as cards (cover, title, number of photos); click one to see its photos, with a chip for that group, and close the chip to go back to the cards. *No groups* shows all photos. *Newest/Oldest first* in the top bar sets the order.
-- **Places**: one card per city. Click a card to see its photos.
+- **Photos**: the timeline. With *Group* set to a year, month, day or place, the groups show as cards (cover, title, number of photos); click one to see its photos, with a chip for that group, and close the chip to go back to the cards. Places come with the most photos first, and a *No location* card holds the photos without GPS data. *No groups* shows all photos. *Newest/Oldest first* in the top bar sets the order. The bar with the filter chips and the photo count stays at the top while you scroll.
 - **Upcoming**: memories from past years for the next 7 to 90 days.
 - **People**: name each person by typing under their face, use *Same as…* to merge two groups of the same person, and *Hide* for people you don't care about. Switch between *Cards* (big faces) and *List* (compact rows, several times more people on screen; the actions show when you point at a row). The size slider next to it makes cards or rows bigger or smaller. Sort people by *Most photos* or by *Name* (A to Z, unnamed last); the sidebar uses the same order.
-- **Sidebar**: tick people (click the checkbox or their picture) to filter Photos, Upcoming and Places, and pick *Together*, *Any* or *Only them* to decide how they combine. Click a name to rename that person right there (Enter saves, Esc cancels). Names are unique: using a name someone already has asks whether they are the same person (*Merge them*) or not (*Keep separate* adds a number, like "Ana (1)").
-- **Date range**: *From* and *to* in the top bar keep only photos taken between those days (both included; either can be left empty). It applies to Photos, Places and Upcoming.
+- **Sidebar**: tick people (click the checkbox or their picture) to filter Photos and Upcoming, and pick *Together*, *Any* or *Only them* to decide how they combine. Click a name to rename that person right there (Enter saves, Esc cancels). Names are unique: using a name someone already has asks whether they are the same person (*Merge them*) or not (*Keep separate* adds a number, like "Ana (1)").
+- **Date range**: *From* and *to* in the top bar keep only photos taken between those days (both included; either can be left empty). It applies to Photos and Upcoming.
 - **Filter chips**: each selected person, place and date range shows as a chip above the photos; × removes one, *Clear all* removes them all.
 - **Viewer**: click a photo to open it. Use the arrow keys to move and `Esc` to close. The side panel shows the date, place and people. For each face, *Same as…* moves just that face to the person you pick, and *Not them* moves it to a new unnamed group, which you can rename, hide or merge in People. Automatic grouping never moves a face you placed. *Show face boxes* draws the detected faces.
 - **Settings** (the gear at the top right): photo folders (add, remove); the library status with progress while indexing or grouping faces, and *Rescan* to pick up new, changed or deleted photos without restarting; files that could not be read, with the reason (they are skipped until the file changes, or *Try again*); and *Regroup all faces*. After each scan only the new faces are placed into people, which is fast even with hundreds of thousands of faces; regrouping everything from scratch is slower and only happens on the first index or when you ask.
