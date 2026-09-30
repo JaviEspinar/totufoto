@@ -86,6 +86,7 @@ aside h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; c
 .people-bar { display: flex; align-items: center; gap: 12px; padding-top: 16px; color: var(--muted); }
 .people-bar .search { max-width: 320px; margin: 0; }
 .people-bar .zoom { margin-left: auto; }
+.people-bar select { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; color: var(--ink); }
 .people-bar .seg { margin: 0; }
 .people-bar .seg button { padding: 5px 12px; }
 /* The People tab has no "People in the photo" column */
@@ -493,8 +494,18 @@ function photoQuery(extra = {}) {
 // first) or refreshing counts must not reshuffle the list under you. The order is taken
 // fresh from the server when the People tab is opened; new people are added at the end.
 let peopleOrder = [], orderedCache = null;
-function resetPeopleOrder() { peopleOrder = people.map(p => p.id); orderedCache = null; }
+// The People tab's sort: "count" (most photos first) or "name" (A to Z, unnamed last).
+let peopleSort = "count";
+try { if (localStorage.getItem("totufoto.peopleSort") === "name") peopleSort = "name"; } catch {}
+function sortedPeople() {
+  if (peopleSort === "name") return peopleAlphabetical();
+  return [...people].sort((a, b) => b.count - a.count
+    || (!a.name !== !b.name ? (a.name ? -1 : 1) : a.name ? nameCollator.compare(a.name, b.name) : 0)
+    || a.id - b.id);
+}
+function resetPeopleOrder() { peopleOrder = sortedPeople().map(p => p.id); orderedCache = null; }
 function orderedPeople() {
+  if (!peopleOrder.length && people.length) resetPeopleOrder();
   // Recomputed only when the people list or the order changed.
   if (orderedCache && orderedCache.source === people && orderedCache.order === peopleOrder) return orderedCache.out;
   const byId = new Map(people.map(p => [p.id, p]));
@@ -963,11 +974,16 @@ function mountPeopleGrid(host, { fadeIn = false, layout: L = peopleLayoutFor("ca
     card.querySelector("[data-hide]").textContent = p.hidden ? "Show" : "Hide";
     if (card.querySelector("img").dataset.face !== String(p.face)) card.querySelector(".avatar").innerHTML = faceImg(p.face);
   }
-  function draw({ animate = false } = {}) {
+  // `animate`: true slides cards to their new places; false (a re-sort, a search) moves them
+  // at once, cutting short a slide still running; unset (scrolling) leaves things as they are.
+  function draw({ animate } = {}) {
     if (animate) {
       outer.classList.add("animate");
       clearTimeout(animateTimer);
       animateTimer = setTimeout(() => outer.classList.remove("animate"), 350);
+    } else if (animate === false) {
+      clearTimeout(animateTimer);
+      outer.classList.remove("animate");
     }
     const top = outer.getBoundingClientRect().top - main.getBoundingClientRect().top;
     const firstRow = Math.max(0, Math.floor(-top / rowH) - overscan);
@@ -1041,6 +1057,10 @@ async function renderPeople(main, token) {
   main.innerHTML = `<div class="people-bar">
       <input class="search" id="peopleSearch" type="search" placeholder="Search people" autocomplete="off" value="${esc(peopleQuery)}">
       <span id="peopleCount"></span>
+      <select id="peopleSort" title="Sort people" aria-label="Sort people">
+        <option value="count" ${peopleSort === "count" ? "selected" : ""}>Most photos</option>
+        <option value="name" ${peopleSort === "name" ? "selected" : ""}>Name</option>
+      </select>
       <label class="zoom" title="Size"><span aria-hidden="true">A</span>
         <input type="range" id="peopleZoom" aria-label="Size"><span class="big" aria-hidden="true">A</span></label>
       <div class="seg" id="peopleLayout" role="group" aria-label="Layout">
@@ -1082,6 +1102,13 @@ async function renderPeople(main, token) {
     for (const b of $("#peopleLayout").children) b.classList.toggle("on", b.dataset.layout === next);
     syncZoom();
     remount();
+  });
+  $("#peopleSort").addEventListener("change", e => {
+    peopleSort = e.target.value;
+    try { localStorage.setItem("totufoto.peopleSort", peopleSort); } catch {}
+    resetPeopleOrder();
+    main.scrollTop = 0;
+    refreshPeopleViews({ animate: false });
   });
   $("#peopleSearch").addEventListener("input", e => {
     peopleQuery = e.target.value;
