@@ -90,6 +90,8 @@ aside h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; c
 .merge-pair .s { color: var(--muted); font-size: 12px; }
 .merge-pair .arrow { font-size: 26px; color: var(--muted); }
 .merge-note { text-align: center; }
+#mergeHint { display: flex; align-items: center; gap: 12px; }
+#mergeHint img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex: none; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .dlg-actions .btn { padding: 7px 16px; }
 
@@ -215,10 +217,12 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 #viewer .info h5 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8b8880; margin: 16px 0 8px; }
 .vface { display: flex; align-items: center; gap: 10px; padding: 5px; border-radius: 8px; }
 .vface:hover { background: #242422; }
-.vface img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; }
-.vface .n { flex: 1; cursor: pointer; }
+.vface img { width: 38px; height: 38px; border-radius: 50%; object-fit: cover; flex: none; }
+.vface .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.vface .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .vface .n.unnamed { color: #9a968e; font-style: italic; }
-.vface button { background: transparent; border: 1px solid #3a3936; color: #bbb; border-radius: 6px; font-size: 11px; padding: 2px 6px; }
+.vface .acts { display: flex; gap: 4px; flex: none; }
+.vface button { white-space: nowrap; background: transparent; border: 1px solid #3a3936; color: #bbb; border-radius: 6px; font-size: 11px; padding: 2px 6px; }
 .vface button:hover { color: #fff; border-color: #777; }
 .info a { color: #9dbaff; }
 .info label { display: flex; gap: 8px; align-items: center; color: #bbb; font-size: 12px; margin-top: 16px; }
@@ -305,7 +309,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
   <div class="dlg-head"><h3 id="mergeTitle">Same person as…</h3><button data-close title="Close">✕</button></div>
   <div class="dlg-body">
     <div id="mergePick">
-      <p>Pick who this is. Their photos are combined into one person.</p>
+      <p id="mergeHint"></p>
       <input class="search" id="mergeFilter" type="search" placeholder="Search people" autocomplete="off">
       <div class="candidates"></div>
     </div>
@@ -805,25 +809,45 @@ async function renderPeople(main, token) {
 }
 
 // ---- merge dialog ------------------------------------------------------------------
-let mergeFrom = null;
+// The same picker serves two purposes: merging a whole person into another ("Same as" in
+// People) and moving one face to a person ("Same as" in the photo viewer).
+let mergeFrom = null, assignFace = null;
 const MERGE_LIMIT = 40;
-function openMerge(id) {
-  mergeFrom = id;
+function openPicker() {
   $("#mergeFilter").value = "";
   showMergeStep(null);
   // Open at once with a spinner; the list fills in on the next frame.
   $("#mergeDlg .candidates").innerHTML = `<div class="spinner" role="progressbar" aria-label="Loading"></div>`;
   $("#mergeDlg").showModal();
   $("#mergeFilter").focus();
-  nextFrame().then(() => { if (mergeFrom === id && $("#mergeDlg").open) renderMergeCandidates(); });
+  const opened = { mergeFrom, assignFace };
+  nextFrame().then(() => {
+    if (mergeFrom === opened.mergeFrom && assignFace === opened.assignFace && $("#mergeDlg").open) renderMergeCandidates();
+  });
+}
+function openMerge(id) {
+  mergeFrom = id;
+  assignFace = null;
+  openPicker();
+}
+/** Picks who a single face in a photo is. `current` is the face's person, if any. */
+function openAssign(face, current) {
+  mergeFrom = current;
+  assignFace = face;
+  openPicker();
 }
 /** Switches the dialog between picking a person (`into` null) and confirming the merge. */
 function showMergeStep(into) {
   const picking = into == null;
   $("#mergePick").hidden = !picking;
   $("#mergeConfirm").hidden = picking;
-  $("#mergeTitle").textContent = picking ? "Same person as…" : "Merge these people?";
-  if (picking) return;
+  $("#mergeTitle").textContent = !picking ? "Merge these people?" : assignFace != null ? "Who is this?" : "Same person as…";
+  if (picking) {
+    $("#mergeHint").innerHTML = assignFace != null
+      ? `<img src="/face/${assignFace}" alt=""><span>Pick who this face is. Only this photo changes.</span>`
+      : `Pick who this is. Their photos are combined into one person.`;
+    return;
+  }
   const a = people.find(p => p.id === mergeFrom), b = people.find(p => p.id === into);
   const face = p => `<figure>
       <div class="avatar">${faceImg(p.face)}</div>
@@ -870,6 +894,7 @@ $("#mergeDlg").addEventListener("click", e => {
   if (e.target === dlg || e.target.dataset.close != null) return dlg.close();
   if (e.target.dataset.back != null) { showMergeStep(null); return $("#mergeFilter").focus(); }
   const row = e.target.closest("[data-into]");
+  if (row && assignFace != null) { dlg.close(); return assignFaceTo(assignFace, +row.dataset.into); }
   if (row) return showMergeStep(+row.dataset.into);
   if (!e.target.dataset.confirm) return;
   dlg.close();
@@ -908,6 +933,20 @@ function mergePeople(from, into) {
       orderedCache = null;
       resync();
     });
+}
+
+/** "Same as" in the photo viewer: moves one face to `person`, then refreshes the viewer. */
+async function assignFaceTo(face, person) {
+  const p = people.find(p => p.id === person);
+  try {
+    await post(`/api/faces/${face}/assign`, { person });
+    toast(`Moved to ${p ? personName(p) : "that person"}`);
+  } catch (err) {
+    toast(`Couldn't move the face: ${err.message}`, true);
+  }
+  await loadMeta();
+  refreshPeopleViews();
+  if (viewerIndex >= 0) openViewer(viewerIndex);
 }
 
 function toggleHidden(id) {
@@ -1003,8 +1042,11 @@ async function openViewer(i) {
     ${d.faces.length ? d.faces.map(f => {
       const person = people.find(p => p.id === f.person);
       return `<div class="vface"><img src="/face/${f.id}" alt="">
-        <span class="n ${person?.name ? "" : "unnamed"}" data-person="${f.person ?? ""}">${person ? esc(personName(person)) : "Not grouped"}</span>
-        ${person ? `<button data-reject="${f.id}" title="This face is not ${esc(personName(person))}: move it to a new group you can rename or hide">Not them</button>` : ""}</div>`;
+        <span class="who"><span class="n ${person?.name ? "" : "unnamed"}" data-person="${f.person ?? ""}" title="${person ? esc(personName(person)) : "Not grouped"}">${person ? esc(personName(person)) : "Not grouped"}</span>
+        <span class="acts">
+          <button data-assign="${f.id}" data-current="${f.person ?? ""}" title="Pick who this face is">Same as…</button>
+          ${person ? `<button data-reject="${f.id}" title="This face is not ${esc(personName(person))}: move it to a new group you can rename or hide">Not them</button>` : ""}
+        </span></span></div>`;
     }).join("") : `<div class="s">No faces detected.</div>`}
     <label><input type="checkbox" id="showBoxes" ${viewer.classList.contains("boxes") ? "checked" : ""}> Show face boxes</label>
     <h5>File</h5><div class="s">${esc(d.path)}</div>`;
@@ -1018,6 +1060,9 @@ $(".info", viewer).addEventListener("change", e => { if (e.target.id === "showBo
 $(".info", viewer).addEventListener("click", async e => {
   const link = e.target.closest("a[target=_blank]");
   if (link && folderInfo.desktop) { e.preventDefault(); return post("/api/open", { url: link.href }); }
+  if (e.target.dataset.assign) {
+    return openAssign(+e.target.dataset.assign, e.target.dataset.current ? +e.target.dataset.current : null);
+  }
   if (e.target.dataset.reject) {
     e.target.disabled = true;
     try {

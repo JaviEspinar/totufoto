@@ -60,8 +60,8 @@ CREATE TABLE IF NOT EXISTS faces (
     embedding BLOB NOT NULL,
     thumb     BLOB NOT NULL,
     person_id INTEGER REFERENCES persons(id) ON DELETE SET NULL,
-    -- set when the user moves a face out of a person (Not them): the face then has its own
-    -- group, and clustering never moves it
+    -- set when the user places a face (Not them: a group of its own; Same as: another
+    -- person); clustering never moves it
     rejected  INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS faces_photo ON faces(photo_id);
@@ -120,6 +120,32 @@ pub fn move_face_to_new_person(conn: &mut Connection, face: i64) -> Result<Optio
     }
     tx.commit()?;
     Ok(Some(person))
+}
+
+/// Moves one face to an existing person ("Same as" in the photo viewer). The face stays
+/// there: clustering never moves faces the user placed. Returns false if the face or the
+/// person doesn't exist.
+pub fn assign_face(conn: &mut Connection, face: i64, person: i64) -> Result<bool> {
+    let tx = conn.transaction()?;
+    let exists: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM persons WHERE id = ?)", [person], |r| r.get(0))?;
+    let Some(old) = tx
+        .query_row("SELECT person_id FROM faces WHERE id = ?", [face], |r| r.get::<_, Option<i64>>(0))
+        .optional()?
+    else {
+        return Ok(false);
+    };
+    if !exists {
+        return Ok(false);
+    }
+    tx.execute("UPDATE faces SET person_id = ?, rejected = 1 WHERE id = ?", params![person, face])?;
+    if let Some(old) = old.filter(|&o| o != person) {
+        tx.execute(
+            "DELETE FROM persons WHERE id = ?1 AND name IS NULL AND NOT EXISTS (SELECT 1 FROM faces WHERE person_id = ?1)",
+            [old],
+        )?;
+    }
+    tx.commit()?;
+    Ok(true)
 }
 
 /// Faces marked "Not them" before they got their own group (older versions left them

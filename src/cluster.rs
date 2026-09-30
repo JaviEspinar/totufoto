@@ -1,8 +1,9 @@
 //! Groups face embeddings into people.
 //!
-//! Faces of persons the user has named are fixed. Faces the user took out of a person
-//! ("Not them") live in their own group and are never moved; once that group is named it
-//! counts as a named person. Every other face is first matched
+//! Faces of persons the user has named are fixed. Faces the user placed ("Not them" gives
+//! a face its own group, "Same as" moves it to another person) are never moved; in an
+//! unnamed group they attract nothing, and once the group is named they count as a named
+//! person's faces. Every other face is first matched
 //! against the named persons, and the rest are clustered by cosine similarity
 //! (greedy centroid clustering followed by refinement passes). Unnamed clusters keep
 //! their previous person id when most of their faces had it, so ids stay stable.
@@ -22,7 +23,7 @@ struct Face {
     id: i64,
     person: Option<i64>,
     embedding: Vec<f32>,
-    /// "Not them": the user moved this face out of a person.
+    /// The user placed this face ("Not them" or "Same as").
     moved_by_user: bool,
 }
 
@@ -75,8 +76,7 @@ pub fn recluster(conn: &mut Connection, threshold: f32) -> Result<()> {
     for (i, f) in faces.iter().enumerate() {
         match f.person {
             Some(p) if named.contains(&p) => fixed.entry(p).or_default().push(i),
-            // Taken out of a person by the user: stays in its own group, attracts nothing
-            // until that group is named.
+            // Placed by the user: stays where it is, attracts nothing until its group is named.
             _ if f.moved_by_user => {}
             _ => free.push(i),
         }
