@@ -459,19 +459,19 @@ async fn update_person(
     State(s): State<Shared>,
     Path(id): Path<i64>,
     Json(body): Json<PersonUpdate>,
-) -> ApiResult<StatusCode> {
-    db(&s, move |conn| {
-        if let Some(name) = body.name {
-            let name = name.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
-            conn.execute("UPDATE persons SET name = ? WHERE id = ?", params![name, id])?;
-        }
+) -> ApiResult<Response> {
+    let saved = db(&s, move |conn| {
         if let Some(hidden) = body.hidden {
             conn.execute("UPDATE persons SET hidden = ? WHERE id = ?", params![hidden, id])?;
         }
-        Ok(())
+        // Names are kept unique; the response says which name was saved.
+        body.name.map(|name| crate::db::rename_person(conn, id, name.as_deref())).transpose()
     })
     .await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(match saved {
+        Some(name) => Json(json!({ "name": name })).into_response(),
+        None => StatusCode::NO_CONTENT.into_response(),
+    })
 }
 
 #[derive(Deserialize)]
