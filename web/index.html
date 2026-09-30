@@ -43,6 +43,9 @@ nav button.on, .seg button.on { background: var(--chip); color: var(--ink); font
 .spacer { flex: 1; }
 .tools { display: flex; align-items: center; gap: 10px; color: var(--muted); }
 .tools select { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
+.range { display: flex; align-items: center; gap: 6px; }
+.range input { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font-size: 13px; }
+body.no-aside .range { display: none; }
 #scan { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
 #scan progress { width: 90px; accent-color: var(--accent); }
 .btn {
@@ -330,6 +333,10 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
   </nav>
   <div class="spacer"></div>
   <div class="tools">
+    <div class="range" title="Only photos taken between these dates (both included)">
+      <label>From <input type="date" id="fromDate"></label>
+      <label>to <input type="date" id="toDate"></label>
+    </div>
     <label>Group
       <select id="groupBy">
         <option value="month">by month</option>
@@ -419,6 +426,7 @@ const fmtFull = t => fmtDay(t) + " · " + t.slice(11, 16);
 const state = {
   view: "photos", sort: "desc", groupBy: "month", match: "all",
   people: new Set(), place: null, date: null, upcoming: 30,
+  from: null, to: null, // capture date range, YYYY-MM-DD, both included
 };
 let people = [], places = [], placeById = new Map(), photos = [], viewerIndex = -1, renderToken = 0;
 
@@ -433,6 +441,8 @@ function saveHash() {
   if (state.place) p.set("place", state.place);
   if (state.date) p.set("date", state.date);
   if (state.upcoming !== 30) p.set("days", state.upcoming);
+  if (state.from) p.set("from", state.from);
+  if (state.to) p.set("to", state.to);
   history.replaceState(null, "", "#" + p.toString());
 }
 function loadHash() {
@@ -445,6 +455,9 @@ function loadHash() {
   state.place = p.get("place") ? Number(p.get("place")) : null;
   state.date = p.get("date");
   state.upcoming = Number(p.get("days") || 30);
+  const day = v => (/^\d{4}-\d{2}-\d{2}$/.test(v || "") ? v : null);
+  state.from = day(p.get("from"));
+  state.to = day(p.get("to"));
 }
 
 // ---- data ------------------------------------------------------------------
@@ -470,6 +483,8 @@ function photoQuery(extra = {}) {
   if (state.people.size) { q.set("people", [...state.people].join(",")); q.set("match", state.match); }
   if (state.place) q.set("place", state.place);
   if (state.date) q.set("date", state.date);
+  if (state.from) q.set("from", state.from);
+  if (state.to) q.set("to", state.to);
   return "/api/photos?" + q;
 }
 
@@ -729,6 +744,14 @@ function renderGroups(container, groups, headerFn, subFn) {
 }
 
 /** Chips for the active filters. `peopleOnly` for views where place and date don't apply. */
+const fmtDate = d => new Date(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10))
+  .toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+function rangeLabel() {
+  if (state.from && state.to) return `${fmtDate(state.from)} to ${fmtDate(state.to)}`;
+  return state.from ? `Since ${fmtDate(state.from)}` : `Until ${fmtDate(state.to)}`;
+}
+/** Chips for the active filters. `peopleOnly` for Places, where the place and date prefix
+ *  filters don't apply (people and the date range do). */
 function filterChips({ peopleOnly = false } = {}) {
   const chip = (label, key, person = "") =>
     `<span class="chip"${person ? ` data-person-chip="${person}"` : ""}><span class="label">${esc(label)}</span>` +
@@ -742,7 +765,8 @@ function filterChips({ peopleOnly = false } = {}) {
   let count = selected.length;
   if (state.place && !peopleOnly) { parts.push(chip(placeLabel(state.place), "place")); count++; }
   if (state.date && !peopleOnly) { parts.push(chip(state.date, "date")); count++; }
-  if (count) parts.push(`<button class="clear-all" data-clear="${peopleOnly ? "people" : "all"}">Clear all</button>`);
+  if (state.from || state.to) { parts.push(chip(rangeLabel(), "range")); count++; }
+  if (count) parts.push(`<button class="clear-all" data-clear="${peopleOnly ? "shown" : "all"}">Clear all</button>`);
   return `<div class="filters">${parts.join("")}</div>`;
 }
 function onChipClick(e) {
@@ -750,8 +774,11 @@ function onChipClick(e) {
   if (!k) return;
   if (k.startsWith("person:")) state.people.delete(+k.slice(7));
   else if (k === "people") state.people.clear();
-  else if (k === "all") { state.people.clear(); state.place = null; state.date = null; }
+  else if (k === "range") { state.from = null; state.to = null; }
+  else if (k === "shown") { state.people.clear(); state.from = null; state.to = null; } // Places
+  else if (k === "all") { state.people.clear(); state.place = null; state.date = null; state.from = null; state.to = null; }
   else state[k] = null;
+  syncRangeInputs();
   renderPeopleList();
   render();
 }
@@ -764,7 +791,7 @@ async function renderPhotos(main, token, signal) {
   load.finish();
   load.head.querySelector(".count").textContent = `${photos.length.toLocaleString()} photos`;
   if (!photos.length) {
-    const filtered = state.people.size || state.place || state.date;
+    const filtered = state.people.size || state.place || state.date || state.from || state.to;
     if (!filtered && !folderInfo.folders.length && folderInfo.managed) {
       main.innerHTML = `<div class="welcome"><h2>Welcome to totufoto</h2>
         <p>Add a folder with photos. It is indexed in the background, and subfolders are included.</p>
@@ -816,19 +843,24 @@ async function renderUpcoming(main, token, signal) {
 /** Place cards. With people selected, only places with photos of them, counted that way. */
 async function renderPlaces(main, token, signal) {
   if (!places.length) { main.innerHTML = `<div class="blank">No photos with GPS location yet.</div>`; return; }
-  const filtered = state.people.size > 0;
+  const filtered = state.people.size > 0 || !!state.from || !!state.to;
   const chips = filtered ? filterChips({ peopleOnly: true }) : "";
   const load = beginViewLoad(main, "places", chips + (filtered ? `<div class="count">Loading places…</div>` : ""), placePlaceholders, token);
   let list = places;
   if (filtered) {
-    list = await api("/api/places?" + new URLSearchParams({ people: [...state.people].join(","), match: state.match }), { signal });
+    const q = new URLSearchParams();
+    if (state.people.size) { q.set("people", [...state.people].join(",")); q.set("match", state.match); }
+    if (state.from) q.set("from", state.from);
+    if (state.to) q.set("to", state.to);
+    list = await api("/api/places?" + q, { signal });
     if (token !== renderToken) return;
   }
   load.finish();
   if (!list.length) {
-    const who = state.people.size === 1 ? "this person" : state.match === "any" ? "any of these people" : "these people together";
+    const who = !state.people.size ? "" : state.people.size === 1 ? " of this person" : state.match === "any" ? " of any of these people" : " of these people together";
+    const when = state.from || state.to ? " in these dates" : "";
     load.head.querySelector(".count")?.remove();
-    load.area.innerHTML = `<div class="blank">No places have photos of ${who}.</div>`;
+    load.area.innerHTML = `<div class="blank">No places have photos${who}${when}.</div>`;
     return;
   }
   const photoCount = list.reduce((n, p) => n + p.count, 0);
@@ -1337,6 +1369,24 @@ $("#main").addEventListener("change", e => {
 });
 $("#main").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset.rename) e.target.blur(); });
 
+// Date range: either end may be empty; each picker can't go past the other.
+function syncRangeInputs() {
+  const from = $("#fromDate"), to = $("#toDate");
+  from.value = state.from || "";
+  to.value = state.to || "";
+  from.max = state.to || "";
+  to.min = state.from || "";
+}
+for (const id of ["fromDate", "toDate"]) {
+  $("#" + id).addEventListener("change", () => {
+    const from = $("#fromDate").value || null, to = $("#toDate").value || null;
+    // A reversed range (typed by hand) is put the right way round.
+    [state.from, state.to] = from && to && from > to ? [to, from] : [from, to];
+    syncRangeInputs();
+    if (state.view === "people") state.view = "photos";
+    render();
+  });
+}
 $("#tabs").addEventListener("click", e => { if (e.target.dataset.view) { state.view = e.target.dataset.view; render(); } });
 $("#groupBy").addEventListener("change", e => { state.groupBy = e.target.value; if (state.view !== "photos") state.view = "photos"; render(); });
 $("#sort").addEventListener("change", e => { state.sort = e.target.value; render(); });
@@ -1506,6 +1556,7 @@ async function pollStatus() {
 }
 
 loadHash();
+syncRangeInputs();
 Promise.all([loadMeta(), loadFolders()]).then(render);
 pollStatus();
 </script>

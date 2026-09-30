@@ -241,12 +241,40 @@ struct PhotoQuery {
     match_mode: Option<String>,
     /// YYYY, YYYY-MM or YYYY-MM-DD prefix of the capture date
     date: Option<String>,
+    /// capture date range, YYYY-MM-DD, both days included
+    from: Option<String>,
+    to: Option<String>,
     /// photos from previous years whose anniversary falls within the next `upcoming` days
     upcoming: Option<u32>,
 }
 
 fn parse_ids(s: &str) -> Vec<i64> {
     s.split(',').filter_map(|p| p.trim().parse().ok()).collect()
+}
+
+/// SQL condition (starting with " AND") and its arguments keeping photos whose `taken`
+/// column falls in the range, both days included. Either end may be missing; invalid
+/// dates are ignored, and a reversed range is put the right way round.
+fn date_range_filter(taken: &str, from: Option<&str>, to: Option<&str>) -> (String, Vec<Value>) {
+    let parse = |d: Option<&str>| d.and_then(|d| chrono::NaiveDate::parse_from_str(d.trim(), "%Y-%m-%d").ok());
+    let (mut from, mut to) = (parse(from), parse(to));
+    if let (Some(f), Some(t)) = (from, to)
+        && f > t
+    {
+        (from, to) = (Some(t), Some(f));
+    }
+    let mut sql = String::new();
+    let mut args = Vec::new();
+    // `taken` is "YYYY-MM-DD HH:MM:SS", so plain text comparison orders it by time.
+    if let Some(f) = from {
+        sql.push_str(&format!(" AND {taken} >= ?"));
+        args.push(Value::from(f.format("%Y-%m-%d").to_string()));
+    }
+    if let Some(t) = to.and_then(|t| t.succ_opt()) {
+        sql.push_str(&format!(" AND {taken} < ?"));
+        args.push(Value::from(t.format("%Y-%m-%d").to_string()));
+    }
+    (sql, args)
 }
 
 /// SQL condition (starting with " AND") keeping photos, by their `photo_id` column, where
@@ -297,6 +325,9 @@ async fn photos(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResu
             sql.push_str(" AND taken LIKE ? || '%'");
             args.push(date.into());
         }
+        let (range, range_args) = date_range_filter("taken", q.from.as_deref(), q.to.as_deref());
+        sql.push_str(&range);
+        args.extend(range_args);
         let mut days = Vec::new();
         if let Some(n) = q.upcoming {
             let (list, year) = upcoming_days(n);
@@ -385,19 +416,23 @@ struct PlacesQuery {
     people: Option<String>,
     #[serde(rename = "match")]
     match_mode: Option<String>,
+    /// Only count photos taken in this range (YYYY-MM-DD, both days included).
+    from: Option<String>,
+    to: Option<String>,
 }
 
 async fn places(State(s): State<Shared>, Query(q): Query<PlacesQuery>) -> ApiResult<Json<JsonValue>> {
     let rows = db(&s, move |conn| {
         let filter = people_filter("p.id", q.people.as_deref(), q.match_mode.as_deref());
+        let (range, args) = date_range_filter("p.taken", q.from.as_deref(), q.to.as_deref());
         let rows: Vec<JsonValue> = conn
             .prepare_cached(&format!(
                 "SELECT pl.id, pl.city, pl.region, pl.country, COUNT(*) AS n, MAX(p.id)
                  FROM photos p JOIN places pl ON pl.id = p.place_id
-                 WHERE 1 = 1{filter}
+                 WHERE 1 = 1{filter}{range}
                  GROUP BY pl.id ORDER BY n DESC, pl.city"
             ))?
-            .query_map([], |r| {
+            .query_map(params_from_iter(args), |r| {
                 Ok(json!({
                     "id": r.get::<_, i64>(0)?,
                     "city": r.get::<_, String>(1)?,
