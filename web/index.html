@@ -128,9 +128,19 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 .card .s { color: var(--muted); font-size: 12px; }
 
 .people-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
-/* People grid: only the visible cards exist in the page (see mountPeopleGrid). */
+/* People grid: only the visible cards exist in the page (see mountPeopleGrid). Cards are
+   kept while they stay on screen and slide to new places instead of being rebuilt. */
 .vgrid { position: relative; margin-top: 16px; }
-.vwin { position: absolute; left: 0; right: 0; top: 0; display: grid; gap: 14px; }
+.vcard { position: absolute; left: 0; top: 0; }
+.vgrid.animate .vcard { transition: transform 0.28s cubic-bezier(0.2, 0.7, 0.3, 1); }
+.vcard.enter, .vgrid.fade-in { animation: fade-in 0.22s ease both; }
+.vcard.leave { animation: fade-out 0.2s ease forwards; pointer-events: none; }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes fade-out { to { opacity: 0; scale: 0.92; } }
+@media (prefers-reduced-motion: reduce) {
+  .vgrid.animate .vcard { transition: none; }
+  .vcard.enter, .vgrid.fade-in, .vcard.leave { animation-duration: 1ms; }
+}
 .face-card { text-align: center; padding: 14px 10px 10px; cursor: default; height: 222px; }
 .avatar {
   width: 110px; height: 110px; border-radius: 50%; margin: 0 auto 8px; overflow: hidden; cursor: pointer;
@@ -389,19 +399,57 @@ function photoQuery(extra = {}) {
 }
 
 // ---- sidebar ---------------------------------------------------------------
-/** People whose name matches `query`, in list order (named first, then by photo count). */
-function matchPeople(query, list = people) {
+// People keep their place on screen while you work: renaming someone (named people sort
+// first) or refreshing counts must not reshuffle the list under you. The order is taken
+// fresh from the server when the People tab is opened; new people are added at the end.
+let peopleOrder = [], orderedCache = null;
+function resetPeopleOrder() { peopleOrder = people.map(p => p.id); orderedCache = null; }
+function orderedPeople() {
+  // Recomputed only when the people list or the order changed.
+  if (orderedCache && orderedCache.source === people && orderedCache.order === peopleOrder) return orderedCache.out;
+  const byId = new Map(people.map(p => [p.id, p]));
+  const out = [];
+  for (const id of peopleOrder) { const p = byId.get(id); if (p) { out.push(p); byId.delete(id); } }
+  for (const p of people) if (byId.has(p.id)) out.push(p);
+  peopleOrder = out.map(p => p.id);
+  orderedCache = { source: people, order: peopleOrder, out };
+  return out;
+}
+
+/** People whose name matches `query`, in display order. */
+function matchPeople(query, list = orderedPeople()) {
   const q = query.trim().toLowerCase();
   return q ? list.filter(p => personName(p).toLowerCase().includes(q)) : list;
 }
 
 // Large libraries can have thousands of face groups: the sidebar shows the selected
-// people plus the top matches, and search finds the rest.
+// people plus the top matches, and search finds the rest. Rows are reused between
+// updates, so pictures don't reload and nothing flashes.
 const SIDEBAR_LIMIT = 150;
+const sidebarRows = new Map();
+function sidebarRow(p) {
+  let row = sidebarRows.get(p.id);
+  if (!row) {
+    row = document.createElement("label");
+    row.className = "person";
+    row.innerHTML = `<input type="checkbox" data-id="${p.id}"><img loading="lazy" alt=""><span class="n"></span><span class="c"></span>`;
+    sidebarRows.set(p.id, row);
+  }
+  const img = row.querySelector("img"), name = row.querySelector(".n");
+  if (img.dataset.face !== String(p.face)) { img.dataset.face = p.face; img.src = `/face/${p.face}`; }
+  row.title = personName(p);
+  name.textContent = personName(p);
+  name.classList.toggle("unnamed", !p.name);
+  row.querySelector(".c").textContent = p.count;
+  row.querySelector("input").checked = state.people.has(p.id);
+  return row;
+}
 function renderPeopleList() {
   const list = $("#peopleList");
-  const visible = people.filter(p => !p.hidden);
+  const all = orderedPeople();
+  const visible = all.filter(p => !p.hidden);
   $("#peopleFilter").hidden = visible.length <= 12;
+  for (const b of $("#match").children) b.classList.toggle("on", b.dataset.m === state.match);
   if (!visible.length) {
     list.innerHTML = `<div class="empty-side">No people yet. Faces are grouped automatically while the library is indexed.</div>`;
     return;
@@ -410,16 +458,17 @@ function renderPeopleList() {
   const rest = matches.filter(p => !state.people.has(p.id));
   const shown = [...visible.filter(p => state.people.has(p.id)), ...rest.slice(0, SIDEBAR_LIMIT)];
   const hiddenCount = rest.length - SIDEBAR_LIMIT;
-  list.innerHTML = shown.map(p => `
-    <label class="person" title="${esc(personName(p))}">
-      <input type="checkbox" data-id="${p.id}" ${state.people.has(p.id) ? "checked" : ""}>
-      <img src="/face/${p.face}" loading="lazy" alt="">
-      <span class="n ${p.name ? "" : "unnamed"}">${esc(personName(p))}</span>
-      <span class="c">${p.count}</span>
-    </label>`).join("") +
-    (hiddenCount > 0 ? `<div class="more">${hiddenCount.toLocaleString()} more. Search to find them.</div>` : "") +
+  const extra = document.createElement("div");
+  extra.innerHTML = (hiddenCount > 0 ? `<div class="more">${hiddenCount.toLocaleString()} more. Search to find them.</div>` : "") +
     (!matches.length ? `<div class="empty-side">Nobody matches.</div>` : "");
-  for (const b of $("#match").children) b.classList.toggle("on", b.dataset.m === state.match);
+  const rows = shown.map(sidebarRow);
+  // Only touch the list when its rows changed; moving existing rows keeps their pictures.
+  const current = [...list.children];
+  const same = current.length === rows.length + extra.childElementCount && rows.every((r, i) => current[i] === r) &&
+    extra.innerHTML === current.slice(rows.length).map(e => e.outerHTML).join("");
+  if (!same) list.replaceChildren(...rows, ...extra.children);
+  const keep = new Set(shown.map(p => p.id));
+  for (const id of sidebarRows.keys()) if (!keep.has(id) && sidebarRows.size > 600) sidebarRows.delete(id);
 }
 $("#peopleFilter").addEventListener("input", renderPeopleList);
 $("#peopleList").addEventListener("change", e => {
@@ -604,8 +653,12 @@ function renderPlaces(main) {
 const CARD_MIN_W = 150, CARD_H = 222, GRID_GAP = 14, OVERSCAN_ROWS = 2;
 let peopleGrid = null, peopleQuery = "";
 
-const faceImg = (id, cls = "") =>
-  `<img src="/face/${id}" alt="" decoding="async" class="${cls}" onload="this.classList.add('ok')" onerror="this.classList.add('ok')">`;
+// Faces fade in the first time they load; after that they show at once.
+const loadedFaces = new Set();
+function faceLoaded(img) { loadedFaces.add(img.dataset.face); img.classList.add("ok"); }
+const faceImg = id => loadedFaces.has(String(id))
+  ? `<img src="/face/${id}" alt="" data-face="${id}" class="ok">`
+  : `<img src="/face/${id}" alt="" data-face="${id}" decoding="async" onload="faceLoaded(this)" onerror="faceLoaded(this)">`;
 const faceCard = p => `
   <div class="card face-card ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}">
     <div class="avatar" title="Show photos">${faceImg(p.face)}</div>
@@ -622,78 +675,133 @@ const skeletonCard = () => `
   </div>`;
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
 
-function mountPeopleGrid(host, items) {
+function mountPeopleGrid(host, { fadeIn = false } = {}) {
   const main = $("#main");
-  host.innerHTML = `<div class="vgrid"><div class="vwin"></div></div>`;
-  const outer = host.firstElementChild, win = outer.firstElementChild;
-  const grid = { items, cols: 1, first: -1, last: -1, pending: false };
+  host.innerHTML = `<div class="vgrid${fadeIn ? " fade-in" : ""}"></div>`;
+  const outer = host.firstElementChild;
   const rowH = CARD_H + GRID_GAP;
+  const cards = new Map(); // person id -> .vcard element
+  const grid = { items: [], cols: 1, cardW: CARD_MIN_W };
+  let animateTimer = 0;
+  const pos = i => `translate(${(i % grid.cols) * (grid.cardW + GRID_GAP)}px, ${Math.floor(i / grid.cols) * rowH}px)`;
+
   function layout() {
-    grid.cols = Math.max(1, Math.floor((outer.clientWidth + GRID_GAP) / (CARD_MIN_W + GRID_GAP)));
-    win.style.gridTemplateColumns = `repeat(${grid.cols}, minmax(0, 1fr))`;
-    const rows = Math.ceil(grid.items.length / grid.cols);
-    outer.style.height = `${Math.max(0, rows * rowH - GRID_GAP)}px`;
-    draw(true);
+    const w = outer.clientWidth;
+    grid.cols = Math.max(1, Math.floor((w + GRID_GAP) / (CARD_MIN_W + GRID_GAP)));
+    grid.cardW = (w - GRID_GAP * (grid.cols - 1)) / grid.cols;
+    outer.style.height = `${Math.max(0, Math.ceil(grid.items.length / grid.cols) * rowH - GRID_GAP)}px`;
   }
-  function draw(force = false) {
-    // Don't swap cards under someone typing a name; redraw when they leave the field.
-    if (win.contains(document.activeElement) && document.activeElement.tagName === "INPUT") { grid.pending = true; return; }
+  /** Updates a card's contents in place (no rebuild, so pictures and typing are kept). */
+  function update(el, p) {
+    const card = el.firstElementChild;
+    card.classList.toggle("hidden-person", !!p.hidden);
+    const input = card.querySelector("input");
+    if (document.activeElement !== input && input.value !== (p.name || "")) input.value = p.name || "";
+    card.querySelector(".s").textContent = `${p.count} photo${p.count === 1 ? "" : "s"}`;
+    card.querySelector("[data-hide]").textContent = p.hidden ? "Show" : "Hide";
+    if (card.querySelector("img").dataset.face !== String(p.face)) card.querySelector(".avatar").innerHTML = faceImg(p.face);
+  }
+  function draw({ animate = false } = {}) {
+    if (animate) {
+      outer.classList.add("animate");
+      clearTimeout(animateTimer);
+      animateTimer = setTimeout(() => outer.classList.remove("animate"), 350);
+    }
     const top = outer.getBoundingClientRect().top - main.getBoundingClientRect().top;
     const firstRow = Math.max(0, Math.floor(-top / rowH) - OVERSCAN_ROWS);
     const lastRow = Math.ceil((main.clientHeight - top) / rowH) + OVERSCAN_ROWS;
     const first = firstRow * grid.cols, last = Math.min(grid.items.length, lastRow * grid.cols);
-    if (!force && first === grid.first && last === grid.last) return;
-    grid.first = first; grid.last = last;
-    win.style.transform = `translateY(${firstRow * rowH}px)`;
-    win.innerHTML = grid.items.slice(first, last).map(faceCard).join("");
+    const keep = new Set();
+    for (let i = first; i < last; i++) {
+      const p = grid.items[i];
+      keep.add(p.id);
+      let el = cards.get(p.id);
+      if (!el) {
+        el = document.createElement("div");
+        el.className = animate ? "vcard enter" : "vcard";
+        el.innerHTML = faceCard(p);
+        el.style.transform = pos(i);
+        el.style.width = `${grid.cardW}px`;
+        outer.append(el);
+        cards.set(p.id, el);
+        continue;
+      }
+      update(el, p);
+      const t = pos(i);
+      if (el.style.transform !== t) el.style.transform = t;
+      el.style.width = `${grid.cardW}px`;
+    }
+    const alive = new Set(grid.items.map(p => p.id));
+    for (const [id, el] of cards) {
+      if (keep.has(id)) continue;
+      // Keep a card someone is typing in while it's still a person, even off screen.
+      if (el.contains(document.activeElement) && alive.has(id)) continue;
+      cards.delete(id);
+      if (animate && !alive.has(id)) { el.classList.add("leave"); setTimeout(() => el.remove(), 220); }
+      else el.remove();
+    }
   }
   let raf = 0;
   const onScroll = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
-  const onFocusOut = () => { if (grid.pending) { grid.pending = false; setTimeout(() => draw(true), 0); } };
   main.addEventListener("scroll", onScroll, { passive: true });
-  win.addEventListener("focusout", onFocusOut);
-  const resize = new ResizeObserver(layout);
+  const resize = new ResizeObserver(() => { layout(); draw(); });
   resize.observe(outer);
-  grid.setItems = next => { grid.items = next; layout(); };
-  grid.destroy = () => { main.removeEventListener("scroll", onScroll); resize.disconnect(); };
-  layout();
+  grid.setItems = (next, opts) => { grid.items = next; layout(); draw(opts); };
+  grid.destroy = () => { main.removeEventListener("scroll", onScroll); resize.disconnect(); clearTimeout(animateTimer); };
   return grid;
 }
 
 function peopleCountText(n) {
   return peopleQuery ? `${n.toLocaleString()} matching` : `${n.toLocaleString()} people`;
 }
-/** Redraws everything that shows people from the in-memory list (cheap). */
-function refreshPeopleViews() {
+/** Redraws everything that shows people from the in-memory list (cheap). `animate` makes
+ *  cards slide to their new places, for changes like a merge. */
+function refreshPeopleViews({ animate = true } = {}) {
   renderPeopleList();
   if (!peopleGrid) return;
   const items = matchPeople(peopleQuery);
-  peopleGrid.setItems(items);
+  peopleGrid.setItems(items, { animate });
   $("#peopleCount").textContent = peopleCountText(items.length);
 }
 
+const SKELETON_DELAY = 150;
 async function renderPeople(main, token) {
-  // Paint placeholders right away, then fill in.
   main.innerHTML = `<div class="people-bar">
       <input class="search" id="peopleSearch" type="search" placeholder="Search people" autocomplete="off" value="${esc(peopleQuery)}">
-      <span id="peopleCount">Loading people…</span>
+      <span id="peopleCount"></span>
     </div>
-    <div id="peopleHost"><div class="cards people-grid">${skeletonCard().repeat(18)}</div></div>`;
+    <div id="peopleHost"></div>`;
   $("#peopleSearch").addEventListener("input", e => {
     peopleQuery = e.target.value;
     main.scrollTop = 0;
-    refreshPeopleViews();
+    refreshPeopleViews({ animate: false });
   });
+  const host = $("#peopleHost");
+  let placeholders = false;
   const show = () => {
     if (token !== renderToken) return;
-    if (!people.length) { $("#peopleHost").innerHTML = `<div class="blank">No faces found yet.</div>`; $("#peopleCount").textContent = ""; return; }
-    if (!peopleGrid) peopleGrid = mountPeopleGrid($("#peopleHost"), []);
-    refreshPeopleViews();
+    if (!people.length) { host.innerHTML = `<div class="blank">No faces found yet.</div>`; $("#peopleCount").textContent = ""; return; }
+    if (!peopleGrid) {
+      resetPeopleOrder(); // opening the tab is when the list gets sorted again
+      peopleGrid = mountPeopleGrid(host, { fadeIn: placeholders });
+    }
+    refreshPeopleViews({ animate: false });
   };
-  await nextFrame();
-  if (people.length) show(); // what we already have, while fresh numbers load
+  // What we already have shows at once. Placeholders only appear if loading is slow.
+  if (people.length) show();
+  else {
+    $("#peopleCount").textContent = "Loading people…";
+    setTimeout(() => {
+      if (token === renderToken && !peopleGrid && !people.length) {
+        placeholders = true;
+        host.innerHTML = `<div class="cards people-grid">${skeletonCard().repeat(18)}</div>`;
+      }
+    }, SKELETON_DELAY);
+  }
   await loadMeta();
-  show();
+  if (token !== renderToken) return;
+  if (peopleGrid) refreshPeopleViews({ animate: true }); // fresh counts, in place
+  else show();
 }
 
 // ---- merge dialog ------------------------------------------------------------------
@@ -772,6 +880,7 @@ function mergePeople(from, into) {
   const a = people.find(p => p.id === from), b = people.find(p => p.id === into);
   if (!a || !b) return;
   const label = `${personName(a)} into ${personName(b)}`;
+  const orderBefore = peopleOrder; // so a failed merge puts the person back in their place
   b.count += a.count; // exact count (photos with both) comes with the resync
   if (!b.name) b.name = a.name;
   people = people.filter(p => p.id !== from);
@@ -780,7 +889,12 @@ function mergePeople(from, into) {
   toast(`Merged ${label}`);
   post(`/api/people/${from}/merge`, { into })
     .then(resync)
-    .catch(err => { toast(`Couldn't merge ${label}: ${err.message}`, true); resync(); });
+    .catch(err => {
+      toast(`Couldn't merge ${label}: ${err.message}`, true);
+      peopleOrder = orderBefore;
+      orderedCache = null;
+      resync();
+    });
 }
 
 function toggleHidden(id) {
