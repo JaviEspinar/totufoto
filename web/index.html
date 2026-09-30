@@ -80,6 +80,16 @@ aside h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; c
 .candidate img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--chip); }
 .candidate .n { flex: 1; }
 .candidate .c { color: var(--muted); font-size: 12px; }
+.merge-pair { display: flex; align-items: center; justify-content: center; gap: 18px; padding: 14px 0 10px; }
+.merge-pair figure { margin: 0; text-align: center; width: 150px; }
+.merge-pair img { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; background: var(--chip); display: block; margin: 0 auto 8px; }
+.merge-pair figcaption { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.merge-pair figcaption.unnamed { color: var(--muted); font-style: italic; font-weight: 400; }
+.merge-pair .s { color: var(--muted); font-size: 12px; }
+.merge-pair .arrow { font-size: 26px; color: var(--muted); }
+.merge-note { text-align: center; }
+.dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.dlg-actions .btn { padding: 7px 16px; }
 
 main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 .filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 0 0; min-height: 12px; }
@@ -245,11 +255,14 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 <main id="main"></main>
 
 <dialog id="mergeDlg">
-  <div class="dlg-head"><h3>Same person as…</h3><button data-close title="Close">✕</button></div>
+  <div class="dlg-head"><h3 id="mergeTitle">Same person as…</h3><button data-close title="Close">✕</button></div>
   <div class="dlg-body">
-    <p>Pick who this is. Their photos are combined into one person.</p>
-    <input class="search" id="mergeFilter" type="search" placeholder="Search people" autocomplete="off">
-    <div class="candidates"></div>
+    <div id="mergePick">
+      <p>Pick who this is. Their photos are combined into one person.</p>
+      <input class="search" id="mergeFilter" type="search" placeholder="Search people" autocomplete="off">
+      <div class="candidates"></div>
+    </div>
+    <div id="mergeConfirm" hidden></div>
   </div>
 </dialog>
 
@@ -582,9 +595,34 @@ const MERGE_LIMIT = 40;
 function openMerge(id) {
   mergeFrom = id;
   $("#mergeFilter").value = "";
+  showMergeStep(null);
   renderMergeCandidates();
   $("#mergeDlg").showModal();
   $("#mergeFilter").focus();
+}
+/** Switches the dialog between picking a person (`into` null) and confirming the merge. */
+function showMergeStep(into, error = "") {
+  const picking = into == null;
+  $("#mergePick").hidden = !picking;
+  $("#mergeConfirm").hidden = picking;
+  $("#mergeTitle").textContent = picking ? "Same person as…" : "Merge these people?";
+  if (picking) return;
+  const a = people.find(p => p.id === mergeFrom), b = people.find(p => p.id === into);
+  const face = p => `<figure>
+      <img src="/face/${p.face}" alt="">
+      <figcaption class="${p.name ? "" : "unnamed"}">${esc(personName(p))}</figcaption>
+      <div class="s">${p.count} photo${p.count === 1 ? "" : "s"}</div>
+    </figure>`;
+  const resultName = b.name || a.name;
+  $("#mergeConfirm").innerHTML = `
+    <div class="merge-pair">${face(a)}<span class="arrow" aria-hidden="true">→</span>${face(b)}</div>
+    <p class="merge-note">The photos of <b>${esc(personName(a))}</b> move to <b>${esc(personName(b))}</b>${resultName ? `, named <b>${esc(resultName)}</b>` : ""}. This can't be undone, but a wrong face can later be removed with <i>Not them</i> in the photo viewer.</p>
+    <div class="err">${esc(error)}</div>
+    <div class="dlg-actions">
+      <button class="btn" data-back>Back</button>
+      <button class="btn primary" data-confirm="${into}">Merge</button>
+    </div>`;
+  $("#mergeConfirm [data-confirm]").focus();
 }
 function renderMergeCandidates() {
   const all = matchPeople($("#mergeFilter").value).filter(p => p.id !== mergeFrom);
@@ -601,13 +639,18 @@ $("#mergeFilter").addEventListener("input", renderMergeCandidates);
 $("#mergeDlg").addEventListener("click", async e => {
   const dlg = $("#mergeDlg");
   if (e.target === dlg || e.target.dataset.close != null) return dlg.close();
+  if (e.target.dataset.back != null) { showMergeStep(null); return $("#mergeFilter").focus(); }
   const row = e.target.closest("[data-into]");
-  if (!row) return;
-  const into = +row.dataset.into, from = mergeFrom;
-  const a = people.find(p => p.id === from), b = people.find(p => p.id === into);
-  if (!confirm(`Merge "${personName(a)}" into "${personName(b)}"?`)) return;
+  if (row) return showMergeStep(+row.dataset.into);
+  if (!e.target.dataset.confirm) return;
+  const into = +e.target.dataset.confirm, from = mergeFrom;
+  e.target.disabled = true;
+  try {
+    await post(`/api/people/${from}/merge`, { into });
+  } catch (err) {
+    return showMergeStep(into, `Couldn't merge: ${err.message}`);
+  }
   dlg.close();
-  await post(`/api/people/${from}/merge`, { into });
   if (state.people.delete(from)) state.people.add(into);
   await loadMeta();
   render();
