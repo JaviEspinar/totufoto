@@ -840,8 +840,21 @@ function showMergeStep(into) {
     </div>`;
   $("#mergeConfirm [data-confirm]").focus();
 }
+// The picker lists people A to Z (accents and case ignored, "Person 2" before "Person 10"),
+// with unnamed people last. Sorted once per people list.
+const nameCollator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+let alphabeticalCache = null;
+function peopleAlphabetical() {
+  if (alphabeticalCache?.source === people) return alphabeticalCache.out;
+  const out = [...people].sort((a, b) =>
+    !a.name !== !b.name ? (a.name ? -1 : 1)
+      : a.name ? nameCollator.compare(a.name, b.name) || a.id - b.id
+      : a.id - b.id);
+  alphabeticalCache = { source: people, out };
+  return out;
+}
 function renderMergeCandidates() {
-  const all = matchPeople($("#mergeFilter").value).filter(p => p.id !== mergeFrom);
+  const all = matchPeople($("#mergeFilter").value, peopleAlphabetical()).filter(p => p.id !== mergeFrom);
   $("#mergeDlg .candidates").innerHTML = all.slice(0, MERGE_LIMIT).map(p => `
     <div class="candidate" data-into="${p.id}">
       <div class="avatar-sm">${faceImg(p.face)}</div>
@@ -911,6 +924,7 @@ function renamePerson(id, value) {
   const name = value.trim() || null;
   if (!p || p.name === name) return;
   p.name = name;
+  alphabeticalCache = null;
   renderPeopleList();
   post(`/api/people/${id}`, { name: value })
     .then(resync)
