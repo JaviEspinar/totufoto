@@ -28,7 +28,7 @@ Download the file for your system from the [latest release](https://github.com/J
   ```
   If it says FUSE is missing, install it (`sudo apt install libfuse2` on Ubuntu/Debian) or run it with `--appimage-extract-and-run`.
 
-On first start, click **Add folder…** and pick a folder with photos. Add more folders, or remove them, with the **Folders** button. A second launch brings the open window to the front.
+On first start, click **Add folder…** and pick a folder with photos. Add more folders, or remove them, in **Settings** (the gear at the top right). A second launch brings the open window to the front.
 
 Where the index is kept (delete it to start over):
 
@@ -101,7 +101,7 @@ Without either of them the gallery still works, just without people. When you ad
 cargo run --release -- ~/Pictures/Holidays
 ```
 
-Or start it without folders (`cargo run --release`) and add them from the **Folders** button in the gallery.
+Or start it without folders (`cargo run --release`) and add them in **Settings** (the gear at the top right of the gallery).
 
 The first build takes a minute or two. Then open **http://127.0.0.1:7878**. Indexing runs in the background with progress shown in the top-right corner, and photos appear as soon as it finishes. Press `Ctrl+C` in the terminal to stop the app.
 
@@ -135,7 +135,7 @@ Only photos stored on the Mac are found. Photos kept only in iCloud ("Optimize M
 - **Date range**: *From* and *to* in the top bar keep only photos taken between those days (both included; either can be left empty). It applies to Photos, Places and Upcoming.
 - **Filter chips**: each selected person, place and date range shows as a chip above the photos; × removes one, *Clear all* removes them all.
 - **Viewer**: click a photo to open it. Use the arrow keys to move and `Esc` to close. The side panel shows the date, place and people. For each face, *Same as…* moves just that face to the person you pick, and *Not them* moves it to a new unnamed group, which you can rename, hide or merge in People. Automatic grouping never moves a face you placed. *Show face boxes* draws the detected faces.
-- **Rescan**: picks up new, changed or deleted photos without restarting.
+- **Settings** (the gear at the top right): photo folders (add, remove) and the library status, with *Rescan* to pick up new, changed or deleted photos without restarting. While photos are being indexed, the progress also shows next to the gear.
 
 ## The index
 
