@@ -77,12 +77,14 @@ aside h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; c
 .candidates { max-height: 50vh; overflow-y: auto; margin-top: 8px; }
 .candidate { display: flex; align-items: center; gap: 10px; padding: 6px; border-radius: 8px; cursor: pointer; }
 .candidate:hover { background: var(--hover); }
-.candidate img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--chip); }
+.candidate .avatar-sm { width: 36px; height: 36px; border-radius: 50%; overflow: hidden; background: var(--chip); flex: none; }
+.candidate .avatar-sm img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 0.2s; }
+.candidate .avatar-sm img.ok { opacity: 1; }
 .candidate .n { flex: 1; }
 .candidate .c { color: var(--muted); font-size: 12px; }
 .merge-pair { display: flex; align-items: center; justify-content: center; gap: 18px; padding: 14px 0 10px; }
 .merge-pair figure { margin: 0; text-align: center; width: 150px; }
-.merge-pair img { width: 96px; height: 96px; border-radius: 50%; object-fit: cover; background: var(--chip); display: block; margin: 0 auto 8px; }
+.merge-pair .avatar { width: 96px; height: 96px; cursor: default; }
 .merge-pair figcaption { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .merge-pair figcaption.unnamed { color: var(--muted); font-style: italic; font-weight: 400; }
 .merge-pair .s { color: var(--muted); font-size: 12px; }
@@ -125,9 +127,17 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 .card .t { font-weight: 600; }
 .card .s { color: var(--muted); font-size: 12px; }
 
-.people-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
-.face-card { text-align: center; padding: 14px 10px 10px; cursor: default; }
-.face-card img { width: 110px; height: 110px; border-radius: 50%; aspect-ratio: auto; margin: 0 auto 8px; cursor: pointer; }
+.people-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+/* People grid: only the visible cards exist in the page (see mountPeopleGrid). */
+.vgrid { position: relative; margin-top: 16px; }
+.vwin { position: absolute; left: 0; right: 0; top: 0; display: grid; gap: 14px; }
+.face-card { text-align: center; padding: 14px 10px 10px; cursor: default; height: 222px; }
+.avatar {
+  width: 110px; height: 110px; border-radius: 50%; margin: 0 auto 8px; overflow: hidden; cursor: pointer;
+  background: var(--chip);
+}
+.avatar img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity 0.2s; }
+.avatar img.ok { opacity: 1; }
 .face-card input {
   width: 100%; border: 1px solid transparent; background: transparent; text-align: center; border-radius: 6px;
   padding: 3px; font-weight: 600;
@@ -135,8 +145,33 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 .face-card input:hover, .face-card input:focus { border-color: var(--line); background: var(--bg); outline: none; }
 .face-card input::placeholder { color: var(--muted); font-weight: 400; font-style: italic; }
 .face-card .row { display: flex; gap: 4px; justify-content: center; margin-top: 6px; }
-.face-card select, .face-card .btn { font-size: 11px; padding: 3px 6px; max-width: 100%; }
+.face-card .btn { font-size: 11px; padding: 3px 6px; max-width: 100%; }
 .face-card.hidden-person { opacity: 0.5; }
+
+/* Loading placeholders */
+.shimmer, .avatar:has(img:not(.ok)), .candidate .avatar-sm:has(img:not(.ok)) {
+  background: linear-gradient(90deg, var(--chip) 0%, var(--hover) 50%, var(--chip) 100%);
+  background-size: 200% 100%; animation: shimmer 1.2s linear infinite;
+}
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.skeleton .avatar { cursor: default; }
+.skeleton .line { height: 12px; border-radius: 6px; margin: 10px auto 0; width: 70%; }
+.skeleton .line.short { width: 40%; }
+.spinner {
+  width: 26px; height: 26px; border-radius: 50%; margin: 28px auto; border: 3px solid var(--chip);
+  border-top-color: var(--accent); animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .shimmer, .avatar, .spinner { animation-duration: 3s; } }
+
+/* Short notices after an action */
+#toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translate(-50%, 20px); opacity: 0; pointer-events: none;
+  background: var(--ink); color: var(--bg); padding: 9px 16px; border-radius: 10px; font-size: 13px; z-index: 30;
+  transition: opacity 0.2s, transform 0.2s; max-width: calc(100vw - 32px);
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+#toast.error { background: #b42318; color: #fff; }
 
 .upbar { display: flex; align-items: center; gap: 10px; padding-top: 16px; color: var(--muted); }
 .upbar .seg { margin: 0; }
@@ -253,6 +288,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 </aside>
 
 <main id="main"></main>
+
+<div id="toast" role="status" aria-live="polite"></div>
 
 <dialog id="mergeDlg">
   <div class="dlg-head"><h3 id="mergeTitle">Same person as…</h3><button data-close title="Close">✕</button></div>
@@ -561,32 +598,102 @@ function renderPlaces(main) {
     </div>`).join("")}</div>`;
 }
 
-function renderPeople(main) {
-  if (!people.length) { main.innerHTML = `<div class="blank">No faces found yet.</div>`; return; }
-  main.innerHTML = `<div class="people-bar">
-      <input class="search" id="peopleSearch" type="search" placeholder="Search people" autocomplete="off">
-      <span id="peopleCount">${people.length.toLocaleString()} people</span>
+// ---- people grid ---------------------------------------------------------------------
+// Libraries can have tens of thousands of people, so only the cards on screen exist in the
+// page. Everything else (opening dialogs, merging, searching) stays cheap because of that.
+const CARD_MIN_W = 150, CARD_H = 222, GRID_GAP = 14, OVERSCAN_ROWS = 2;
+let peopleGrid = null, peopleQuery = "";
+
+const faceImg = (id, cls = "") =>
+  `<img src="/face/${id}" alt="" decoding="async" class="${cls}" onload="this.classList.add('ok')" onerror="this.classList.add('ok')">`;
+const faceCard = p => `
+  <div class="card face-card ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}">
+    <div class="avatar" title="Show photos">${faceImg(p.face)}</div>
+    <input value="${esc(p.name || "")}" placeholder="Add a name" data-rename="${p.id}">
+    <div class="s">${p.count} photo${p.count === 1 ? "" : "s"}</div>
+    <div class="row">
+      <button class="btn" data-merge="${p.id}" title="Merge with another person">Same as…</button>
+      <button class="btn" data-hide="${p.id}">${p.hidden ? "Show" : "Hide"}</button>
     </div>
-    <div class="cards people-grid">${people.map(p => `
-    <div class="card face-card ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}" data-name="${esc(personName(p).toLowerCase())}">
-      <img src="/face/${p.face}" alt="" title="Show photos" loading="lazy" decoding="async">
-      <input value="${esc(p.name || "")}" placeholder="Add a name" data-rename="${p.id}">
-      <div class="s">${p.count} photo${p.count === 1 ? "" : "s"}</div>
-      <div class="row">
-        <button class="btn" data-merge="${p.id}" title="Merge with another person">Same as…</button>
-        <button class="btn" data-hide="${p.id}">${p.hidden ? "Show" : "Hide"}</button>
-      </div>
-    </div>`).join("")}</div>`;
+  </div>`;
+const skeletonCard = () => `
+  <div class="card face-card skeleton" aria-hidden="true">
+    <div class="avatar shimmer"></div><div class="line shimmer"></div><div class="line short shimmer"></div>
+  </div>`;
+const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+
+function mountPeopleGrid(host, items) {
+  const main = $("#main");
+  host.innerHTML = `<div class="vgrid"><div class="vwin"></div></div>`;
+  const outer = host.firstElementChild, win = outer.firstElementChild;
+  const grid = { items, cols: 1, first: -1, last: -1, pending: false };
+  const rowH = CARD_H + GRID_GAP;
+  function layout() {
+    grid.cols = Math.max(1, Math.floor((outer.clientWidth + GRID_GAP) / (CARD_MIN_W + GRID_GAP)));
+    win.style.gridTemplateColumns = `repeat(${grid.cols}, minmax(0, 1fr))`;
+    const rows = Math.ceil(grid.items.length / grid.cols);
+    outer.style.height = `${Math.max(0, rows * rowH - GRID_GAP)}px`;
+    draw(true);
+  }
+  function draw(force = false) {
+    // Don't swap cards under someone typing a name; redraw when they leave the field.
+    if (win.contains(document.activeElement) && document.activeElement.tagName === "INPUT") { grid.pending = true; return; }
+    const top = outer.getBoundingClientRect().top - main.getBoundingClientRect().top;
+    const firstRow = Math.max(0, Math.floor(-top / rowH) - OVERSCAN_ROWS);
+    const lastRow = Math.ceil((main.clientHeight - top) / rowH) + OVERSCAN_ROWS;
+    const first = firstRow * grid.cols, last = Math.min(grid.items.length, lastRow * grid.cols);
+    if (!force && first === grid.first && last === grid.last) return;
+    grid.first = first; grid.last = last;
+    win.style.transform = `translateY(${firstRow * rowH}px)`;
+    win.innerHTML = grid.items.slice(first, last).map(faceCard).join("");
+  }
+  let raf = 0;
+  const onScroll = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
+  const onFocusOut = () => { if (grid.pending) { grid.pending = false; setTimeout(() => draw(true), 0); } };
+  main.addEventListener("scroll", onScroll, { passive: true });
+  win.addEventListener("focusout", onFocusOut);
+  const resize = new ResizeObserver(layout);
+  resize.observe(outer);
+  grid.setItems = next => { grid.items = next; layout(); };
+  grid.destroy = () => { main.removeEventListener("scroll", onScroll); resize.disconnect(); };
+  layout();
+  return grid;
+}
+
+function peopleCountText(n) {
+  return peopleQuery ? `${n.toLocaleString()} matching` : `${n.toLocaleString()} people`;
+}
+/** Redraws everything that shows people from the in-memory list (cheap). */
+function refreshPeopleViews() {
+  renderPeopleList();
+  if (!peopleGrid) return;
+  const items = matchPeople(peopleQuery);
+  peopleGrid.setItems(items);
+  $("#peopleCount").textContent = peopleCountText(items.length);
+}
+
+async function renderPeople(main, token) {
+  // Paint placeholders right away, then fill in.
+  main.innerHTML = `<div class="people-bar">
+      <input class="search" id="peopleSearch" type="search" placeholder="Search people" autocomplete="off" value="${esc(peopleQuery)}">
+      <span id="peopleCount">Loading people…</span>
+    </div>
+    <div id="peopleHost"><div class="cards people-grid">${skeletonCard().repeat(18)}</div></div>`;
   $("#peopleSearch").addEventListener("input", e => {
-    const q = e.target.value.trim().toLowerCase();
-    let n = 0;
-    for (const card of main.querySelectorAll(".face-card")) {
-      const show = !q || card.dataset.name.includes(q);
-      card.style.display = show ? "" : "none";
-      n += show;
-    }
-    $("#peopleCount").textContent = `${n.toLocaleString()} ${q ? "matching" : "people"}`;
+    peopleQuery = e.target.value;
+    main.scrollTop = 0;
+    refreshPeopleViews();
   });
+  const show = () => {
+    if (token !== renderToken) return;
+    if (!people.length) { $("#peopleHost").innerHTML = `<div class="blank">No faces found yet.</div>`; $("#peopleCount").textContent = ""; return; }
+    if (!peopleGrid) peopleGrid = mountPeopleGrid($("#peopleHost"), []);
+    refreshPeopleViews();
+  };
+  await nextFrame();
+  if (people.length) show(); // what we already have, while fresh numbers load
+  await loadMeta();
+  show();
 }
 
 // ---- merge dialog ------------------------------------------------------------------
@@ -596,12 +703,14 @@ function openMerge(id) {
   mergeFrom = id;
   $("#mergeFilter").value = "";
   showMergeStep(null);
-  renderMergeCandidates();
+  // Open at once with a spinner; the list fills in on the next frame.
+  $("#mergeDlg .candidates").innerHTML = `<div class="spinner" role="progressbar" aria-label="Loading"></div>`;
   $("#mergeDlg").showModal();
   $("#mergeFilter").focus();
+  nextFrame().then(() => { if (mergeFrom === id && $("#mergeDlg").open) renderMergeCandidates(); });
 }
 /** Switches the dialog between picking a person (`into` null) and confirming the merge. */
-function showMergeStep(into, error = "") {
+function showMergeStep(into) {
   const picking = into == null;
   $("#mergePick").hidden = !picking;
   $("#mergeConfirm").hidden = picking;
@@ -609,7 +718,7 @@ function showMergeStep(into, error = "") {
   if (picking) return;
   const a = people.find(p => p.id === mergeFrom), b = people.find(p => p.id === into);
   const face = p => `<figure>
-      <img src="/face/${p.face}" alt="">
+      <div class="avatar">${faceImg(p.face)}</div>
       <figcaption class="${p.name ? "" : "unnamed"}">${esc(personName(p))}</figcaption>
       <div class="s">${p.count} photo${p.count === 1 ? "" : "s"}</div>
     </figure>`;
@@ -617,7 +726,6 @@ function showMergeStep(into, error = "") {
   $("#mergeConfirm").innerHTML = `
     <div class="merge-pair">${face(a)}<span class="arrow" aria-hidden="true">→</span>${face(b)}</div>
     <p class="merge-note">The photos of <b>${esc(personName(a))}</b> move to <b>${esc(personName(b))}</b>${resultName ? `, named <b>${esc(resultName)}</b>` : ""}. This can't be undone, but a wrong face can later be removed with <i>Not them</i> in the photo viewer.</p>
-    <div class="err">${esc(error)}</div>
     <div class="dlg-actions">
       <button class="btn" data-back>Back</button>
       <button class="btn primary" data-confirm="${into}">Merge</button>
@@ -628,7 +736,7 @@ function renderMergeCandidates() {
   const all = matchPeople($("#mergeFilter").value).filter(p => p.id !== mergeFrom);
   $("#mergeDlg .candidates").innerHTML = all.slice(0, MERGE_LIMIT).map(p => `
     <div class="candidate" data-into="${p.id}">
-      <img src="/face/${p.face}" alt="" loading="lazy">
+      <div class="avatar-sm">${faceImg(p.face)}</div>
       <span class="n ${p.name ? "" : "unnamed"}">${esc(personName(p))}</span>
       <span class="c">${p.count} photo${p.count === 1 ? "" : "s"}</span>
     </div>`).join("") +
@@ -636,25 +744,64 @@ function renderMergeCandidates() {
     (!all.length ? `<div class="more">Nobody matches.</div>` : "");
 }
 $("#mergeFilter").addEventListener("input", renderMergeCandidates);
-$("#mergeDlg").addEventListener("click", async e => {
+$("#mergeDlg").addEventListener("click", e => {
   const dlg = $("#mergeDlg");
   if (e.target === dlg || e.target.dataset.close != null) return dlg.close();
   if (e.target.dataset.back != null) { showMergeStep(null); return $("#mergeFilter").focus(); }
   const row = e.target.closest("[data-into]");
   if (row) return showMergeStep(+row.dataset.into);
   if (!e.target.dataset.confirm) return;
-  const into = +e.target.dataset.confirm, from = mergeFrom;
-  e.target.disabled = true;
-  try {
-    await post(`/api/people/${from}/merge`, { into });
-  } catch (err) {
-    return showMergeStep(into, `Couldn't merge: ${err.message}`);
-  }
   dlg.close();
-  if (state.people.delete(from)) state.people.add(into);
-  await loadMeta();
-  render();
+  mergePeople(mergeFrom, +e.target.dataset.confirm);
 });
+
+// ---- people changes: shown at once, saved in the background ---------------------------
+let toastTimer = 0;
+function toast(message, error = false) {
+  const el = $("#toast");
+  el.textContent = message;
+  el.classList.toggle("error", error);
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), error ? 6000 : 2500);
+}
+/** Reloads the real numbers after a change (or restores them after a failed one). */
+const resync = () => loadMeta().then(refreshPeopleViews).catch(() => {});
+
+function mergePeople(from, into) {
+  const a = people.find(p => p.id === from), b = people.find(p => p.id === into);
+  if (!a || !b) return;
+  const label = `${personName(a)} into ${personName(b)}`;
+  b.count += a.count; // exact count (photos with both) comes with the resync
+  if (!b.name) b.name = a.name;
+  people = people.filter(p => p.id !== from);
+  if (state.people.delete(from)) state.people.add(into);
+  refreshPeopleViews();
+  toast(`Merged ${label}`);
+  post(`/api/people/${from}/merge`, { into })
+    .then(resync)
+    .catch(err => { toast(`Couldn't merge ${label}: ${err.message}`, true); resync(); });
+}
+
+function toggleHidden(id) {
+  const p = people.find(p => p.id === id);
+  if (!p) return;
+  p.hidden = !p.hidden;
+  refreshPeopleViews();
+  post(`/api/people/${id}`, { hidden: p.hidden })
+    .catch(err => { toast(`Couldn't save: ${err.message}`, true); resync(); });
+}
+
+function renamePerson(id, value) {
+  const p = people.find(p => p.id === id);
+  const name = value.trim() || null;
+  if (!p || p.name === name) return;
+  p.name = name;
+  renderPeopleList();
+  post(`/api/people/${id}`, { name: value })
+    .then(resync)
+    .catch(err => { toast(`Couldn't save the name: ${err.message}`, true); resync(); });
+}
 
 async function render() {
   saveHash();
@@ -663,12 +810,14 @@ async function render() {
   $("#sort").value = state.sort;
   const main = $("#main");
   const token = ++renderToken;
+  peopleGrid?.destroy();
+  peopleGrid = null;
+  main.scrollTop = 0;
   try {
     if (state.view === "photos") await renderPhotos(main, token);
     else if (state.view === "upcoming") await renderUpcoming(main, token);
     else if (state.view === "places") renderPlaces(main);
-    else renderPeople(main);
-    main.scrollTop = 0;
+    else await renderPeople(main, token);
   } catch (err) {
     main.innerHTML = `<div class="blank">Something went wrong: ${esc(err.message)}</div>`;
   }
@@ -682,19 +831,14 @@ $("#main").addEventListener("click", e => {
   const place = e.target.closest("[data-place]");
   if (place) { state.place = +place.dataset.place; state.view = "photos"; return render(); }
   if (e.target.dataset.merge) return openMerge(+e.target.dataset.merge);
-  const hide = e.target.dataset.hide;
-  if (hide) {
-    const p = people.find(p => p.id === +hide);
-    return post(`/api/people/${hide}`, { hidden: !p.hidden }).then(loadMeta).then(render);
-  }
-  if (e.target.matches(".face-card img")) {
+  if (e.target.dataset.hide) return toggleHidden(+e.target.dataset.hide);
+  if (e.target.closest(".face-card:not(.skeleton) .avatar")) {
     state.people = new Set([+e.target.closest("[data-person]").dataset.person]);
     state.view = "photos"; renderPeopleList(); return render();
   }
 });
 $("#main").addEventListener("change", e => {
-  const rename = e.target.dataset.rename;
-  if (rename) post(`/api/people/${rename}`, { name: e.target.value }).then(loadMeta);
+  if (e.target.dataset.rename) renamePerson(+e.target.dataset.rename, e.target.value);
 });
 $("#main").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset.rename) e.target.blur(); });
 
