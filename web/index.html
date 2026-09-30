@@ -82,7 +82,8 @@ aside h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; c
 .more { color: var(--muted); font-size: 12px; padding: 6px; }
 .people-bar { display: flex; align-items: center; gap: 12px; padding-top: 16px; color: var(--muted); }
 .people-bar .search { max-width: 320px; margin: 0; }
-.people-bar .seg { margin: 0 0 0 auto; }
+.people-bar .zoom { margin-left: auto; }
+.people-bar .seg { margin: 0; }
 .people-bar .seg button { padding: 5px 12px; }
 /* The People tab has no "People in the photo" column */
 body.no-aside { grid-template-columns: 1fr; }
@@ -147,7 +148,7 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 .card .t { font-weight: 600; }
 .card .s { color: var(--muted); font-size: 12px; }
 
-.people-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+.people-grid { grid-template-columns: repeat(auto-fill, minmax(calc(150px * var(--z, 1)), 1fr)); gap: 14px; }
 /* People grid: only the visible cards exist in the page (see mountPeopleGrid). Cards are
    kept while they stay on screen and slide to new places instead of being rebuilt. */
 .vgrid { position: relative; margin-top: 16px; }
@@ -161,7 +162,9 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
   .vgrid.animate .vcard { transition: none; }
   .vcard.enter, .vgrid.fade-in, .vcard.leave { animation-duration: 1ms; }
 }
-.face-card { text-align: center; padding: 14px 10px 10px; cursor: default; height: 222px; }
+/* People sizes follow --z, the size slider (set on #peopleHost; see peopleLayoutFor) */
+.face-card { text-align: center; padding: 14px 10px 10px; cursor: default; height: calc(110px * var(--z, 1) + 112px); }
+.face-card .avatar { width: calc(110px * var(--z, 1)); height: calc(110px * var(--z, 1)); }
 .avatar {
   width: 110px; height: 110px; border-radius: 50%; margin: 0 auto 8px; overflow: hidden; cursor: pointer;
   background: var(--chip);
@@ -180,18 +183,18 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 
 /* List layout: compact rows, several columns on wide screens */
 .face-row {
-  display: flex; align-items: center; gap: 8px; height: 44px; padding: 0 8px;
+  display: flex; align-items: center; gap: calc(8px * var(--z, 1)); height: calc(44px * var(--z, 1)); padding: 0 8px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
 }
-.face-row .avatar { width: 32px; height: 32px; margin: 0; flex: none; }
+.face-row .avatar { width: calc(32px * var(--z, 1)); height: calc(32px * var(--z, 1)); margin: 0; flex: none; }
 .face-row input {
   flex: 1; min-width: 0; border: 1px solid transparent; background: transparent; border-radius: 6px;
-  padding: 3px 6px; font-weight: 600;
+  padding: 3px 6px; font-weight: 600; font-size: calc(14px + 4px * (var(--z, 1) - 1));
 }
 .face-row input:hover, .face-row input:focus { border-color: var(--line); background: var(--bg); outline: none; }
 .face-row input::placeholder { color: var(--muted); font-weight: 400; font-style: italic; }
-.face-row .s { color: var(--muted); font-size: 12px; white-space: nowrap; }
-.face-row .btn { font-size: 11px; padding: 3px 6px; white-space: nowrap; flex: none; }
+.face-row .s { color: var(--muted); font-size: calc(12px + 2px * (var(--z, 1) - 1)); white-space: nowrap; }
+.face-row .btn { font-size: calc(11px + 2px * (var(--z, 1) - 1)); padding: 3px 6px; white-space: nowrap; flex: none; }
 /* Actions appear on the row under the pointer (or being edited), so rows stay narrow */
 @media (hover: hover) {
   .face-row .btn { display: none; }
@@ -199,7 +202,10 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
   .face-row:hover .s, .face-row:focus-within .s { display: none; }
 }
 .face-row.skeleton .line { flex: 1; margin: 0; max-width: 60%; }
-.people-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 6px; margin-top: 16px; }
+.people-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(calc(250px + 100px * (var(--z, 1) - 1)), 1fr)); gap: 6px; margin-top: 16px; }
+.zoom { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 11px; }
+.zoom .big { font-size: 16px; }
+.zoom input { width: 110px; accent-color: var(--accent); }
 
 /* Loading placeholders */
 .shimmer, .avatar:has(img:not(.ok)), .candidate .avatar-sm:has(img:not(.ok)) {
@@ -775,7 +781,7 @@ async function renderPlaces(main, token) {
 // ---- people grid ---------------------------------------------------------------------
 // Libraries can have tens of thousands of people, so only the cards on screen exist in the
 // page. Everything else (opening dialogs, merging, searching) stays cheap because of that.
-const CARD_MIN_W = 150, CARD_H = 222, GRID_GAP = 14, OVERSCAN_ROWS = 2;
+const CARD_MIN_W = 150, GRID_GAP = 14, OVERSCAN_ROWS = 2;
 let peopleGrid = null, peopleQuery = "";
 
 // Faces fade in the first time they load; after that they show at once.
@@ -811,16 +817,29 @@ const skeletonRow = () => `
 const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
 
 // Cards show big faces; the list fits several times more people on screen.
-const PEOPLE_LAYOUTS = {
-  cards: { minW: CARD_MIN_W, h: CARD_H, gap: GRID_GAP, item: faceCard,
-    skeleton: () => `<div class="cards people-grid">${skeletonCard().repeat(18)}</div>` },
-  list: { minW: 250, h: 44, gap: 6, item: faceRow,
-    skeleton: () => `<div class="people-list">${skeletonRow().repeat(24)}</div>` },
-};
+// The size slider scales both layouts. Cards stop at 1.6x: face pictures are 128 px, so
+// bigger avatars would look blurry.
+const PEOPLE_ZOOM = { cards: { min: 0.8, max: 1.6, step: 0.1 }, list: { min: 1, max: 3, step: 0.25 } };
+const peopleZoom = { cards: 1, list: 1 };
 let peopleLayout = "cards";
-try { if (localStorage.getItem("totufoto.peopleLayout") === "list") peopleLayout = "list"; } catch {}
+try {
+  if (localStorage.getItem("totufoto.peopleLayout") === "list") peopleLayout = "list";
+  const saved = JSON.parse(localStorage.getItem("totufoto.peopleZoom") || "{}");
+  for (const [k, r] of Object.entries(PEOPLE_ZOOM))
+    if (typeof saved[k] === "number") peopleZoom[k] = Math.min(r.max, Math.max(r.min, saved[k]));
+} catch {}
+/** Grid geometry for a layout at its current size; must match the CSS above. */
+function peopleLayoutFor(name) {
+  const z = peopleZoom[name];
+  return name === "list"
+    // Rows get taller faster than wider, so bigger sizes still show several columns.
+    ? { minW: Math.round(250 + 100 * (z - 1)), h: Math.round(44 * z), gap: 6, item: faceRow,
+        skeleton: () => `<div class="people-list">${skeletonRow().repeat(24)}</div>` }
+    : { minW: Math.round(CARD_MIN_W * z), h: Math.round(110 * z) + 112, gap: GRID_GAP, item: faceCard,
+        skeleton: () => `<div class="cards people-grid">${skeletonCard().repeat(18)}</div>` };
+}
 
-function mountPeopleGrid(host, { fadeIn = false, layout: L = PEOPLE_LAYOUTS.cards } = {}) {
+function mountPeopleGrid(host, { fadeIn = false, layout: L = peopleLayoutFor("cards") } = {}) {
   const main = $("#main");
   host.innerHTML = `<div class="vgrid${fadeIn ? " fade-in" : ""}"></div>`;
   const outer = host.firstElementChild;
@@ -893,6 +912,16 @@ function mountPeopleGrid(host, { fadeIn = false, layout: L = PEOPLE_LAYOUTS.card
   const resize = new ResizeObserver(() => { layout(); draw(); });
   resize.observe(outer);
   grid.setItems = (next, opts) => { grid.items = next; layout(); draw(opts); };
+  /** Index of the first person on screen, to come back to after a size or layout change. */
+  grid.firstVisible = () => {
+    const top = outer.getBoundingClientRect().top - main.getBoundingClientRect().top;
+    return Math.max(0, Math.floor(-top / rowH)) * grid.cols;
+  };
+  grid.scrollToIndex = i => {
+    const top = outer.getBoundingClientRect().top - main.getBoundingClientRect().top;
+    if (i > 0) main.scrollTop += top + Math.floor(i / grid.cols) * rowH;
+    draw();
+  };
   grid.destroy = () => { main.removeEventListener("scroll", onScroll); resize.disconnect(); clearTimeout(animateTimer); };
   return grid;
 }
@@ -915,37 +944,60 @@ async function renderPeople(main, token) {
   main.innerHTML = `<div class="people-bar">
       <input class="search" id="peopleSearch" type="search" placeholder="Search people" autocomplete="off" value="${esc(peopleQuery)}">
       <span id="peopleCount"></span>
+      <label class="zoom" title="Size"><span aria-hidden="true">A</span>
+        <input type="range" id="peopleZoom" aria-label="Size"><span class="big" aria-hidden="true">A</span></label>
       <div class="seg" id="peopleLayout" role="group" aria-label="Layout">
         <button data-layout="cards" class="${peopleLayout === "cards" ? "on" : ""}" title="Big pictures">Cards</button>
         <button data-layout="list" class="${peopleLayout === "list" ? "on" : ""}" title="More people on screen">List</button>
       </div>
     </div>
     <div id="peopleHost"></div>`;
+  const host = $("#peopleHost");
+  const zoom = $("#peopleZoom");
+  const syncZoom = () => {
+    Object.assign(zoom, PEOPLE_ZOOM[peopleLayout]);
+    zoom.value = peopleZoom[peopleLayout];
+    host.style.setProperty("--z", peopleZoom[peopleLayout]);
+  };
+  // Rebuilds the grid for the current layout and size, keeping the same people on screen.
+  const remount = () => {
+    if (!peopleGrid) return;
+    const anchor = peopleGrid.firstVisible();
+    peopleGrid.destroy();
+    peopleGrid = mountPeopleGrid(host, { layout: peopleLayoutFor(peopleLayout) });
+    refreshPeopleViews({ animate: false });
+    peopleGrid.scrollToIndex(anchor);
+  };
+  syncZoom();
+  let zoomFrame = 0;
+  zoom.addEventListener("input", () => {
+    peopleZoom[peopleLayout] = +zoom.value;
+    host.style.setProperty("--z", zoom.value);
+    try { localStorage.setItem("totufoto.peopleZoom", JSON.stringify(peopleZoom)); } catch {}
+    cancelAnimationFrame(zoomFrame);
+    zoomFrame = requestAnimationFrame(remount);
+  });
   $("#peopleLayout").addEventListener("click", e => {
     const next = e.target.dataset.layout;
     if (!next || next === peopleLayout) return;
     peopleLayout = next;
     try { localStorage.setItem("totufoto.peopleLayout", next); } catch {}
     for (const b of $("#peopleLayout").children) b.classList.toggle("on", b.dataset.layout === next);
-    if (!peopleGrid) return;
-    peopleGrid.destroy();
-    peopleGrid = mountPeopleGrid(host, { layout: PEOPLE_LAYOUTS[next] });
-    main.scrollTop = 0;
-    refreshPeopleViews({ animate: false });
+    syncZoom();
+    remount();
   });
   $("#peopleSearch").addEventListener("input", e => {
     peopleQuery = e.target.value;
     main.scrollTop = 0;
     refreshPeopleViews({ animate: false });
   });
-  const host = $("#peopleHost");
   let placeholders = false;
   const show = () => {
     if (token !== renderToken) return;
     if (!people.length) { host.innerHTML = `<div class="blank">No faces found yet.</div>`; $("#peopleCount").textContent = ""; return; }
     if (!peopleGrid) {
       resetPeopleOrder(); // opening the tab is when the list gets sorted again
-      peopleGrid = mountPeopleGrid(host, { fadeIn: placeholders, layout: PEOPLE_LAYOUTS[peopleLayout] });
+      peopleGrid = mountPeopleGrid(host, { fadeIn: placeholders, layout: peopleLayoutFor(peopleLayout) });
     }
     refreshPeopleViews({ animate: false });
   };
@@ -956,7 +1008,7 @@ async function renderPeople(main, token) {
     setTimeout(() => {
       if (token === renderToken && !peopleGrid && !people.length) {
         placeholders = true;
-        host.innerHTML = PEOPLE_LAYOUTS[peopleLayout].skeleton();
+        host.innerHTML = peopleLayoutFor(peopleLayout).skeleton();
       }
     }, SKELETON_DELAY);
   }
