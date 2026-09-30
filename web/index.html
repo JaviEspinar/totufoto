@@ -23,7 +23,9 @@ html, body { margin: 0; height: 100%; }
 body {
   background: var(--bg); color: var(--ink);
   font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif;
-  display: grid; grid-template-columns: 260px 1fr; grid-template-rows: auto 1fr;
+  display: grid; grid-template-columns: 260px 1fr; grid-template-rows: auto minmax(0, 1fr);
+  /* the real visible height, also on phones with collapsing browser bars */
+  height: 100vh; height: 100dvh; overflow: hidden;
 }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -41,9 +43,22 @@ nav button, .seg button {
 nav button:hover, .seg button:hover { background: var(--hover); color: var(--ink); }
 nav button.on, .seg button.on { background: var(--chip); color: var(--ink); font-weight: 600; }
 .spacer { flex: 1; }
+.head-buttons { display: flex; align-items: center; gap: 2px; }
+.head-buttons .icon-btn { position: relative; }
+#peopleBtn, #viewBtn { display: none; }
+.icon-btn .badge {
+  position: absolute; top: 2px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink); font-size: 10px; font-weight: 700; line-height: 16px;
+}
+.icon-btn .dot { position: absolute; top: 6px; right: 6px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.icon-btn .badge[hidden], .icon-btn .dot[hidden] { display: none; }
+.scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 14; display: none; }
+.chip { max-width: 100%; }
+.chip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tools { display: flex; align-items: center; gap: 10px; color: var(--muted); }
 .tools select { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
 .range { display: flex; align-items: center; gap: 6px; }
+.compact-only { display: none; }
 .range input { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font-size: 13px; }
 body.no-aside .range { display: none; }
 
@@ -75,7 +90,7 @@ body.no-aside .range { display: none; }
 
 aside {
   background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto;
-  padding: 14px 12px; height: calc(100vh - 53px); position: sticky; top: 53px;
+  padding: 14px 12px; min-height: 0;
 }
 aside h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 4px 4px 8px; }
 .aside-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
@@ -150,7 +165,7 @@ body.no-aside aside { display: none; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .dlg-actions .btn { padding: 7px 16px; }
 
-main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
+main { overflow-y: auto; min-height: 0; padding: 0 16px 40px; overscroll-behavior: contain; }
 .filters { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 0 0; min-height: 12px; }
 .chip {
   display: inline-flex; align-items: center; gap: 6px; background: var(--chip); border-radius: 999px;
@@ -302,8 +317,8 @@ main { overflow-y: auto; height: calc(100vh - 53px); padding: 0 16px 40px; }
 }
 #viewer.open { display: grid; }
 #viewer .stage { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-#viewer .frame { position: relative; max-width: calc(100% - 120px); max-height: calc(100vh - 40px); }
-#viewer .frame img { display: block; max-width: 100%; max-height: calc(100vh - 40px); object-fit: contain; background: #111; }
+#viewer .frame { position: relative; }
+#viewer .frame img { display: block; object-fit: contain; background: #111; }
 /* Zoom: the frame (photo and face boxes) is scaled and moved from its fitted place */
 #viewer .frame { z-index: 1; transform-origin: 0 0; cursor: zoom-in; touch-action: none; }
 #viewer .frame.animate-zoom { transition: transform 0.25s ease; }
@@ -368,14 +383,80 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 .welcome h2 { font-size: 22px; margin: 0 0 8px; }
 .welcome p { color: var(--muted); margin: 0 0 20px; }
 
-@media (max-width: 760px) {
-  body, body.aside-collapsed { grid-template-columns: 1fr; }
-  aside { display: none; }
-  header { flex-wrap: wrap; gap: 8px; }
-  .tools { width: 100%; }
-  :root { --row: 120px; }
-  #viewer { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
-  #viewer .info { max-height: 35vh; }
+/* ---- Tablets and narrow windows: dates, grouping and order move into a panel ---------- */
+@media (max-width: 1099px) {
+  #viewBtn { display: inline-flex; }
+  body.no-aside #viewBtn { display: none; }
+  .tools {
+    position: fixed; top: calc(var(--header-h, 56px) + 6px); right: 8px; z-index: 16;
+    width: min(360px, calc(100vw - 16px)); max-height: calc(100dvh - var(--header-h, 56px) - 20px); overflow-y: auto;
+    flex-direction: column; align-items: stretch; gap: 12px; padding: 16px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+    display: none;
+  }
+  body.view-open .tools { display: flex; }
+  .tools .range { flex-direction: column; align-items: stretch; gap: 10px; }
+  .tools label { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .tools input, .tools select { flex: 0 1 190px; min-width: 0; height: 36px; }
+  .compact-only { display: inline; }
+  body.no-aside .range { display: none; }
+}
+
+/* ---- Phones ----------------------------------------------------------------------------- */
+@media (max-width: 639px) {
+  body, body.aside-collapsed { grid-template-columns: minmax(0, 1fr); }
+  header { flex-wrap: wrap; gap: 6px 8px; padding: 8px 12px 6px; }
+  .brand { order: 1; }
+  .spacer { display: none; }
+  .head-buttons { order: 2; margin-left: auto; }
+  nav { order: 3; flex: 1 1 100%; }
+  nav button { flex: 1; padding: 8px 6px; }
+  #peopleBtn { display: inline-flex; }
+  body.no-aside #peopleBtn { display: none; }
+  .icon-btn { width: 40px; height: 40px; }
+
+  /* the people column slides in from the left */
+  aside {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 15; width: min(320px, 86vw);
+    transform: translateX(-105%); box-shadow: 4px 0 30px rgba(0, 0, 0, 0.2);
+    padding: 16px 14px calc(16px + env(safe-area-inset-bottom));
+    /* hidden once closed, so it can't be reached with the keyboard or a screen reader */
+    visibility: hidden; transition: transform 0.22s ease, visibility 0s linear 0.22s;
+  }
+  body.drawer-open aside { transform: none; visibility: visible; transition: transform 0.22s ease; }
+  body.drawer-open .scrim { display: block; }
+  body.aside-collapsed aside { padding: 16px 14px; }
+  body.aside-collapsed aside > :not(.aside-head), body.aside-collapsed .aside-head h3 { display: revert; }
+  body.aside-collapsed .aside-head { flex-direction: row; }
+  .rail-count { display: none !important; }
+  body.no-aside aside { display: none; }
+  .person { padding: 8px 6px; }
+
+  main { padding: 0 12px calc(40px + env(safe-area-inset-bottom)); }
+  .view-head { margin: 0 -12px; padding: 0 12px 8px; }
+  :root { --row: 116px; --gap: 3px; }
+  .cards { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+  .upbar { flex-wrap: wrap; gap: 8px; }
+  .upbar .seg { width: 100%; }
+  .upbar .seg button { flex: 1; padding: 6px 2px; font-size: 12px; }
+  .people-bar { flex-wrap: wrap; gap: 8px 10px; }
+  .people-bar .search { flex: 1 1 100%; max-width: none; }
+  .people-bar .zoom input { width: 80px; }
+  .face-row .s { display: none; }
+
+  dialog { width: calc(100vw - 16px); max-height: calc(100dvh - 32px); }
+  .dlg-actions { flex-wrap: wrap; }
+  .dlg-actions .btn { flex: 1 1 auto; }
+  .merge-pair { gap: 8px; }
+  .merge-pair figure { width: min(150px, 36vw); }
+  .folder { flex-wrap: wrap; }
+  .folder .p { flex-basis: 100%; }
+
+  #viewer { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
+  #viewer .info { max-height: 38dvh; border-left: 0; border-top: 1px solid #2a2a28; padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); }
+  #viewer .nav { width: 38px; height: 54px; background: rgba(0, 0, 0, 0.35); }
+  #viewer .prev { left: 6px; } #viewer .next { right: 6px; }
+  #viewer .close { top: 8px; left: 8px; width: 40px; height: 40px; border-radius: 50%; background: rgba(0, 0, 0, 0.45); }
 }
 </style>
 </head>
@@ -388,7 +469,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
     <button data-view="people">People</button>
   </nav>
   <div class="spacer"></div>
-  <div class="tools">
+  <div class="tools" id="tools">
     <div class="range" title="Only photos taken between these dates (both included)">
       <label>From <input type="date" id="fromDate"></label>
       <label>to <input type="date" id="toDate"></label>
@@ -402,13 +483,20 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
         <option value="none">no groups</option>
       </select>
     </label>
-    <select id="sort" title="Sort by capture date">
-      <option value="desc">Newest first</option>
-      <option value="asc">Oldest first</option>
-    </select>
+    <label class="sort-label"><span class="compact-only">Order</span>
+      <select id="sort" title="Sort by capture date">
+        <option value="desc">Newest first</option>
+        <option value="asc">Oldest first</option>
+      </select>
+    </label>
+  </div>
+  <div class="head-buttons">
+    <button class="icon-btn" id="peopleBtn" title="People in the photo" aria-label="People in the photo" aria-expanded="false"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg><span class="badge" id="peopleBtnCount" hidden></span></button>
+    <button class="icon-btn" id="viewBtn" title="Dates, grouping and order" aria-label="Dates, grouping and order" aria-expanded="false" aria-controls="tools"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M2 14h4"/><path d="M10 8h4"/><path d="M18 16h4"/></svg><span class="dot" id="viewBtnDot" hidden></span></button>
     <button class="icon-btn" id="settingsBtn" title="Settings: photo folders and indexing" aria-label="Settings"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></button>
   </div>
 </header>
+<div class="scrim" id="scrim"></div>
 
 <aside>
   <div class="aside-head">
@@ -624,12 +712,53 @@ function setAsideCollapsed(collapsed) {
   b.title = collapsed ? "Show the people column" : "Hide this column";
   try { localStorage.setItem("totufoto.asideCollapsed", collapsed ? "1" : ""); } catch {}
 }
-$("#asideToggle").addEventListener("click", () => setAsideCollapsed(!document.body.classList.contains("aside-collapsed")));
+const isPhone = () => matchMedia("(max-width: 639px)").matches;
+// On phones the column is a panel that slides in; its button closes it.
+$("#asideToggle").addEventListener("click", () => isPhone() ? setDrawer(false) : setAsideCollapsed(!document.body.classList.contains("aside-collapsed")));
+
+// ---- small screens: the people panel and the View panel --------------------------------
+function setDrawer(open) {
+  document.body.classList.toggle("drawer-open", open);
+  $("#peopleBtn").setAttribute("aria-expanded", String(open));
+  if (open) setViewPanel(false);
+}
+function setViewPanel(open) {
+  document.body.classList.toggle("view-open", open);
+  $("#viewBtn").setAttribute("aria-expanded", String(open));
+}
+$("#peopleBtn").addEventListener("click", () => setDrawer(!document.body.classList.contains("drawer-open")));
+$("#viewBtn").addEventListener("click", e => { e.stopPropagation(); setViewPanel(!document.body.classList.contains("view-open")); });
+$("#scrim").addEventListener("click", () => { setDrawer(false); setViewPanel(false); });
+// A tap outside the View panel only closes it: the click that follows doesn't also open
+// whatever was under the finger.
+let swallowClick = false;
+document.addEventListener("pointerdown", e => {
+  if (!document.body.classList.contains("view-open") || e.target.closest("#tools, #viewBtn")) return;
+  setViewPanel(false);
+  swallowClick = true;
+  setTimeout(() => { swallowClick = false; }, 600);
+});
+document.addEventListener("click", e => {
+  if (!swallowClick) return;
+  swallowClick = false;
+  e.preventDefault();
+  e.stopPropagation();
+}, true);
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape" || document.querySelector("dialog[open]") || viewer.classList.contains("open")) return;
+  setDrawer(false); setViewPanel(false);
+});
+// The top bar's height (two rows on phones), for placing the View panel under it.
+new ResizeObserver(([entry]) => document.documentElement.style.setProperty("--header-h", `${entry.target.offsetHeight}px`)).observe($("header"));
 try { if (localStorage.getItem("totufoto.asideCollapsed") === "1") setAsideCollapsed(true); } catch {}
 
 let sidebarEditing = false;
 /** How many people are selected, on the collapsed column's strip. */
 function updateRailCount() {
+  const btnCount = $("#peopleBtnCount");
+  btnCount.hidden = !state.people.size;
+  btnCount.textContent = state.people.size;
+  $("#viewBtnDot").hidden = !(state.from || state.to);
   const railCount = $("#railCount");
   railCount.hidden = !state.people.size;
   railCount.textContent = state.people.size;
@@ -1491,6 +1620,7 @@ async function render() {
   saveHash();
   for (const b of $("#tabs").children) b.classList.toggle("on", b.dataset.view === state.view);
   document.body.classList.toggle("no-aside", state.view === "people");
+  if (state.view === "people") setDrawer(false);
   updateRailCount();
   $("#groupBy").value = state.groupBy;
   $("#sort").value = state.sort;
@@ -1566,7 +1696,8 @@ const viewer = $("#viewer");
  *  shown first and the full photo that replaces it occupy exactly the same box. */
 function fitViewerImage(w, h) {
   const stage = $(".stage", viewer), img = $(".frame img", viewer);
-  const maxW = stage.clientWidth - 120, maxH = stage.clientHeight - 40;
+  // Wide screens keep room for the ‹ › buttons beside the photo; on phones they float over it.
+  const maxW = stage.clientWidth - (stage.clientWidth < 640 ? 16 : 120), maxH = stage.clientHeight - (stage.clientWidth < 640 ? 16 : 40);
   const scale = Math.min(maxW / w, maxH / h, 1);
   img.style.width = `${Math.max(1, Math.round(w * scale))}px`;
   img.style.height = `${Math.max(1, Math.round(h * scale))}px`;
@@ -1669,19 +1800,43 @@ function zoomAt(clientX, clientY, scale, animate = false) {
 }
 {
   const frame = frameEl();
-  let press = null; // { x, y, zx, zy, moved }
+  // Pointers on the photo: one to tap, drag or swipe; two to pinch (touch screens).
+  const pointers = new Map(); // pointerId -> { x, y }
+  let press = null; // single pointer: { x, y, zx, zy, moved }
+  let pinch = null; // two pointers: { dist, scale }
+  const distance = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y); };
+  const middle = () => { const [a, b] = [...pointers.values()]; return [(a.x + b.x) / 2, (a.y + b.y) / 2]; };
+  const SWIPE = 60; // px sideways to go to the next or previous photo
   frame.addEventListener("pointerdown", e => {
-    if (e.button !== 0) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
     e.preventDefault();
     frame.setPointerCapture(e.pointerId);
-    press = { x: e.clientX, y: e.clientY, zx: zoom.x, zy: zoom.y, moved: false };
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      pinch = { dist: distance(), scale: zoom.s };
+      press = null; // a pinch is never a tap or a swipe
+      frame.style.translate = "";
+    } else if (pointers.size === 1) {
+      press = { x: e.clientX, y: e.clientY, zx: zoom.x, zy: zoom.y, moved: false };
+    }
   });
   frame.addEventListener("pointermove", e => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch && pointers.size === 2) {
+      const [mx, my] = middle();
+      zoomAt(mx, my, (pinch.scale * distance()) / pinch.dist);
+      return;
+    }
     if (!press) return;
     const dx = e.clientX - press.x, dy = e.clientY - press.y;
-    if (!press.moved && Math.hypot(dx, dy) < 5) return; // still a click
+    if (!press.moved && Math.hypot(dx, dy) < 5) return; // still a tap
     press.moved = true;
-    if (zoom.s === 1) return;
+    if (zoom.s === 1) {
+      // Not zoomed: the photo follows a sideways swipe.
+      if (e.pointerType !== "mouse") frame.style.translate = `${dx}px 0`;
+      return;
+    }
     frame.classList.add("dragging");
     zoom.x = press.zx + dx;
     zoom.y = press.zy + dy;
@@ -1689,13 +1844,26 @@ function zoomAt(clientX, clientY, scale, animate = false) {
     applyZoom();
   });
   const release = e => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.delete(e.pointerId);
+    if (pinch) {
+      if (pointers.size < 2) pinch = null;
+      return; // lifting a finger after a pinch does nothing else
+    }
     if (!press) return;
-    const wasClick = !press.moved;
+    const { x, y, moved } = press;
     press = null;
     frame.classList.remove("dragging");
-    if (!wasClick || e.type === "pointercancel") return;
+    const dx = e.clientX - x, dy = e.clientY - y;
+    if (frame.style.translate) {
+      frame.style.translate = "";
+      if (e.type !== "pointercancel" && Math.abs(dx) > SWIPE && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        return openViewer(viewerIndex + (dx < 0 ? 1 : -1));
+      }
+    }
+    if (moved || e.type === "pointercancel") return;
     if (zoom.s > 1) return resetZoom(true);
-    // Zoom to the photo's real pixels (between 2x and 4x) where it was clicked.
+    // Zoom to the photo's real pixels (between 2x and 4x) where it was tapped.
     const width = photos[viewerIndex]?.[1] ?? 0;
     zoomAt(e.clientX, e.clientY, Math.min(4, Math.max(2, width / frame.offsetWidth)), true);
   };
