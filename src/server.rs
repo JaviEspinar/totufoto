@@ -95,6 +95,7 @@ pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
         .route("/api/open", post(open_url))
         .route("/api/photos", get(photos))
         .route("/api/photos/{id}", get(photo_detail))
+        .route("/api/photos/{id}/check", post(check_photo))
         .route("/api/groups", get(groups))
         .route("/api/places", get(places))
         .route("/api/people", get(people))
@@ -450,6 +451,36 @@ async fn groups(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResu
     })
     .await?;
     Ok(Json(result).into_response())
+}
+
+/// Called when a photo can't be opened. If its file is gone but its folder is there, the
+/// photo is removed from the index ("removed"); if the whole folder can't be reached (an
+/// unplugged drive, say) nothing is removed ("unavailable"); "present" if the file is there.
+async fn check_photo(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Json<JsonValue>> {
+    let scan_cfg = s.scan.clone();
+    let result = db(&s, move |conn| {
+        let Some(path) = conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get::<_, String>(0)).optional()? else {
+            return Ok(json!({ "status": "removed" }));
+        };
+        let file = PathBuf::from(&path);
+        if file.is_file() {
+            return Ok(json!({ "status": "present", "path": path }));
+        }
+        let root = scan_cfg.roots(conn)?.into_iter().find(|r| file.starts_with(r));
+        let folder_there = match &root {
+            Some(r) => r.is_dir(),
+            None => file.parent().is_some_and(|p| p.is_dir()),
+        };
+        if !folder_there {
+            let folder = root.unwrap_or_else(|| file.parent().map(PathBuf::from).unwrap_or_default());
+            return Ok(json!({ "status": "unavailable", "path": path, "folder": folder.to_string_lossy() }));
+        }
+        crate::db::forget_photo(conn, id)?;
+        tracing::info!("{path} is gone: removed from the gallery");
+        Ok(json!({ "status": "removed", "path": path }))
+    })
+    .await?;
+    Ok(Json(result))
 }
 
 async fn photo_detail(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Json<JsonValue>> {

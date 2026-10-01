@@ -160,6 +160,7 @@ body.no-aside aside { display: none; }
 .merge-pair .s { color: var(--muted); font-size: 12px; }
 .merge-pair .arrow { font-size: 26px; color: var(--muted); }
 .merge-note { text-align: center; }
+.gone-path { font-size: 12px; color: var(--muted); word-break: break-all; }
 #mergeHint { display: flex; align-items: center; gap: 12px; }
 #mergeHint img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex: none; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
@@ -529,6 +530,15 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
       <button class="btn" data-choice="keep" id="nameKeep">Keep separate</button>
       <button class="btn primary" data-choice="merge">Merge them</button>
     </div>
+  </div>
+</dialog>
+
+<dialog id="goneDlg">
+  <div class="dlg-head"><h3 id="goneTitle"></h3></div>
+  <div class="dlg-body">
+    <p id="goneText"></p>
+    <p class="gone-path" id="gonePath"></p>
+    <div class="dlg-actions"><button class="btn primary" data-close>OK</button></div>
   </div>
 </dialog>
 
@@ -1725,7 +1735,9 @@ async function openViewer(i) {
   img.src = thumb.src;
   const full = new Image();
   full.src = `/original/${id}`;
-  full.decode().then(() => { if (viewerIndex === i) img.src = full.src; }).catch(() => {});
+  full.decode()
+    .then(() => { if (viewerIndex === i) img.src = full.src; })
+    .catch(() => { if (viewerIndex === i) photoMissing(id); });
   // Ready for the arrows: neighbours' thumbnails, and the next photo in full size.
   for (const j of [i - 1, i + 1]) if (photos[j]) new Image().src = `/thumb/${photos[j][0]}`;
   if (photos[i + 1]) new Image().src = `/original/${photos[i + 1][0]}`;
@@ -1754,6 +1766,37 @@ async function openViewer(i) {
     <label><input type="checkbox" id="showBoxes" ${viewer.classList.contains("boxes") ? "checked" : ""}> Show face boxes</label>
     <h5>File</h5><div class="s">${esc(d.path)}</div>`;
 }
+/** The full photo couldn't be loaded: ask the server why. A file that is gone (its folder
+ *  still there) is removed from the gallery; an unreachable folder removes nothing. */
+async function photoMissing(id) {
+  let result;
+  try { result = await post(`/api/photos/${id}/check`); } catch { return; }
+  if (!result || result.status === "present") return; // a passing glitch; nothing to say
+  const dlg = $("#goneDlg");
+  if (result.status === "removed") {
+    $("#goneTitle").textContent = "This photo is no longer there";
+    $("#goneText").textContent = "Its file is no longer in its folder, so it has been removed from the gallery.";
+  } else {
+    $("#goneTitle").textContent = "This photo can't be reached";
+    $("#goneText").textContent = `Its folder can't be reached right now (an unplugged drive or a network folder, for example). Nothing was removed: it will show again when the folder is back.`;
+  }
+  $("#gonePath").textContent = result.path || "";
+  dlg.showModal();
+  await new Promise(r => dlg.addEventListener("close", r, { once: true }));
+  if (result.status !== "removed") return;
+  // Take it out of what's on screen, and move the viewer on.
+  const index = photos.findIndex(p => p[0] === id);
+  if (index >= 0) photos.splice(index, 1);
+  $(`.tile[data-id="${id}"]`)?.remove();
+  const count = $(".view-head .count");
+  if (count && /^[\d,]+ photos$/.test(count.textContent)) count.textContent = `${Math.max(0, parseInt(count.textContent.replace(/,/g, "")) - 1).toLocaleString()} photos`;
+  shownPhotoCount = Math.max(0, shownPhotoCount - 1);
+  if (photos.length && viewer.classList.contains("open")) openViewer(Math.min(index, photos.length - 1));
+  else closeViewer();
+  loadMeta().then(() => refreshPeopleViews({ animate: false })).catch(() => {});
+}
+$("#goneDlg").addEventListener("click", e => { if (e.target.dataset.close != null || e.target === e.currentTarget) e.currentTarget.close(); });
+
 function closeViewer() { resetZoom(); viewer.classList.remove("open"); viewerIndex = -1; $(".frame img", viewer).src = ""; }
 
 // ---- viewer zoom ----------------------------------------------------------------------

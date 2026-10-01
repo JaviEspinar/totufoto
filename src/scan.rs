@@ -233,6 +233,8 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
         .collect();
 
     if !stale.is_empty() {
+        // Named people whose photos are going keep their face, to rejoin them if they return.
+        crate::db::remember_named_people(&conn, None)?;
         let tx = conn.transaction()?;
         for id in &stale {
             tx.execute("DELETE FROM photos WHERE id = ?", [id])?;
