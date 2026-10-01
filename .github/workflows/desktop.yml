@@ -125,11 +125,20 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
+      # Written notes for this version, if any (release-notes/<tag>.md); GitHub's changelog
+      # link is added below them.
+      - name: Release notes
+        shell: bash
+        run: |
+          notes="release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "$notes" ]; then cp "$notes" notes.md; else : > notes.md; fi
       - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
+          body_path: notes.md
           generate_release_notes: true
