@@ -362,6 +362,8 @@ main { overflow-y: auto; min-height: 0; padding: 0 16px 40px; overscroll-behavio
 /* Zoom: the frame (photo and face boxes) is scaled and moved from its fitted place */
 #viewer .frame { z-index: 1; transform-origin: 0 0; cursor: zoom-in; touch-action: none; }
 #viewer .frame.animate-zoom { transition: transform 0.25s ease; }
+#viewer .frame img.turning { transition: rotate 0.2s ease, width 0.2s ease, height 0.2s ease; }
+#viewer.rotating .boxes { display: none; }
 #viewer.zoomed .frame { cursor: grab; }
 #viewer .frame.dragging { cursor: grabbing; }
 #viewer .frame img { -webkit-user-drag: none; user-select: none; }
@@ -958,10 +960,15 @@ function groupPhotos(list, keyFn) {
 // Thumbnails load lazily with a shimmer behind them and fade in the first time only.
 const loadedThumbs = new Set();
 function thumbLoaded(img) { loadedThumbs.add(img.dataset.thumb); img.classList.add("ok"); }
-const tile = p => `<a class="tile" data-id="${p[0]}" style="--r:${(p[1] / p[2]).toFixed(3)}" href="/original/${p[0]}">` +
+/** Picture URLs with the photo's version: a rotated photo gets new ones, so browsers don't
+ *  show the old (cached) picture. */
+const thumbUrl = (id, v) => v ? `/thumb/${id}?v=${v}` : `/thumb/${id}`;
+const originalUrl = (id, v) => v ? `/original/${id}?v=${v}` : `/original/${id}`;
+const versionOf = id => photos.find(p => p[0] === id)?.[5] ?? 0;
+const tile = p => `<a class="tile" data-id="${p[0]}" style="--r:${(p[1] / p[2]).toFixed(3)}" href="${originalUrl(p[0], p[5])}">` +
   (loadedThumbs.has(String(p[0]))
-    ? `<img src="/thumb/${p[0]}" loading="lazy" alt="" data-thumb="${p[0]}" class="ok"></a>`
-    : `<img src="/thumb/${p[0]}" loading="lazy" decoding="async" alt="" data-thumb="${p[0]}" onload="thumbLoaded(this)" onerror="thumbLoaded(this)"></a>`);
+    ? `<img src="${thumbUrl(p[0], p[5])}" loading="lazy" alt="" data-thumb="${p[0]}" class="ok"></a>`
+    : `<img src="${thumbUrl(p[0], p[5])}" loading="lazy" decoding="async" alt="" data-thumb="${p[0]}" onload="thumbLoaded(this)" onerror="thumbLoaded(this)"></a>`);
 
 // ---- loading views: filters change at once, results follow --------------------------
 const LOADING_DELAY = 150;
@@ -1168,7 +1175,7 @@ function renderGroupCards(container, groups, mode) {
     const place = mode === "place" && g.key !== 0 ? placeById.get(g.key) : null;
     const where = place ? `${esc([place.region, regionName(place.country)].filter(Boolean).join(", "))} · ` : "";
     return `<div class="card group-card" data-group="${esc(String(g.key))}">
-      <img src="/thumb/${g.cover}" loading="lazy" decoding="async" alt="">
+      <img src="${thumbUrl(g.cover, g.v)}" loading="lazy" decoding="async" alt="">
       <div class="meta"><div class="t">${esc(title(g.key))}</div>
       <div class="s">${where}${g.count.toLocaleString()} photo${g.count === 1 ? "" : "s"}</div></div>
     </div>`;
@@ -1894,46 +1901,58 @@ $("#sort").addEventListener("change", e => { state.sort = e.target.value; render
 const viewer = $("#viewer");
 /** Sizes the photo to its final on-screen size from its known dimensions, so the thumbnail
  *  shown first and the full photo that replaces it occupy exactly the same box. */
-function fitViewerImage(w, h) {
+/** Sizes the viewer's photo to fit; `sideways` while it shows turned a quarter (rotating). */
+function fitViewerImage(w, h, sideways = false) {
   const stage = $(".stage", viewer), img = $(".frame img", viewer);
   // Wide screens keep room for the ‹ › buttons beside the photo; on phones they float over it.
   const maxW = stage.clientWidth - (stage.clientWidth < 640 ? 16 : 120), maxH = stage.clientHeight - (stage.clientWidth < 640 ? 16 : 40);
-  const scale = Math.min(maxW / w, maxH / h, 1);
+  const scale = sideways ? Math.min(maxW / h, maxH / w, 1) : Math.min(maxW / w, maxH / h, 1);
   img.style.width = `${Math.max(1, Math.round(w * scale))}px`;
   img.style.height = `${Math.max(1, Math.round(h * scale))}px`;
 }
 window.addEventListener("resize", () => {
   if (viewerIndex < 0) return;
   resetZoom();
-  fitViewerImage(photos[viewerIndex][1], photos[viewerIndex][2]);
+  if (rotation) previewRotation();
+  else fitViewerImage(photos[viewerIndex][1], photos[viewerIndex][2]);
 });
 
-async function openViewer(i) {
+/** Shows photo `i`: its thumbnail at the final size at once, then the full photo. */
+async function showViewerImage(i, id, w, h, v) {
+  const img = $(".frame img", viewer);
+  // Keep the current photo until the next thumbnail is ready (they're cached, so this is
+  // quick), then show it at the final size; the full photo sharpens it in place.
+  const thumb = new Image();
+  thumb.src = thumbUrl(id, v);
+  await thumb.decode().catch(() => {});
+  if (viewerIndex !== i) return;
+  img.classList.remove("turning");
+  img.style.rotate = "";
+  viewer.classList.remove("rotating");
+  fitViewerImage(w, h);
+  img.src = thumb.src;
+  const full = new Image();
+  full.src = originalUrl(id, v);
+  full.decode()
+    .then(() => { if (viewerIndex === i) img.src = full.src; })
+    .catch(() => { if (viewerIndex === i) photoMissing(id); });
+  // Ready for the arrows: neighbours' thumbnails, and the next photo in full size.
+  for (const j of [i - 1, i + 1]) if (photos[j]) new Image().src = thumbUrl(photos[j][0], photos[j][5]);
+  if (photos[i + 1]) new Image().src = originalUrl(photos[i + 1][0], photos[i + 1][5]);
+}
+/** `keepImage`: only refresh the details and face boxes (the photo shown is already right). */
+async function openViewer(i, { keepImage = false } = {}) {
   if (i < 0 || i >= photos.length) return;
+  if (rotation && rotation.id !== photos[i][0]) flushRotation();
   viewerIndex = i;
   resetZoom();
   // No arrow where there is no photo to go to.
   $(".prev", viewer).hidden = i === 0;
   $(".next", viewer).hidden = i === photos.length - 1;
-  const [id, w, h] = photos[i];
+  const [id, w, h, , , v] = photos[i];
   viewer.classList.add("open");
-  const img = $(".frame img", viewer);
-  // Keep the current photo until the next thumbnail is ready (they're cached, so this is
-  // quick), then show it at the final size; the full photo sharpens it in place.
-  const thumb = new Image();
-  thumb.src = `/thumb/${id}`;
-  await thumb.decode().catch(() => {});
+  if (!keepImage) await showViewerImage(i, id, w, h, v);
   if (viewerIndex !== i) return;
-  fitViewerImage(w, h);
-  img.src = thumb.src;
-  const full = new Image();
-  full.src = `/original/${id}`;
-  full.decode()
-    .then(() => { if (viewerIndex === i) img.src = full.src; })
-    .catch(() => { if (viewerIndex === i) photoMissing(id); });
-  // Ready for the arrows: neighbours' thumbnails, and the next photo in full size.
-  for (const j of [i - 1, i + 1]) if (photos[j]) new Image().src = `/thumb/${photos[j][0]}`;
-  if (photos[i + 1]) new Image().src = `/original/${photos[i + 1][0]}`;
   const d = await api(`/api/photos/${id}`);
   if (viewerIndex !== i) return;
   $(".boxes", viewer).innerHTML = d.faces.map(f => {
@@ -1949,7 +1968,8 @@ async function openViewer(i) {
     <div class="photo-acts">
       ${folderInfo.desktop && canShareFiles
         ? `<button data-share-photo="${id}" title="Send this photo with another app"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg> Share</button>`
-        : `<a class="btn-like" href="/original/${id}?download=1" download title="Save the photo on this device"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg> Download</a>`}
+        : `<a class="btn-like" href="/original/${id}?download=1&v=${v}" download title="Save the photo on this device"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg> Download</a>`}
+      ${d.rotatable ? `<button data-rotate="-1" title="Rotate left (Shift+R)" aria-label="Rotate left"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4v6h6"/><path d="M3.5 15a9 9 0 1 0 2.1-9.4L3 10"/></svg></button><button data-rotate="1" title="Rotate right (R)" aria-label="Rotate right"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 4v6h-6"/><path d="M20.5 15a9 9 0 1 1-2.1-9.4L21 10"/></svg></button>` : ""}
       ${folderInfo.desktop ? `<button data-reveal="${id}" title="Show the file in its folder"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> Open in folder</button>` : ""}
     </div>
     ${place ? `<h5>Place</h5><div>${esc(place)}</div><div class="s"><a href="https://www.openstreetmap.org/?mlat=${d.lat}&mlon=${d.lon}#map=14/${d.lat}/${d.lon}" target="_blank" rel="noopener">Open map</a></div>` : ""}
@@ -2014,7 +2034,7 @@ async function sharePhoto(id, button) {
   const name = viewerPath.split(/[\\/]/).pop() || `photo-${id}.jpg`;
   button.disabled = true;
   try {
-    const blob = await (await fetch(`/original/${id}`)).blob();
+    const blob = await (await fetch(originalUrl(id, versionOf(id)))).blob();
     const file = new File([blob], blob.type === "image/jpeg" ? name.replace(/\.(heic|heif|tiff?|avif)$/i, ".jpg") : name, { type: blob.type });
     await navigator.share({ files: [file] });
   } catch (err) {
@@ -2026,6 +2046,79 @@ async function sharePhoto(id, button) {
 async function revealPhoto(id) {
   const r = await fetch(`/api/photos/${id}/reveal`, { method: "POST" });
   if (!r.ok) toast(`Couldn't open its folder: ${await r.text() || r.status}`, true);
+}
+
+// ---- rotating a photo ------------------------------------------------------------------
+// The photo turns on screen at once; the file is saved once the clicks stop for a moment
+// (or on leaving the photo), so several quick turns are one save.
+let rotation = null; // { id, turns, timer } while turns wait to be saved
+function rotateViewer(dir) {
+  if (viewerIndex < 0) return;
+  const id = photos[viewerIndex][0];
+  if (rotation?.id !== id) { flushRotation(); rotation = { id, turns: 0, timer: 0 }; }
+  rotation.turns += dir;
+  resetZoom();
+  previewRotation();
+  clearTimeout(rotation.timer);
+  rotation.timer = setTimeout(flushRotation, 800);
+}
+function previewRotation() {
+  const [, w, h] = photos[viewerIndex];
+  const img = $(".frame img", viewer);
+  img.classList.add("turning");
+  viewer.classList.add("rotating"); // face boxes hide until the turned photo is back
+  img.style.rotate = `${rotation.turns * 90}deg`;
+  fitViewerImage(w, h, Math.abs(rotation.turns) % 2 === 1);
+}
+async function flushRotation() {
+  const r = rotation;
+  if (!r) return;
+  clearTimeout(r.timer);
+  rotation = null;
+  const turns = ((r.turns % 4) + 4) % 4;
+  const here = () => viewerIndex >= 0 && photos[viewerIndex]?.[0] === r.id;
+  const unturn = (w, h) => {
+    const img = $(".frame img", viewer);
+    img.classList.remove("turning");
+    img.style.rotate = "";
+    viewer.classList.remove("rotating");
+    fitViewerImage(w, h);
+  };
+  if (!turns) {
+    if (here() && !rotation) unturn(photos[viewerIndex][1], photos[viewerIndex][2]);
+    return;
+  }
+  let res;
+  try {
+    res = await post(`/api/photos/${r.id}/rotate`, { turns });
+  } catch (err) {
+    if (here() && !rotation) unturn(photos[viewerIndex][1], photos[viewerIndex][2]);
+    return toast(`Couldn't rotate the photo: ${err.message}`, true);
+  }
+  const p = photos.find(p => p[0] === r.id);
+  if (p) { p[1] = res.width; p[2] = res.height; p[5] = res.version; }
+  // The new pictures are ready before they replace the turned one, so nothing flickers.
+  const full = new Image(), thumb = new Image();
+  full.src = originalUrl(r.id, res.version);
+  thumb.src = thumbUrl(r.id, res.version);
+  await Promise.all([full.decode(), thumb.decode()]).catch(() => {});
+  for (const t of document.querySelectorAll(`.tile[data-id="${r.id}"]`)) {
+    t.style.setProperty("--r", (res.width / res.height).toFixed(3));
+    t.href = originalUrl(r.id, res.version);
+  }
+  for (const im of document.querySelectorAll("img")) {
+    if (im.src && new URL(im.src).pathname === `/thumb/${r.id}`) im.src = thumb.src;
+  }
+  if (!here()) return;
+  const img = $(".frame img", viewer);
+  if (rotation) {
+    img.src = full.src;
+    previewRotation(); // turned again meanwhile: keep showing that
+  } else {
+    unturn(res.width, res.height);
+    img.src = full.src;
+  }
+  openViewer(viewerIndex, { keepImage: true });
 }
 
 // ---- deleting a photo -----------------------------------------------------------------
@@ -2051,7 +2144,7 @@ async function deleteViewerPhoto() {
   const id = photos[viewerIndex][0];
   const detail = await api(`/api/photos/${id}`).catch(() => null);
   const path = detail?.path ?? "";
-  const what = `<div class="delete-what"><img src="/thumb/${id}" alt=""><div class="p">${esc(path)}</div></div>`;
+  const what = `<div class="delete-what"><img src="${thumbUrl(id, versionOf(id))}" alt=""><div class="p">${esc(path)}</div></div>`;
   const choice = await askDelete(`${what}
     <div class="delete-options">
       <button class="btn" data-choice="gallery">Remove from gallery<small>The file stays on disk. It won't come back with the next scan (Settings can show it again).</small></button>
@@ -2122,7 +2215,7 @@ function startViewerRename(label) {
   input.addEventListener("blur", () => finish(true));
 }
 
-function closeViewer() { resetZoom(); viewer.classList.remove("open"); viewerIndex = -1; $(".frame img", viewer).src = ""; }
+function closeViewer() { flushRotation(); resetZoom(); viewer.classList.remove("open"); viewerIndex = -1; $(".frame img", viewer).src = ""; }
 
 // ---- viewer zoom ----------------------------------------------------------------------
 // Click zooms in where clicked (click again to fit), drag moves the zoomed photo, the wheel
@@ -2255,6 +2348,7 @@ $(".info", viewer).addEventListener("click", async e => {
   const act = e.target.closest(".photo-acts button");
   if (act?.dataset.sharePhoto) return sharePhoto(+act.dataset.sharePhoto, act);
   if (act?.dataset.reveal) return revealPhoto(+act.dataset.reveal);
+  if (act?.dataset.rotate) return rotateViewer(+act.dataset.rotate);
   if (e.target.dataset.assign) {
     return openAssign(+e.target.dataset.assign, e.target.dataset.current ? +e.target.dataset.current : null);
   }
@@ -2293,6 +2387,7 @@ document.addEventListener("keydown", e => {
   if (document.querySelector("dialog[open]")) return;
   if (e.key === "Escape") closeViewer();
   else if (e.key === "Delete") deleteViewerPhoto();
+  else if (e.key === "r" || e.key === "R") { if ($("#viewer [data-rotate]")) rotateViewer(e.shiftKey ? -1 : 1); }
   else if (e.key === "ArrowLeft") openViewer(viewerIndex - 1);
   else if (e.key === "ArrowRight") openViewer(viewerIndex + 1);
 });

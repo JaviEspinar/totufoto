@@ -48,7 +48,9 @@ CREATE TABLE IF NOT EXISTS photos (
     -- 0 when indexed without face recognition, so a later run can add the faces
     faces_scanned INTEGER NOT NULL DEFAULT 1,
     -- BLAKE3 of the file, only for photos that share their size with another (duplicates)
-    content_hash TEXT
+    content_hash TEXT,
+    -- goes up when the file is changed here (rotated), so browsers fetch the new thumbnail
+    version INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS photos_taken ON photos(taken);
 CREATE INDEX IF NOT EXISTS photos_md ON photos(substr(taken, 6, 5));
@@ -142,6 +144,14 @@ fn migrate(conn: &Connection) -> Result<()> {
     )?;
     if !has_cover {
         conn.execute_batch("ALTER TABLE persons ADD COLUMN cover_face INTEGER")?;
+    }
+    let has_version: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'version'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has_version {
+        conn.execute_batch("ALTER TABLE photos ADD COLUMN version INTEGER NOT NULL DEFAULT 0")?;
     }
     let has_hash: bool = conn.query_row(
         "SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'content_hash'",

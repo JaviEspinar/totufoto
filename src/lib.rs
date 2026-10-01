@@ -8,6 +8,7 @@ mod duplicates;
 pub mod faces;
 mod geo;
 mod imaging;
+mod rotate;
 pub mod scan;
 mod server;
 
