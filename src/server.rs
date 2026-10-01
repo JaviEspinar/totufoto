@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{ConnectInfo, Path, Query, Request, State};
 use axum::http::{StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
@@ -97,6 +97,7 @@ pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
         .route("/api/photos/{id}", get(photo_detail))
         .route("/api/photos/{id}/check", post(check_photo))
         .route("/api/photos/{id}/remove", post(remove_photo))
+        .route("/api/photos/{id}/reveal", post(reveal_photo))
         .route("/api/excluded/clear", post(clear_excluded))
         .route("/api/duplicates", get(duplicates_report))
         .route("/api/duplicates/search", post(duplicates_search))
@@ -176,10 +177,12 @@ async fn start_scan(State(s): State<Shared>) -> StatusCode {
     StatusCode::ACCEPTED
 }
 
-async fn folders(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
+async fn folders(State(s): State<Shared>, ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>) -> ApiResult<Json<JsonValue>> {
     let scan_cfg = s.scan.clone();
     let managed = s.scan.fixed_roots.is_empty();
     let desktop = s.host.is_some();
+    // Folders can only be opened for someone on the computer that has the photos.
+    let local = desktop || peer.ip().is_loopback();
     let list = db(&s, move |conn| {
         let mut count = conn.prepare_cached("SELECT COUNT(*) FROM photos WHERE substr(path, 1, ?1) = ?2")?;
         let mut out = Vec::new();
@@ -192,7 +195,7 @@ async fn folders(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
         Ok(out)
     })
     .await?;
-    Ok(Json(json!({ "folders": list, "managed": managed, "desktop": desktop })))
+    Ok(Json(json!({ "folders": list, "managed": managed, "desktop": desktop, "local": local })))
 }
 
 #[derive(Deserialize)]
@@ -812,7 +815,68 @@ async fn face_thumb(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<R
     blob(&s, "SELECT thumb FROM faces WHERE id = ?", id).await
 }
 
-async fn original(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
+/// Shows the photo's file in the file manager of the computer that has it: through the
+/// desktop app, or for a browser on that same computer. Others get 409.
+async fn reveal_photo(
+    State(s): State<Shared>,
+    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
+    Path(id): Path<i64>,
+) -> ApiResult<Response> {
+    let path: Option<String> =
+        db(&s, move |conn| Ok(conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get(0)).optional()?)).await?;
+    let Some(path) = path.map(PathBuf::from) else { return Ok(StatusCode::NOT_FOUND.into_response()) };
+    if let Some(host) = &s.host {
+        host.reveal(&path);
+    } else if peer.ip().is_loopback() {
+        reveal_in_file_manager(&path)?;
+    } else {
+        return Ok((StatusCode::CONFLICT, "the photos are on another computer").into_response());
+    }
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+fn reveal_in_file_manager(path: &std::path::Path) -> std::io::Result<()> {
+    use std::process::Command;
+    #[cfg(target_os = "macos")]
+    Command::new("open").arg("-R").arg(path).spawn()?;
+    #[cfg(target_os = "windows")]
+    Command::new("explorer").arg(format!("/select,{}", path.display())).spawn()?;
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        // Ask the file manager to select the file; otherwise just open its folder.
+        let uri = format!("file://{}", path.to_string_lossy().replace('%', "%25").replace(' ', "%20").replace('#', "%23"));
+        let selected = Command::new("dbus-send")
+            .args(["--session", "--dest=org.freedesktop.FileManager1", "--type=method_call", "/org/freedesktop/FileManager1",
+                   "org.freedesktop.FileManager1.ShowItems", &format!("array:string:{uri}"), "string:"])
+            .status()
+            .is_ok_and(|s| s.success());
+        if !selected {
+            Command::new("xdg-open").arg(path.parent().unwrap_or(path)).spawn()?;
+        }
+    }
+    Ok(())
+}
+
+#[derive(Deserialize)]
+struct OriginalQuery {
+    /// `download=1`: save as a file (Content-Disposition: attachment) instead of showing it
+    download: Option<String>,
+}
+
+impl OriginalQuery {
+    fn download(&self) -> bool {
+        self.download.as_deref().is_some_and(|v| !matches!(v, "0" | "false"))
+    }
+}
+
+/// `attachment; filename=...` with the file's own name (ASCII fallback plus UTF-8).
+fn attachment(name: &str) -> String {
+    let ascii: String = name.chars().map(|c| if c.is_ascii_graphic() && c != '"' && c != '\\' || c == ' ' { c } else { '_' }).collect();
+    let encoded: String = name.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
+    format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}")
+}
+
+async fn original(State(s): State<Shared>, Path(id): Path<i64>, Query(q): Query<OriginalQuery>) -> ApiResult<Response> {
     let path: Option<String> =
         db(&s, move |conn| Ok(conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get(0)).optional()?))
             .await?;
@@ -827,14 +891,24 @@ async fn original(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Res
             _ => "image/jpeg",
         };
         let bytes = tokio::fs::read(&path).await?;
-        return Ok(([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "public, max-age=3600")], bytes).into_response());
+        let mut response = ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "public, max-age=3600")], bytes).into_response();
+        if q.download() {
+            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| format!("photo-{id}.{ext}"));
+            response.headers_mut().insert(header::CONTENT_DISPOSITION, attachment(&name).parse()?);
+        }
+        return Ok(response);
     }
-    // HEIC, TIFF...: convert to a large JPEG on the fly.
+    // HEIC, TIFF...: convert to a large JPEG on the fly, and save it as the JPEG it is now.
+    let jpeg_name = format!("{}.jpg", path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| format!("photo-{id}")));
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
         let raw = std::fs::read(&path)?;
         let img = imaging::decode(&path, &raw)?.into_rgb8();
         imaging::encode_jpeg(&imaging::fit(&img, 2560)?, 88)
     })
     .await??;
-    Ok(jpeg(bytes, "public, max-age=3600"))
+    let mut response = jpeg(bytes, "public, max-age=3600");
+    if q.download() {
+        response.headers_mut().insert(header::CONTENT_DISPOSITION, attachment(&jpeg_name).parse()?);
+    }
+    Ok(response)
 }

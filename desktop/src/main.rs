@@ -32,6 +32,12 @@ impl Host for DesktopHost {
             tracing::warn!("opening {url}: {e}");
         }
     }
+
+    fn reveal(&self, path: &std::path::Path) {
+        if let Err(e) = self.app.opener().reveal_item_in_dir(path) {
+            tracing::warn!("showing {}: {e}", path.display());
+        }
+    }
 }
 
 fn main() {

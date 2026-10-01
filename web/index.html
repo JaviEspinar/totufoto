@@ -193,9 +193,9 @@ body.no-aside aside { display: none; }
 .delete-what { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; }
 .delete-what img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; background: var(--chip); flex: none; }
 .delete-what .p { font-size: 12px; color: var(--muted); word-break: break-all; }
-.delete-options { display: grid; gap: 8px; }
-.delete-options button { text-align: left; padding: 10px 12px; }
-.delete-options button small { display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
+.delete-options, .share-options { display: grid; gap: 8px; }
+.delete-options button, .share-options button { text-align: left; padding: 10px 12px; }
+.delete-options button small, .share-options button small { display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
 .btn.danger { border-color: #c2410c; color: #c2410c; }
 .btn.danger:hover { background: #c2410c; color: #fff; }
 .btn.danger:hover small { color: rgba(255, 255, 255, 0.85); }
@@ -409,6 +409,14 @@ main { overflow-y: auto; min-height: 0; padding: 0 16px 40px; overscroll-behavio
 .vface button { white-space: nowrap; background: transparent; border: 1px solid #3a3936; color: #bbb; border-radius: 6px; font-size: 11px; padding: 2px 6px; }
 .vface button:hover { color: #fff; border-color: #777; }
 .info a { color: #9dbaff; }
+.photo-acts { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 14px; }
+.photo-acts button {
+  display: inline-flex; align-items: center; gap: 6px; background: transparent; border: 1px solid #3a3936; color: #ccc;
+  border-radius: 7px; font-size: 12px; padding: 5px 10px;
+}
+.photo-acts button:hover { color: #fff; border-color: #777; }
+.photo-acts button:disabled { opacity: 0.5; }
+.share-options { margin: 14px 0 4px; }
 .info label { display: flex; gap: 8px; align-items: center; color: #bbb; font-size: 12px; margin-top: 16px; }
 
 dialog {
@@ -587,6 +595,18 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 <dialog id="deleteDlg">
   <div class="dlg-head"><h3 id="deleteTitle">Delete this photo?</h3><button data-choice="cancel" title="Cancel">✕</button></div>
   <div class="dlg-body"></div>
+</dialog>
+
+<dialog id="shareDlg">
+  <div class="dlg-head"><h3>Share this photo</h3><button data-close title="Close">✕</button></div>
+  <div class="dlg-body">
+    <div class="delete-what"><img alt=""><div class="p"></div></div>
+    <div class="share-options">
+      <button class="btn" data-share="download">Download<small>Save a copy on this device, to send it from any app.</small></button>
+      <button class="btn" data-share="link">Copy link<small>Works for anyone who can open this gallery.</small></button>
+    </div>
+    <div class="dlg-actions"><button class="btn" data-close>Cancel</button></div>
+  </div>
 </dialog>
 
 <dialog id="goneDlg">
@@ -1892,10 +1912,17 @@ async function openViewer(i) {
     const label = person ? personName(person) : "";
     return `<div class="box" style="left:${f.box[0] * 100}%;top:${f.box[1] * 100}%;width:${f.box[2] * 100}%;height:${f.box[3] * 100}%">${label ? `<span>${esc(label)}</span>` : ""}</div>`;
   }).join("");
+  viewerPath = d.path;
   const place = d.city ? `${d.city}${d.region ? ", " + d.region : ""}, ${regionName(d.country)}` : null;
   $(".info", viewer).innerHTML = `
     <h3>${esc(fmtFull(d.taken))}</h3>
     <div class="s">${d.dateFromExif ? "" : "Date from file (no EXIF) · "}${d.width} × ${d.height}</div>
+    <div class="photo-acts">
+      <button data-share-photo="${id}" title="Send this photo with another app"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg> Share</button>
+      ${folderInfo.local
+        ? `<button data-reveal="${id}" title="Show the file in its folder"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> Open in folder</button>`
+        : `<button data-copy-path="${id}" title="The photos are on another computer: copy where this file is"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg> Copy path</button>`}
+    </div>
     ${place ? `<h5>Place</h5><div>${esc(place)}</div><div class="s"><a href="https://www.openstreetmap.org/?mlat=${d.lat}&mlon=${d.lon}#map=14/${d.lat}/${d.lon}" target="_blank" rel="noopener">Open map</a></div>` : ""}
     <h5>People (${d.faces.length})</h5>
     ${d.faces.length ? d.faces.map(f => {
@@ -1943,6 +1970,65 @@ function dropPhotoFromView(id) {
   if (photos.length && viewer.classList.contains("open")) openViewer(Math.min(Math.max(index, 0), photos.length - 1));
   else closeViewer();
   loadMeta().then(() => refreshPeopleViews({ animate: false })).catch(() => {});
+}
+
+// ---- sharing and showing a photo's file ------------------------------------------------
+let viewerPath = "";
+/** Copies to the clipboard; without one (plain http on another device) through a hidden field. */
+async function copyText(text, done) {
+  try { await navigator.clipboard.writeText(text); }
+  catch {
+    const field = Object.assign(document.createElement("textarea"), { value: text });
+    field.style.cssText = "position:fixed;opacity:0";
+    document.body.append(field);
+    field.select();
+    const ok = document.execCommand("copy");
+    field.remove();
+    if (!ok) return toast("Couldn't copy it", true);
+  }
+  toast(done);
+}
+/** The system's share sheet with the photo itself where the browser has one (phones,
+ *  the desktop app, https); otherwise download it or copy its link. */
+async function sharePhoto(id, button) {
+  const name = viewerPath.split(/[\\/]/).pop() || `photo-${id}.jpg`;
+  if (navigator.canShare && window.isSecureContext) {
+    button.disabled = true;
+    try {
+      const blob = await (await fetch(`/original/${id}`)).blob();
+      const file = new File([blob], blob.type === "image/jpeg" ? name.replace(/\.(heic|heif|tiff?|avif)$/i, ".jpg") : name, { type: blob.type });
+      if (navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file] }); } catch (err) { if (err.name !== "AbortError") toast(`Couldn't share it: ${err.message}`, true); }
+        return;
+      }
+    } catch { /* fall back to the dialog */ }
+    finally { button.disabled = false; }
+  }
+  const dlg = $("#shareDlg");
+  $(".delete-what img", dlg).src = `/thumb/${id}`;
+  $(".delete-what .p", dlg).textContent = viewerPath;
+  dlg.dataset.id = id;
+  dlg.showModal();
+}
+$("#shareDlg").addEventListener("click", e => {
+  const dlg = e.currentTarget, id = dlg.dataset.id;
+  const choice = e.target.closest("[data-share]")?.dataset.share;
+  if (choice === "download") {
+    const a = Object.assign(document.createElement("a"), { href: `/original/${id}?download=1`, download: "" });
+    document.body.append(a); a.click(); a.remove();
+  } else if (choice === "link") {
+    copyText(new URL(`/original/${id}`, location.href).href, "Link copied");
+  } else if (!(e.target.dataset.close != null || e.target === dlg)) return;
+  dlg.close();
+});
+async function revealPhoto(id) {
+  const r = await fetch(`/api/photos/${id}/reveal`, { method: "POST" });
+  if (r.status === 409) {
+    // Seen from another computer after all: the next best thing is where the file is.
+    folderInfo.local = false;
+    return copyText(viewerPath, "The photos are on another computer, so its path was copied");
+  }
+  if (!r.ok) toast(`Couldn't open its folder: ${await r.text() || r.status}`, true);
 }
 
 // ---- deleting a photo -----------------------------------------------------------------
@@ -2169,6 +2255,10 @@ $(".info", viewer).addEventListener("change", e => { if (e.target.id === "showBo
 $(".info", viewer).addEventListener("click", async e => {
   const link = e.target.closest("a[target=_blank]");
   if (link && folderInfo.desktop) { e.preventDefault(); return post("/api/open", { url: link.href }); }
+  const act = e.target.closest(".photo-acts button");
+  if (act?.dataset.sharePhoto) return sharePhoto(+act.dataset.sharePhoto, act);
+  if (act?.dataset.reveal) return revealPhoto(+act.dataset.reveal);
+  if (act?.dataset.copyPath) return copyText(viewerPath, "Path copied");
   if (e.target.dataset.assign) {
     return openAssign(+e.target.dataset.assign, e.target.dataset.current ? +e.target.dataset.current : null);
   }
