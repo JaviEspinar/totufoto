@@ -86,8 +86,7 @@ impl Gallery {
             server::AppState { pool: server::Pool::new(self.scan.db_path.clone()), status: self.status, scan: self.scan, host: self.host },
             allowed_hosts(addr),
         );
-        // Knowing who is asking tells "Open in folder" whether the files are on that computer.
-        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+        axum::serve(listener, app).await?;
         Ok(())
     }
 }

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use axum::extract::{ConnectInfo, Path, Query, Request, State};
+use axum::extract::{Path, Query, Request, State};
 use axum::http::{StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{Html, IntoResponse, Response};
@@ -179,12 +179,10 @@ async fn start_scan(State(s): State<Shared>) -> StatusCode {
     StatusCode::ACCEPTED
 }
 
-async fn folders(State(s): State<Shared>, ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>) -> ApiResult<Json<JsonValue>> {
+async fn folders(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
     let scan_cfg = s.scan.clone();
     let managed = s.scan.fixed_roots.is_empty();
     let desktop = s.host.is_some();
-    // Folders can only be opened for someone on the computer that has the photos.
-    let local = desktop || peer.ip().is_loopback();
     let list = db(&s, move |conn| {
         let mut count = conn.prepare_cached("SELECT COUNT(*) FROM photos WHERE substr(path, 1, ?1) = ?2")?;
         let mut out = Vec::new();
@@ -197,7 +195,7 @@ async fn folders(State(s): State<Shared>, ConnectInfo(peer): ConnectInfo<std::ne
         Ok(out)
     })
     .await?;
-    Ok(Json(json!({ "folders": list, "managed": managed, "desktop": desktop, "local": local })))
+    Ok(Json(json!({ "folders": list, "managed": managed, "desktop": desktop })))
 }
 
 #[derive(Deserialize)]
@@ -302,8 +300,6 @@ struct PhotoQuery {
     upcoming: Option<u32>,
     /// /api/groups only: "year", "month", "day" or "place"
     by: Option<String>,
-    /// only the photos directly in this folder (not its subfolders)
-    folder: Option<String>,
 }
 
 fn parse_ids(s: &str) -> Vec<i64> {
@@ -403,15 +399,6 @@ fn photo_filters(q: &PhotoQuery) -> (String, Vec<Value>, Vec<String>) {
         args.extend(list.iter().cloned().map(Value::from));
         args.push((year as i64).into());
         days = list;
-    }
-    if let Some(folder) = q.folder.as_deref().filter(|f| !f.is_empty()) {
-        // Windows paths use backslashes; the folder's own separator tells which.
-        let sep = if folder.contains('\\') && !folder.contains('/') { "\\" } else { "/" };
-        let prefix = format!("{}{sep}", folder.trim_end_matches(sep));
-        // SQLite's substr counts characters, not bytes.
-        let len = prefix.chars().count() as i64;
-        sql.push_str(" AND substr(path, 1, ?) = ? AND instr(substr(path, ?), ?) = 0");
-        args.extend([Value::from(len), Value::from(prefix), Value::from(len + 1), Value::from(sep.to_string())]);
     }
     sql.push_str(&people_filter("id", q.people.as_deref(), q.match_mode.as_deref()));
     (sql, args, days)
@@ -865,46 +852,16 @@ async fn face_thumb(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<R
     blob(&s, "SELECT thumb FROM faces WHERE id = ?", id).await
 }
 
-/// Shows the photo's file in the file manager of the computer that has it: through the
-/// desktop app, or for a browser on that same computer. Others get 409.
-async fn reveal_photo(
-    State(s): State<Shared>,
-    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
-    Path(id): Path<i64>,
-) -> ApiResult<Response> {
+/// Shows the photo's file in the file manager (desktop app only; 409 otherwise).
+async fn reveal_photo(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
     let path: Option<String> =
         db(&s, move |conn| Ok(conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get(0)).optional()?)).await?;
     let Some(path) = path.map(PathBuf::from) else { return Ok(StatusCode::NOT_FOUND.into_response()) };
-    if let Some(host) = &s.host {
-        host.reveal(&path);
-    } else if peer.ip().is_loopback() {
-        reveal_in_file_manager(&path)?;
-    } else {
-        return Ok((StatusCode::CONFLICT, "the photos are on another computer").into_response());
-    }
+    let Some(host) = &s.host else {
+        return Ok((StatusCode::CONFLICT, "only the desktop app can open folders").into_response());
+    };
+    host.reveal(&path);
     Ok(StatusCode::NO_CONTENT.into_response())
-}
-
-fn reveal_in_file_manager(path: &std::path::Path) -> std::io::Result<()> {
-    use std::process::Command;
-    #[cfg(target_os = "macos")]
-    Command::new("open").arg("-R").arg(path).spawn()?;
-    #[cfg(target_os = "windows")]
-    Command::new("explorer").arg(format!("/select,{}", path.display())).spawn()?;
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        // Ask the file manager to select the file; otherwise just open its folder.
-        let uri = format!("file://{}", path.to_string_lossy().replace('%', "%25").replace(' ', "%20").replace('#', "%23"));
-        let selected = Command::new("dbus-send")
-            .args(["--session", "--dest=org.freedesktop.FileManager1", "--type=method_call", "/org/freedesktop/FileManager1",
-                   "org.freedesktop.FileManager1.ShowItems", &format!("array:string:{uri}"), "string:"])
-            .status()
-            .is_ok_and(|s| s.success());
-        if !selected {
-            Command::new("xdg-open").arg(path.parent().unwrap_or(path)).spawn()?;
-        }
-    }
-    Ok(())
 }
 
 #[derive(Deserialize)]
