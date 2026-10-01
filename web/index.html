@@ -604,8 +604,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
   <div class="dlg-body">
     <div class="delete-what"><img alt=""><div class="p"></div></div>
     <div class="share-options">
-      <button class="btn" data-share="download">Download<small>Save a copy on this device, to send it from any app.</small></button>
-      <button class="btn" data-share="link">Copy link<small>Works for anyone who can open this gallery.</small></button>
+      <button class="btn" data-share="download">Download<small>Save a copy on this device, then send it from any app. Best for sending it to someone.</small></button>
+      <button class="btn" data-share="link">Copy link<small id="shareLinkHint"></small></button>
     </div>
     <div class="dlg-actions"><button class="btn" data-close>Cancel</button></div>
   </div>
@@ -2052,6 +2052,12 @@ async function sharePhoto(id, button) {
   $(".delete-what img", dlg).src = `/thumb/${id}`;
   $(".delete-what .p", dlg).textContent = viewerPath;
   dlg.dataset.id = id;
+  // The link points at this gallery, so it opens only where the gallery can be reached.
+  const host = location.hostname;
+  const privateHost = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|\[::1\]$|\[f[cd])|\.local$/i.test(host) || !host.includes(".");
+  $("#shareLinkHint").textContent = privateHost
+    ? `Opens only on devices that can reach ${location.host}, such as those on your home network. It won't work for someone elsewhere.`
+    : "Opens for anyone who can reach this gallery.";
   dlg.showModal();
 }
 $("#shareDlg").addEventListener("click", e => {
