@@ -109,6 +109,7 @@ pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
         .route("/api/people/{id}", post(update_person))
         .route("/api/people/{id}/merge", post(merge_person))
         .route("/api/faces/{id}/reject", post(reject_face))
+        .route("/api/faces/{id}/cover", post(cover_face))
         .route("/api/faces/{id}/assign", post(assign_face))
         .route("/thumb/{id}", get(thumb))
         .route("/face/{id}", get(face_thumb))
@@ -715,7 +716,8 @@ async fn people(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
         let rows: Vec<JsonValue> = conn
             .prepare_cached(
                 "SELECT p.id, p.name, p.hidden, COUNT(DISTINCT f.photo_id) AS n,
-                        (SELECT id FROM faces WHERE person_id = p.id ORDER BY score DESC LIMIT 1)
+                        COALESCE((SELECT id FROM faces WHERE id = p.cover_face AND person_id = p.id),
+                                 (SELECT id FROM faces WHERE person_id = p.id ORDER BY score DESC LIMIT 1))
                  FROM persons p JOIN faces f ON f.person_id = p.id
                  GROUP BY p.id ORDER BY p.name IS NULL, n DESC, p.name",
             )?
@@ -798,6 +800,23 @@ async fn merge_person(State(s): State<Shared>, Path(id): Path<i64>, Json(body): 
 /// merged later. Clustering never moves it back.
 async fn reject_face(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
     Ok(match db(&s, move |conn| crate::db::move_face_to_new_person(conn, id)).await? {
+        Some(person) => Json(json!({ "person": person })).into_response(),
+        None => StatusCode::NOT_FOUND.into_response(),
+    })
+}
+
+/// Shows this face on its person's card. It stays the card's face while it belongs to them.
+async fn cover_face(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
+    let person: Option<i64> = db(&s, move |conn| {
+        let person: Option<i64> =
+            conn.query_row("SELECT person_id FROM faces WHERE id = ?", [id], |r| r.get(0)).optional()?.flatten();
+        if let Some(person) = person {
+            conn.execute("UPDATE persons SET cover_face = ? WHERE id = ?", [id, person])?;
+        }
+        Ok(person)
+    })
+    .await?;
+    Ok(match person {
         Some(person) => Json(json!({ "person": person })).into_response(),
         None => StatusCode::NOT_FOUND.into_response(),
     })

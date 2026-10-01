@@ -406,9 +406,10 @@ main { overflow-y: auto; min-height: 0; padding: 0 16px 40px; overscroll-behavio
   font: inherit; color: #eee; background: #242422; border: 1px solid #6b9cff; border-radius: 4px;
   padding: 1px 4px; margin: -2px -5px; min-width: 0; width: 100%; outline: none;
 }
-.vface .acts { display: flex; gap: 4px; flex: none; }
+.vface .acts { display: flex; flex-wrap: wrap; gap: 4px; }
 .vface button { white-space: nowrap; background: transparent; border: 1px solid #3a3936; color: #bbb; border-radius: 6px; font-size: 11px; padding: 2px 6px; }
 .vface button:hover { color: #fff; border-color: #777; }
+.vface button.is-cover { color: #8fdca4; border-color: #2f5a3b; opacity: 1; cursor: default; }
 .info a { color: #9dbaff; }
 .photo-acts { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 14px; }
 .photo-acts button {
@@ -1974,6 +1975,9 @@ async function openViewer(i) {
         <span class="acts">
           <button data-assign="${f.id}" data-current="${f.person ?? ""}" title="Pick who this face is">Same as…</button>
           ${person ? `<button data-reject="${f.id}" title="This face is not ${esc(personName(person))}: move it to a new group you can rename or hide">Not them</button>` : ""}
+          ${!person ? "" : person.face === f.id
+            ? `<button class="is-cover" disabled title="This face is on ${esc(personName(person))}'s card in People">✓ Card photo</button>`
+            : `<button data-cover="${f.id}" title="Show this face on ${esc(personName(person))}'s card in People">Card photo</button>`}
         </span></span></div>`;
     }).join("") : `<div class="s">No faces detected.</div>`}
     <label><input type="checkbox" id="showBoxes" ${viewer.classList.contains("boxes") ? "checked" : ""}> Show face boxes</label>
@@ -2303,6 +2307,20 @@ $(".info", viewer).addEventListener("click", async e => {
     return openAssign(+e.target.dataset.assign, e.target.dataset.current ? +e.target.dataset.current : null);
   }
   if (e.target.dataset.nameFace) return startViewerRename(e.target);
+  if (e.target.dataset.cover) {
+    e.target.disabled = true;
+    try {
+      const { person } = await post(`/api/faces/${e.target.dataset.cover}/cover`);
+      const p = people.find(x => x.id === person);
+      toast(p ? `This face is now on ${personName(p)}'s card` : "Card photo changed");
+    } catch (err) {
+      e.target.disabled = false;
+      return toast(`Couldn't change the card photo: ${err.message}`, true);
+    }
+    await loadMeta();
+    refreshPeopleViews({ animate: false });
+    return openViewer(viewerIndex);
+  }
   if (e.target.dataset.reject) {
     e.target.disabled = true;
     try {
