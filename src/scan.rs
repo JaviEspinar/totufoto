@@ -189,6 +189,11 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
             .collect::<Result<_, _>>()?
     };
 
+    // Photos the user removed from the gallery stay out of it.
+    let excluded: HashSet<String> = conn
+        .prepare("SELECT path FROM excluded")?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
     // Files that failed before are only retried once they change.
     let failed: HashMap<String, (i64, i64)> = conn
         .prepare("SELECT path, mtime, size FROM failures")?
@@ -228,7 +233,10 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
                 true
             }
             Some(_) => false,
-            None => failed.get(f.path.to_string_lossy().as_ref()) != Some(&(f.mtime, f.size)),
+            None => {
+                let path = f.path.to_string_lossy();
+                !excluded.contains(path.as_ref()) && failed.get(path.as_ref()) != Some(&(f.mtime, f.size))
+            }
         })
         .collect();
 
