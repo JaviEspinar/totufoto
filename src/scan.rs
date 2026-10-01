@@ -40,6 +40,8 @@ pub struct ScanStatus {
     rerun: AtomicBool,
     /// Regroup every face at the end of the next scan, not just the new ones.
     regroup: AtomicBool,
+    /// The search for identical files, run after each scan.
+    pub dups: Arc<crate::duplicates::DupStatus>,
 }
 
 #[derive(Serialize)]
@@ -114,6 +116,10 @@ pub fn spawn(cfg: Arc<ScanConfig>, status: Arc<ScanStatus>) {
             if !status.rerun.swap(false, Ordering::SeqCst) {
                 break;
             }
+        }
+        // Then look for identical files among what's new.
+        if let Err(e) = crate::duplicates::run(&cfg.db_path, &status.dups) {
+            tracing::error!("duplicate search failed: {e:#}");
         }
     });
 }

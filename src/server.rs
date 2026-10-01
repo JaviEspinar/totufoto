@@ -98,6 +98,9 @@ pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
         .route("/api/photos/{id}/check", post(check_photo))
         .route("/api/photos/{id}/remove", post(remove_photo))
         .route("/api/excluded/clear", post(clear_excluded))
+        .route("/api/duplicates", get(duplicates_report))
+        .route("/api/duplicates/search", post(duplicates_search))
+        .route("/api/duplicates/delete", post(duplicates_delete))
         .route("/api/groups", get(groups))
         .route("/api/places", get(places))
         .route("/api/people", get(people))
@@ -542,6 +545,51 @@ async fn remove_photo(State(s): State<Shared>, Path(id): Path<i64>, Json(body): 
     })
     .await?;
     Ok((result.0, Json(result.1)).into_response())
+}
+
+/// Identical files and the search progress. While the scan or the search runs, the report
+/// may still be incomplete.
+async fn duplicates_report(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
+    let dups = s.status.dups.clone();
+    let scanning = s.status.running.load(std::sync::atomic::Ordering::Relaxed);
+    let groups = db(&s, |conn| crate::duplicates::report(conn)).await?;
+    let (files, bytes) = crate::duplicates::totals(&groups);
+    use std::sync::atomic::Ordering::Relaxed;
+    Ok(Json(json!({
+        "scanning": scanning,
+        "running": dups.running.load(Relaxed),
+        "done": dups.done.load(Relaxed),
+        "total": dups.total.load(Relaxed),
+        "finished": *dups.finished.lock().unwrap(),
+        "files": files,
+        "bytes": bytes,
+        "groups": groups,
+    })))
+}
+
+async fn duplicates_search(State(s): State<Shared>) -> StatusCode {
+    crate::duplicates::spawn(s.scan.db_path.clone(), s.status.dups.clone());
+    StatusCode::ACCEPTED
+}
+
+#[derive(Deserialize)]
+struct DupDelete {
+    /// only these photo ids (default: every duplicate copy)
+    ids: Option<Vec<i64>>,
+    #[serde(default)]
+    permanently: bool,
+}
+
+/// Moves the duplicate copies to the bin (or deletes them for good when asked), keeping the
+/// oldest file of each set.
+async fn duplicates_delete(State(s): State<Shared>, Json(body): Json<DupDelete>) -> ApiResult<Json<JsonValue>> {
+    let scan_cfg = s.scan.clone();
+    let result = db(&s, move |conn| {
+        let roots = scan_cfg.roots(conn)?;
+        crate::duplicates::delete(conn, &roots, body.ids.as_deref(), body.permanently)
+    })
+    .await?;
+    Ok(Json(serde_json::to_value(result)?))
 }
 
 /// Brings back the photos removed from the gallery (they are indexed again).
