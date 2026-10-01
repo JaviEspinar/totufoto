@@ -67,7 +67,9 @@ CREATE TABLE IF NOT EXISTS persons (
     hidden INTEGER NOT NULL DEFAULT 0,
     -- for named people: their average face, so new or restored photos of them rejoin the name
     -- even when none of their photos are left
-    face_memory BLOB
+    face_memory BLOB,
+    -- the face the user picked for the person's card (used while it is still theirs)
+    cover_face INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS faces (
@@ -132,6 +134,14 @@ fn migrate(conn: &Connection) -> Result<()> {
     )?;
     if !has_memory {
         conn.execute_batch("ALTER TABLE persons ADD COLUMN face_memory BLOB")?;
+    }
+    let has_cover: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('persons') WHERE name = 'cover_face'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has_cover {
+        conn.execute_batch("ALTER TABLE persons ADD COLUMN cover_face INTEGER")?;
     }
     let has_hash: bool = conn.query_row(
         "SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'content_hash'",
