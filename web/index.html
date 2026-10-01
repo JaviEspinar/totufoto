@@ -343,6 +343,7 @@ main { overflow-y: auto; min-height: 0; padding: 0 16px 40px; overscroll-behavio
   color: #fff; width: 44px; height: 64px; border-radius: 10px; font-size: 22px;
 }
 #viewer .nav:hover { background: rgba(255, 255, 255, 0.18); }
+#viewer .nav[hidden] { display: none; }
 #viewer .prev { left: 12px; } #viewer .next { right: 12px; }
 #viewer .close { position: absolute; top: 12px; left: 12px; background: transparent; border: 0; color: #fff; font-size: 24px; }
 #viewer .info { background: #161615; border-left: 1px solid #2a2a28; padding: 20px 18px; overflow-y: auto; }
@@ -1728,6 +1729,9 @@ async function openViewer(i) {
   if (i < 0 || i >= photos.length) return;
   viewerIndex = i;
   resetZoom();
+  // No arrow where there is no photo to go to.
+  $(".prev", viewer).hidden = i === 0;
+  $(".next", viewer).hidden = i === photos.length - 1;
   const [id, w, h] = photos[i];
   viewer.classList.add("open");
   const img = $(".frame img", viewer);
