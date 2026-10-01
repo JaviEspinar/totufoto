@@ -355,6 +355,12 @@ main { overflow-y: auto; min-height: 0; padding: 0 16px 40px; overscroll-behavio
 .vface .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .vface .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .vface .n.unnamed { color: #9a968e; font-style: italic; }
+.vface .n.editable { cursor: text; border-radius: 4px; padding: 1px 4px; margin: -1px -4px; }
+.vface .n.editable:hover { background: #2a2a28; color: #ddd; }
+.vface input.rename {
+  font: inherit; color: #eee; background: #242422; border: 1px solid #6b9cff; border-radius: 4px;
+  padding: 1px 4px; margin: -2px -5px; min-width: 0; width: 100%; outline: none;
+}
 .vface .acts { display: flex; gap: 4px; flex: none; }
 .vface button { white-space: nowrap; background: transparent; border: 1px solid #3a3936; color: #bbb; border-radius: 6px; font-size: 11px; padding: 2px 6px; }
 .vface button:hover { color: #fff; border-color: #777; }
@@ -1534,7 +1540,7 @@ function mergePeople(from, into) {
   if (state.people.delete(from)) state.people.add(into);
   refreshPeopleViews();
   toast(`Merged ${label}`);
-  post(`/api/people/${from}/merge`, { into })
+  return post(`/api/people/${from}/merge`, { into })
     .then(resync)
     .catch(err => {
       toast(`Couldn't merge ${label}: ${err.message}`, true);
@@ -1612,14 +1618,14 @@ async function renamePerson(id, value) {
     const keepName = uniqueName(name, id);
     const choice = await askSameName(p, other, name, keepName);
     if (choice === "cancel") { refreshPeopleViews({ animate: false }); return; } // old name back in the fields
-    if (choice === "merge") { mergePeople(id, other.id); return; }
+    if (choice === "merge") return mergePeople(id, other.id);
     name = keepName;
   }
   p.name = name;
   alphabeticalCache = null;
   refreshPeopleViews({ animate: false });
   for (const label of document.querySelectorAll(`[data-person-chip="${id}"] .label`)) label.textContent = personName(p);
-  post(`/api/people/${id}`, { name: name ?? "" })
+  return post(`/api/people/${id}`, { name: name ?? "" })
     .then(saved => { if (saved && saved.name !== p.name) toast(`Saved as "${saved.name}", a name that was free`); })
     .then(resync)
     .catch(err => { toast(`Couldn't save the name: ${err.message}`, true); resync(); });
@@ -1757,7 +1763,9 @@ async function openViewer(i) {
     ${d.faces.length ? d.faces.map(f => {
       const person = people.find(p => p.id === f.person);
       return `<div class="vface"><img src="/face/${f.id}" alt="">
-        <span class="who"><span class="n ${person?.name ? "" : "unnamed"}" data-person="${f.person ?? ""}" title="${person ? esc(personName(person)) : "Not grouped"}">${person ? esc(personName(person)) : "Not grouped"}</span>
+        <span class="who">${person?.name
+          ? `<span class="n" data-person="${f.person}" title="Show ${esc(person.name)}'s photos">${esc(person.name)}</span>`
+          : `<span class="n unnamed editable" data-name-face="${f.id}" data-current="${f.person ?? ""}" title="Click to name this person">${person ? esc(personName(person)) : "Not grouped"}</span>`}
         <span class="acts">
           <button data-assign="${f.id}" data-current="${f.person ?? ""}" title="Pick who this face is">Same as…</button>
           ${person ? `<button data-reject="${f.id}" title="This face is not ${esc(personName(person))}: move it to a new group you can rename or hide">Not them</button>` : ""}
@@ -1796,6 +1804,49 @@ async function photoMissing(id) {
   loadMeta().then(() => refreshPeopleViews({ animate: false })).catch(() => {});
 }
 $("#goneDlg").addEventListener("click", e => { if (e.target.dataset.close != null || e.target === e.currentTarget) e.currentTarget.close(); });
+
+/** Names an unnamed person (or a face in no group) from the viewer. A name that exists
+ *  already offers to merge, as anywhere else; a face in no group gets a group of its own. */
+function startViewerRename(label) {
+  const face = +label.dataset.nameFace, current = label.dataset.current ? +label.dataset.current : null;
+  const input = document.createElement("input");
+  input.className = "rename";
+  input.placeholder = "Add a name";
+  input.setAttribute("aria-label", "Name");
+  label.hidden = true;
+  label.after(input);
+  input.focus();
+  let done = false;
+  const finish = async save => {
+    if (done) return;
+    done = true;
+    const value = input.value.trim();
+    input.remove();
+    label.hidden = false;
+    if (!save || !value) return;
+    label.textContent = value; // shown at once; the panel refreshes when it's saved
+    label.classList.remove("unnamed");
+    try {
+      let person = current;
+      if (person == null) {
+        person = (await post(`/api/faces/${face}/reject`)).person; // a group of its own first
+        await loadMeta();
+      }
+      await renamePerson(person, value);
+    } catch (err) {
+      toast(`Couldn't save the name: ${err.message}`, true);
+    }
+    await loadMeta().catch(() => {});
+    refreshPeopleViews({ animate: false });
+    if (viewerIndex >= 0) openViewer(viewerIndex);
+  };
+  input.addEventListener("keydown", e => {
+    e.stopPropagation(); // arrows and Esc belong to the field, not the viewer
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    else if (e.key === "Escape") { e.preventDefault(); finish(false); }
+  });
+  input.addEventListener("blur", () => finish(true));
+}
 
 function closeViewer() { resetZoom(); viewer.classList.remove("open"); viewerIndex = -1; $(".frame img", viewer).src = ""; }
 
@@ -1930,6 +1981,7 @@ $(".info", viewer).addEventListener("click", async e => {
   if (e.target.dataset.assign) {
     return openAssign(+e.target.dataset.assign, e.target.dataset.current ? +e.target.dataset.current : null);
   }
+  if (e.target.dataset.nameFace) return startViewerRename(e.target);
   if (e.target.dataset.reject) {
     e.target.disabled = true;
     try {
@@ -1946,7 +1998,7 @@ $(".info", viewer).addEventListener("click", async e => {
   }
 });
 document.addEventListener("keydown", e => {
-  if (!viewer.classList.contains("open")) return;
+  if (!viewer.classList.contains("open") || e.target.matches("input, textarea, select")) return;
   if (e.key === "Escape") closeViewer();
   else if (e.key === "ArrowLeft") openViewer(viewerIndex - 1);
   else if (e.key === "ArrowRight") openViewer(viewerIndex + 1);
