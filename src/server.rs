@@ -102,6 +102,7 @@ pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
         .route("/api/duplicates", get(duplicates_report))
         .route("/api/duplicates/search", post(duplicates_search))
         .route("/api/duplicates/delete", post(duplicates_delete))
+        .route("/api/duplicates/progress", get(duplicates_progress))
         .route("/api/groups", get(groups))
         .route("/api/places", get(places))
         .route("/api/people", get(people))
@@ -564,6 +565,7 @@ async fn duplicates_report(State(s): State<Shared>) -> ApiResult<Json<JsonValue>
         "done": dups.done.load(Relaxed),
         "total": dups.total.load(Relaxed),
         "finished": *dups.finished.lock().unwrap(),
+        "deleting": dups.deleting.load(Relaxed),
         "files": files,
         "bytes": bytes,
         "groups": groups,
@@ -585,14 +587,32 @@ struct DupDelete {
 
 /// Moves the duplicate copies to the bin (or deletes them for good when asked), keeping the
 /// oldest file of each set.
-async fn duplicates_delete(State(s): State<Shared>, Json(body): Json<DupDelete>) -> ApiResult<Json<JsonValue>> {
+async fn duplicates_delete(State(s): State<Shared>, Json(body): Json<DupDelete>) -> ApiResult<Response> {
+    let dups = s.status.dups.clone();
+    if dups.deleting.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Ok((StatusCode::CONFLICT, "the duplicates are already being deleted").into_response());
+    }
     let scan_cfg = s.scan.clone();
+    let progress = dups.clone();
     let result = db(&s, move |conn| {
         let roots = scan_cfg.roots(conn)?;
-        crate::duplicates::delete(conn, &roots, body.ids.as_deref(), body.permanently)
+        crate::duplicates::delete(conn, &roots, body.ids.as_deref(), body.permanently, &progress)
     })
-    .await?;
-    Ok(Json(serde_json::to_value(result)?))
+    .await;
+    dups.deleting.store(false, std::sync::atomic::Ordering::SeqCst);
+    Ok(Json(serde_json::to_value(result?)?).into_response())
+}
+
+/// How far the deletion has got; cheap (no database), for polling while it runs.
+async fn duplicates_progress(State(s): State<Shared>) -> Json<JsonValue> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let dups = &s.status.dups;
+    Json(json!({
+        "deleting": dups.deleting.load(Relaxed),
+        "done": dups.delete_done.load(Relaxed),
+        "total": dups.delete_total.load(Relaxed),
+        "freed": dups.delete_freed.load(Relaxed),
+    }))
 }
 
 /// Brings back the photos removed from the gallery (they are indexed again).

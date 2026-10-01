@@ -175,6 +175,7 @@ body.no-aside aside { display: none; }
 .opt-summary .what small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
 .opt-summary .acts { display: flex; gap: 8px; flex-wrap: wrap; }
 .opt-progress { padding: 18px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+#dupDeleting { margin-bottom: 18px; }
 .opt-progress progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--accent); }
 .dup-group { display: flex; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); margin-bottom: 10px; }
 .dup-group img { width: 76px; height: 76px; border-radius: 8px; object-fit: cover; background: var(--chip); flex: none; }
@@ -1247,6 +1248,19 @@ async function renderOptimization(main, token, signal) {
   const report = await api("/api/duplicates", { signal });
   if (token !== renderToken) return;
   const intro = `<h2>Duplicate photos</h2><p class="lead">Identical files (the very same bytes) take space twice. Of each set, the copy with the oldest file date is kept. Nothing is deleted until you click <b>Delete duplicates</b>.</p>`;
+  if (report.deleting) {
+    // Deleting (started here or on another device): progress until it ends.
+    main.innerHTML = `<div class="opt">${intro}<div class="opt-progress" id="dupDeleting">${deleteProgressHtml(null)}</div></div>`;
+    const timer = setInterval(async () => {
+      if (token !== renderToken || state.view !== "optimization") return clearInterval(timer);
+      const p = await api("/api/duplicates/progress").catch(() => null);
+      if (!p || token !== renderToken) return;
+      if (!p.deleting) { clearInterval(timer); loadMeta().catch(() => {}); return render(); }
+      const box = $("#dupDeleting");
+      if (box) box.innerHTML = deleteProgressHtml(p);
+    }, 500);
+    return;
+  }
   if (report.scanning || report.running) {
     // While the scan or the search runs: progress, refreshed every second.
     const what = report.scanning ? "Waiting for the photo scan to finish…"
@@ -1289,6 +1303,13 @@ async function renderOptimization(main, token, signal) {
   });
   main.querySelector("[data-dup-delete]")?.addEventListener("click", () => deleteDuplicates(report));
 }
+/** Progress of a deletion: files done of total and space freed so far (null: starting). */
+function deleteProgressHtml(p) {
+  const what = !p || !p.total ? "Deleting the duplicates…"
+    : p.done < p.total ? `Deleting ${p.done.toLocaleString()} of ${p.total.toLocaleString()} duplicate files · ${fmtBytes(p.freed)} freed`
+    : `Updating the gallery · ${fmtBytes(p.freed)} freed`;
+  return `<div>${what}</div><progress ${p?.total ? `max="${p.total}" value="${p.done}"` : ""}></progress>`;
+}
 async function deleteDuplicates(report) {
   const choice = await askDelete(`<p>Move <b>${report.files.toLocaleString()} duplicate file${report.files === 1 ? "" : "s"}</b> (${fmtBytes(report.bytes)}) to the bin of the computer running Totufoto?</p>
     <p>Of each set of identical files, the one with the oldest file date is kept. A file that changed since the search is left alone.</p>
@@ -1297,17 +1318,34 @@ async function deleteDuplicates(report) {
   if (choice !== "bin") return;
   const run = body => fetch("/api/duplicates/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
     .then(async r => { if (!r.ok) throw new Error(await r.text()); return r.json(); });
-  const button = $("[data-dup-delete]");
-  if (button) { button.disabled = true; button.textContent = "Deleting…"; }
+  // The summary becomes a progress bar while the server works through the files.
+  const summary = $(".opt-summary");
+  const box = document.createElement("div");
+  box.className = "opt-progress";
+  box.id = "dupDeleting";
+  box.innerHTML = deleteProgressHtml(null);
+  summary?.replaceWith(box);
+  const runWithProgress = async body => {
+    let polling = true;
+    box.innerHTML = deleteProgressHtml(null);
+    (async () => {
+      while (polling) {
+        await new Promise(r => setTimeout(r, 400));
+        const p = await api("/api/duplicates/progress").catch(() => null);
+        if (polling && p?.deleting) box.innerHTML = deleteProgressHtml(p);
+      }
+    })();
+    try { return await run(body); } finally { polling = false; }
+  };
   try {
-    let result = await run({});
+    let result = await runWithProgress({});
     let freed = result.freed, binned = result.binned, deleted = result.deleted;
     if (result.no_bin.length) {
       const again = await askDelete(`<p>${result.no_bin.length.toLocaleString()} file${result.no_bin.length === 1 ? "" : "s"} can't be moved to a bin on ${result.no_bin.length === 1 ? "its drive" : "their drive"}, so they can't be recovered once deleted. Their oldest copy is kept either way.</p>
         <div class="dlg-actions"><button class="btn" data-choice="cancel">Keep them</button><button class="btn danger" data-choice="permanently">Delete permanently</button></div>`,
         "Delete them permanently?");
       if (again === "permanently") {
-        const r2 = await run({ ids: result.no_bin, permanently: true });
+        const r2 = await runWithProgress({ ids: result.no_bin, permanently: true });
         freed += r2.freed; deleted += r2.deleted;
         result.skipped.push(...r2.skipped);
       }
