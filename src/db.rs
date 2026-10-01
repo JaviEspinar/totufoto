@@ -46,11 +46,14 @@ CREATE TABLE IF NOT EXISTS photos (
     lon       REAL,
     place_id  INTEGER REFERENCES places(id),
     -- 0 when indexed without face recognition, so a later run can add the faces
-    faces_scanned INTEGER NOT NULL DEFAULT 1
+    faces_scanned INTEGER NOT NULL DEFAULT 1,
+    -- BLAKE3 of the file, only for photos that share their size with another (duplicates)
+    content_hash TEXT
 );
 CREATE INDEX IF NOT EXISTS photos_taken ON photos(taken);
 CREATE INDEX IF NOT EXISTS photos_md ON photos(substr(taken, 6, 5));
 CREATE INDEX IF NOT EXISTS photos_place ON photos(place_id);
+CREATE INDEX IF NOT EXISTS photos_size ON photos(size);
 
 CREATE TABLE IF NOT EXISTS thumbs (
     photo_id INTEGER PRIMARY KEY REFERENCES photos(id) ON DELETE CASCADE,
@@ -130,6 +133,15 @@ fn migrate(conn: &Connection) -> Result<()> {
     if !has_memory {
         conn.execute_batch("ALTER TABLE persons ADD COLUMN face_memory BLOB")?;
     }
+    let has_hash: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'content_hash'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has_hash {
+        conn.execute_batch("ALTER TABLE photos ADD COLUMN content_hash TEXT")?;
+    }
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS photos_hash ON photos(content_hash) WHERE content_hash IS NOT NULL")?;
     Ok(())
 }
 

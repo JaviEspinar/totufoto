@@ -60,7 +60,8 @@ nav button.on, .seg button.on { background: var(--chip); color: var(--ink); font
 .range { display: flex; align-items: center; gap: 6px; }
 .compact-only { display: none; }
 .range input { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 4px 6px; font-size: 13px; }
-body.no-aside .range { display: none; }
+/* Dates, grouping and order only apply to Photos and Upcoming */
+body.no-aside .range, body.no-aside .tools { display: none; }
 
 /* Icon buttons: just the icon, with a soft highlight on hover */
 .icon-btn {
@@ -161,6 +162,34 @@ body.no-aside aside { display: none; }
 .merge-pair .arrow { font-size: 26px; color: var(--muted); }
 .merge-note { text-align: center; }
 .gone-path { font-size: 12px; color: var(--muted); word-break: break-all; }
+/* Optimization tab */
+.opt { max-width: 900px; padding-top: 16px; }
+.opt h2 { font-size: 18px; margin: 0 0 4px; }
+.opt .lead { color: var(--muted); margin: 0 0 16px; }
+.opt-summary {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 16px; border-radius: 12px;
+  background: var(--panel); border: 1px solid var(--line); margin-bottom: 18px;
+}
+.opt-summary .big { font-size: 20px; font-weight: 700; }
+.opt-summary .what { flex: 1 1 220px; }
+.opt-summary .what small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; }
+.opt-summary .acts { display: flex; gap: 8px; flex-wrap: wrap; }
+.opt-progress { padding: 18px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
+.opt-progress progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--accent); }
+.dup-group { display: flex; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); margin-bottom: 10px; }
+.dup-group img { width: 76px; height: 76px; border-radius: 8px; object-fit: cover; background: var(--chip); flex: none; }
+.dup-group .files { flex: 1; min-width: 0; display: grid; gap: 4px; }
+.dup-file { display: flex; gap: 8px; align-items: baseline; font-size: 13px; min-width: 0; }
+.dup-file .tag { flex: none; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; }
+.dup-file.keep .tag { background: #e6f4ea; color: #1e7b34; }
+.dup-file.remove .tag { background: #fde8e4; color: #b42318; }
+.dup-file .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.dup-file .when { flex: none; color: var(--muted); font-size: 12px; }
+@media (prefers-color-scheme: dark) {
+  .dup-file.keep .tag { background: #173d24; color: #8fdca4; }
+  .dup-file.remove .tag { background: #4a1d17; color: #f4a99c; }
+}
+@media (max-width: 639px) { .dup-file .when { display: none; } .dup-group img { width: 56px; height: 56px; } }
 .delete-what { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; }
 .delete-what img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; background: var(--chip); flex: none; }
 .delete-what .p { font-size: 12px; color: var(--muted); word-break: break-all; }
@@ -489,6 +518,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
     <button data-view="photos" class="on">Photos</button>
     <button data-view="upcoming">Upcoming</button>
     <button data-view="people">People</button>
+    <button data-view="optimization">Optimization</button>
   </nav>
   <div class="spacer"></div>
   <div class="tools" id="tools">
@@ -1188,6 +1218,87 @@ async function renderUpcoming(main, token, signal) {
   renderGroups(load.area, groups, header, sub);
 }
 
+// ---- optimization: identical files ------------------------------------------------------
+const fmtBytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB`
+  : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
+const fmtFileDate = secs => new Date(secs * 1000).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const DUP_BATCH = 100;
+async function renderOptimization(main, token, signal) {
+  const report = await api("/api/duplicates", { signal });
+  if (token !== renderToken) return;
+  const intro = `<h2>Duplicate photos</h2><p class="lead">Identical files (the very same bytes) take space twice. Of each set, the copy with the oldest file date is kept.</p>`;
+  if (report.scanning || report.running) {
+    // While the scan or the search runs: progress, refreshed every second.
+    const what = report.scanning ? "Waiting for the photo scan to finish…"
+      : `Checking ${report.done.toLocaleString()} of ${report.total.toLocaleString()} files that could be duplicates`;
+    main.innerHTML = `<div class="opt">${intro}<div class="opt-progress"><div>${what}</div>
+      <progress ${report.scanning || !report.total ? "" : `max="${report.total}" value="${report.done}"`}></progress></div></div>`;
+    setTimeout(() => { if (token === renderToken && state.view === "optimization") renderOptimization(main, token, signal).catch(() => {}); }, 1000);
+    return;
+  }
+  const checked = report.finished ? `Last checked ${esc(report.finished)}.` : "Not checked yet.";
+  const summary = report.files
+    ? `<div class="what"><div class="big">${fmtBytes(report.bytes)} can be freed</div>
+        <small>${report.files.toLocaleString()} duplicate file${report.files === 1 ? "" : "s"} in ${report.groups.length.toLocaleString()} set${report.groups.length === 1 ? "" : "s"}. ${checked}</small></div>
+       <div class="acts"><button class="btn" data-dup-search>Search again</button>
+         <button class="btn danger" data-dup-delete>Delete duplicates</button></div>`
+    : `<div class="what"><div class="big">No duplicates</div><small>No two photos are identical files. ${checked}</small></div>
+       <div class="acts"><button class="btn" data-dup-search>Search again</button></div>`;
+  main.innerHTML = `<div class="opt">${intro}<div class="opt-summary">${summary}</div><div id="dupGroups"></div></div>`;
+  const list = $("#dupGroups");
+  const file = (f, kind) => `<div class="dup-file ${kind}"><span class="tag">${kind === "keep" ? "Kept" : "Deleted"}</span>
+      <span class="p" title="${esc(f.path)}"><bdi>${esc(f.path)}</bdi></span><span class="when">${fmtFileDate(f.mtime)}</span></div>`;
+  let shown = 0;
+  const more = () => {
+    list.querySelector(".dup-more")?.remove();
+    list.insertAdjacentHTML("beforeend", report.groups.slice(shown, shown + DUP_BATCH).map(g => `
+      <div class="dup-group"><img src="/thumb/${g.keep.id}" loading="lazy" alt="">
+        <div class="files">${file(g.keep, "keep")}${g.remove.map(f => file(f, "remove")).join("")}</div></div>`).join(""));
+    shown += DUP_BATCH;
+    if (shown < report.groups.length)
+      list.insertAdjacentHTML("beforeend", `<button class="btn dup-more">Show ${Math.min(DUP_BATCH, report.groups.length - shown)} more</button>`);
+  };
+  more();
+  list.addEventListener("click", e => { if (e.target.classList.contains("dup-more")) more(); });
+  main.querySelector("[data-dup-search]")?.addEventListener("click", async e => {
+    e.target.disabled = true;
+    await post("/api/duplicates/search").catch(() => {});
+    setTimeout(render, 300);
+  });
+  main.querySelector("[data-dup-delete]")?.addEventListener("click", () => deleteDuplicates(report));
+}
+async function deleteDuplicates(report) {
+  const choice = await askDelete(`<p>Move <b>${report.files.toLocaleString()} duplicate file${report.files === 1 ? "" : "s"}</b> (${fmtBytes(report.bytes)}) to the bin of the computer running Totufoto?</p>
+    <p>Of each set of identical files, the one with the oldest file date is kept. A file that changed since the search is left alone.</p>
+    <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button><button class="btn danger" data-choice="bin">Move to the bin</button></div>`,
+    "Delete duplicates?");
+  if (choice !== "bin") return;
+  const run = body => fetch("/api/duplicates/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+    .then(async r => { if (!r.ok) throw new Error(await r.text()); return r.json(); });
+  const button = $("[data-dup-delete]");
+  if (button) { button.disabled = true; button.textContent = "Deleting…"; }
+  try {
+    let result = await run({});
+    let freed = result.freed, binned = result.binned, deleted = result.deleted;
+    if (result.no_bin.length) {
+      const again = await askDelete(`<p>${result.no_bin.length.toLocaleString()} file${result.no_bin.length === 1 ? "" : "s"} can't be moved to a bin on ${result.no_bin.length === 1 ? "its drive" : "their drive"}, so they can't be recovered once deleted. Their oldest copy is kept either way.</p>
+        <div class="dlg-actions"><button class="btn" data-choice="cancel">Keep them</button><button class="btn danger" data-choice="permanently">Delete permanently</button></div>`,
+        "Delete them permanently?");
+      if (again === "permanently") {
+        const r2 = await run({ ids: result.no_bin, permanently: true });
+        freed += r2.freed; deleted += r2.deleted;
+        result.skipped.push(...r2.skipped);
+      }
+    }
+    const parts = [binned && `${binned.toLocaleString()} moved to the bin`, deleted && `${deleted.toLocaleString()} deleted`].filter(Boolean).join(", ");
+    toast(`${fmtBytes(freed)} freed${parts ? `: ${parts}` : ""}${result.skipped.length ? `. ${result.skipped.length} left alone (changed since the search)` : ""}`);
+  } catch (err) {
+    toast(`Couldn't delete the duplicates: ${err.message}`, true);
+  }
+  loadMeta().catch(() => {});
+  render();
+}
+
 // ---- people grid ---------------------------------------------------------------------
 // Libraries can have tens of thousands of people, so only the cards on screen exist in the
 // page. Everything else (opening dialogs, merging, searching) stays cheap because of that.
@@ -1656,8 +1767,10 @@ let viewRequest = null; // the current view's request, cancelled when another vi
 async function render() {
   saveHash();
   for (const b of $("#tabs").children) b.classList.toggle("on", b.dataset.view === state.view);
-  document.body.classList.toggle("no-aside", state.view === "people");
-  if (state.view === "people") setDrawer(false);
+  // People and Optimization have no "People in the photo" column.
+  const noAside = state.view === "people" || state.view === "optimization";
+  document.body.classList.toggle("no-aside", noAside);
+  if (noAside) setDrawer(false);
   updateRailCount();
   $("#groupBy").value = state.groupBy;
   $("#sort").value = state.sort;
@@ -1673,6 +1786,7 @@ async function render() {
   try {
     if (state.view === "photos") await renderPhotos(main, token, signal);
     else if (state.view === "upcoming") await renderUpcoming(main, token, signal);
+    else if (state.view === "optimization") await renderOptimization(main, token, signal);
     else await renderPeople(main, token);
   } catch (err) {
     if (err.name === "AbortError" || token !== renderToken) return;
@@ -1719,7 +1833,7 @@ for (const id of ["fromDate", "toDate"]) {
     // A reversed range (typed by hand) is put the right way round.
     [state.from, state.to] = from && to && from > to ? [to, from] : [from, to];
     syncRangeInputs();
-    if (state.view === "people") state.view = "photos";
+    if (state.view === "people" || state.view === "optimization") state.view = "photos";
     render();
   });
 }

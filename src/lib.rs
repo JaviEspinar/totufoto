@@ -4,6 +4,7 @@
 mod app;
 mod cluster;
 mod db;
+mod duplicates;
 pub mod faces;
 mod geo;
 mod imaging;
