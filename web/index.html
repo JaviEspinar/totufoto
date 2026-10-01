@@ -757,6 +757,8 @@ async function loadMeta() {
   const known = new Set(people.map(p => p.id));
   for (const id of state.people) if (!known.has(id)) state.people.delete(id);
   renderPeopleList();
+  // The People tab opened before there was anyone: show them now that there are.
+  if (state.view === "people" && !peopleGrid && people.length && $("#peopleHost .blank, #peopleHost .skeleton")) render();
 }
 const personName = p => p.name || `Unnamed #${p.id}`;
 const placeLabel = id => {
@@ -1644,9 +1646,10 @@ async function renderPeople(main, token) {
     main.scrollTop = 0;
     refreshPeopleViews({ animate: false });
   });
-  let placeholders = false;
+  let placeholders = false, shown = false;
   const show = () => {
     if (token !== renderToken) return;
+    shown = true;
     if (!people.length) { host.innerHTML = `<div class="blank">No faces found yet.</div>`; $("#peopleCount").textContent = ""; return; }
     if (!peopleGrid) {
       resetPeopleOrder(); // opening the tab is when the list gets sorted again
@@ -1659,7 +1662,7 @@ async function renderPeople(main, token) {
   else {
     $("#peopleCount").textContent = "Loading people…";
     setTimeout(() => {
-      if (token === renderToken && !peopleGrid && !people.length) {
+      if (token === renderToken && !shown) {
         placeholders = true;
         host.innerHTML = peopleLayoutFor(peopleLayout).skeleton();
       }
@@ -2632,8 +2635,13 @@ $("#settingsDlg").addEventListener("click", async e => {
         <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button><button class="btn danger" data-choice="remove">Remove folder</button></div>`,
         "Remove this folder from the gallery?");
       if (choice !== "remove") return;
-      await post("/api/folders/remove", { path });
-      await loadFolders(); renderSettings(); setTimeout(pollStatus, 300);
+      const r = await post("/api/folders/remove", { path });
+      toast(`${r.removed.toLocaleString()} photo${r.removed === 1 ? "" : "s"} removed from the gallery`
+        + (r.kept ? `; ${r.kept.toLocaleString()} stay, as another folder includes them` : ""));
+      await Promise.all([loadFolders(), loadMeta()]);
+      renderSettings();
+      render(); // the view behind Settings shows the photos that are left
+      setTimeout(pollStatus, 300);
     }
   } catch (err) { renderSettings(err.message); }
 });
