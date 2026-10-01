@@ -103,7 +103,7 @@ cargo run --release -- ~/Pictures/Holidays
 
 Or start it without folders (`cargo run --release`) and add them in **Settings** (the gear at the top right of the gallery). Either way you can add and remove more folders in Settings later; folders given on the command line are always included and can only be removed there.
 
-The first build takes a minute or two. Then open **http://127.0.0.1:7878**. Indexing runs in the background with progress shown in the top-right corner, and photos appear as soon as it finishes. Press `Ctrl+C` in the terminal to stop the app.
+The first build takes a minute or two. Then open **http://127.0.0.1:7878**. Indexing runs in the background: the first time, the Photos tab shows its progress until the first photos are in; after that a small card at the bottom right shows the progress on every tab (*Show N new* brings in the photos indexed since, *Details* opens Settings, *Hide* hides it until the next scan). Press `Ctrl+C` in the terminal to stop the app.
 
 Subfolders are included automatically, and you can pass several folders:
 
