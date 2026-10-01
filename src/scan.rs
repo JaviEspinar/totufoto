@@ -81,7 +81,8 @@ impl ScanStatus {
 }
 
 pub struct ScanConfig {
-    /// Folders given on the command line. When empty, the folders saved in the index are used.
+    /// Folders given on the command line: always part of the library, next to the folders
+    /// saved from Settings.
     pub fixed_roots: Vec<PathBuf>,
     pub db_path: PathBuf,
     pub models: Option<ModelPaths>,
@@ -89,16 +90,27 @@ pub struct ScanConfig {
 }
 
 impl ScanConfig {
+    /// The command-line folders, then the saved ones. A folder inside another one is left
+    /// out: the outer one already includes it.
     pub fn roots(&self, conn: &Connection) -> Result<Vec<PathBuf>> {
-        if !self.fixed_roots.is_empty() {
-            return Ok(self.fixed_roots.clone());
-        }
-        let roots = conn
+        let saved: Vec<PathBuf> = conn
             .prepare("SELECT path FROM folders ORDER BY path")?
             .query_map([], |r| r.get::<_, String>(0))?
             .map(|r| r.map(PathBuf::from))
             .collect::<Result<_, _>>()?;
+        let all: Vec<PathBuf> = self.fixed_roots.iter().cloned().chain(saved).collect();
+        let mut roots: Vec<PathBuf> = Vec::new();
+        for (i, root) in all.iter().enumerate() {
+            let covered = all.iter().enumerate().any(|(j, other)| j != i && root.starts_with(other) && (root != other || j < i));
+            if !covered {
+                roots.push(root.clone());
+            }
+        }
         Ok(roots)
+    }
+
+    pub fn is_fixed(&self, path: &Path) -> bool {
+        self.fixed_roots.iter().any(|r| r == path)
     }
 }
 
@@ -213,9 +225,10 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
             forget.execute([path])?;
         }
     }
-    // Folders given on the command line define the whole library, so photos outside them go.
-    // Folders managed from the UI remove their own photos when removed, so a scan only drops
-    // photos inside the current folders whose files are gone.
+    // With folders given on the command line, the folders (those and the saved ones) are the
+    // whole library, so photos outside them go. Folders managed only from Settings remove
+    // their own photos when removed, so a scan only drops photos inside the current folders
+    // whose files are gone.
     let whole_library = !cfg.fixed_roots.is_empty();
     let mut stale: Vec<i64> = known
         .iter()
