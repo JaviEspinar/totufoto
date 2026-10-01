@@ -92,6 +92,7 @@ pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
         .route("/api/folders", get(folders).post(add_folder))
         .route("/api/folders/pick", post(pick_folder))
         .route("/api/folders/remove", post(remove_folder))
+        .route("/api/folders/browse", get(browse_folders))
         .route("/api/open", post(open_url))
         .route("/api/photos", get(photos))
         .route("/api/photos/{id}", get(photo_detail))
@@ -182,7 +183,6 @@ async fn start_scan(State(s): State<Shared>) -> StatusCode {
 
 async fn folders(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
     let scan_cfg = s.scan.clone();
-    let managed = s.scan.fixed_roots.is_empty();
     let desktop = s.host.is_some();
     let list = db(&s, move |conn| {
         let mut count = conn.prepare_cached("SELECT COUNT(*) FROM photos WHERE substr(path, 1, ?1) = ?2")?;
@@ -191,12 +191,13 @@ async fn folders(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
             // Match "<root><separator>" so /photos doesn't also count /photos2.
             let prefix = root.join("").to_string_lossy().into_owned();
             let photos: i64 = count.query_row(params![prefix.chars().count() as i64, prefix], |r| r.get(0))?;
-            out.push(json!({ "path": root.to_string_lossy(), "available": root.is_dir(), "photos": photos }));
+            let fixed = scan_cfg.is_fixed(&root);
+            out.push(json!({ "path": root.to_string_lossy(), "available": root.is_dir(), "photos": photos, "fixed": fixed }));
         }
         Ok(out)
     })
     .await?;
-    Ok(Json(json!({ "folders": list, "managed": managed, "desktop": desktop })))
+    Ok(Json(json!({ "folders": list, "desktop": desktop })))
 }
 
 #[derive(Deserialize)]
@@ -204,11 +205,8 @@ struct FolderBody {
     path: String,
 }
 
-/// Saves a folder and indexes it. Only when folders aren't fixed on the command line.
+/// Saves a folder and indexes it.
 async fn save_folder(s: &Shared, path: PathBuf) -> ApiResult<Response> {
-    if !s.scan.fixed_roots.is_empty() {
-        return Ok((StatusCode::CONFLICT, "folders are set on the command line").into_response());
-    }
     let Ok(path) = dunce::canonicalize(&path) else {
         return Ok((StatusCode::BAD_REQUEST, format!("{} does not exist", path.display())).into_response());
     };
@@ -216,11 +214,29 @@ async fn save_folder(s: &Shared, path: PathBuf) -> ApiResult<Response> {
         return Ok((StatusCode::BAD_REQUEST, format!("{} is not a folder", path.display())).into_response());
     }
     let stored = path.to_string_lossy().into_owned();
-    db(s, move |conn| {
+    let scan_cfg = s.scan.clone();
+    let candidate = path.clone();
+    let inside: Option<PathBuf> = db(s, move |conn| {
+        if let Some(outer) = scan_cfg.roots(conn)?.into_iter().find(|r| candidate.starts_with(r)) {
+            return Ok(Some(outer));
+        }
+        // Saved folders inside the new one aren't needed any more (their photos stay).
+        let saved: Vec<String> = conn.prepare("SELECT path FROM folders")?.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        for inner in saved.iter().filter(|p| std::path::Path::new(p).starts_with(&candidate)) {
+            conn.execute("DELETE FROM folders WHERE path = ?", [inner])?;
+        }
         conn.execute("INSERT OR IGNORE INTO folders (path) VALUES (?)", [stored])?;
-        Ok(())
+        Ok(None)
     })
     .await?;
+    if let Some(outer) = inside {
+        let msg = if outer == path {
+            format!("{} is already in the gallery", path.display())
+        } else {
+            format!("{} is already included: it is inside {}", path.display(), outer.display())
+        };
+        return Ok((StatusCode::CONFLICT, msg).into_response());
+    }
     scan::spawn(s.scan.clone(), s.status.clone());
     Ok(Json(json!({ "path": path.to_string_lossy() })).into_response())
 }
@@ -238,29 +254,89 @@ async fn pick_folder(State(s): State<Shared>) -> ApiResult<Response> {
     }
 }
 
-async fn remove_folder(State(s): State<Shared>, Json(body): Json<FolderBody>) -> ApiResult<StatusCode> {
-    if !s.scan.fixed_roots.is_empty() {
-        return Ok(StatusCode::CONFLICT);
+async fn remove_folder(State(s): State<Shared>, Json(body): Json<FolderBody>) -> ApiResult<Response> {
+    if s.scan.is_fixed(std::path::Path::new(&body.path)) {
+        return Ok((StatusCode::CONFLICT, "this folder is given on the command line; remove it there").into_response());
     }
+    let scan_cfg = s.scan.clone();
     db(&s, move |conn| {
-        // Match "<folder><separator>" so removing /photos doesn't also remove /photos2.
+        conn.execute("DELETE FROM folders WHERE path = ?", [&body.path])?;
+        // Its photos leave, except those another folder still includes (a folder inside it,
+        // or one given on the command line). Match "<folder><separator>" so removing /photos
+        // doesn't also remove /photos2.
         let prefix = PathBuf::from(&body.path).join("").to_string_lossy().into_owned();
-        let tx = conn.transaction()?;
-        tx.execute("DELETE FROM folders WHERE path = ?", [&body.path])?;
-        let removed = tx.execute(
-            "DELETE FROM photos WHERE substr(path, 1, ?1) = ?2",
-            params![prefix.chars().count() as i64, prefix],
-        )?;
-        tx.execute(
-            "DELETE FROM persons WHERE name IS NULL AND id NOT IN (SELECT DISTINCT person_id FROM faces WHERE person_id IS NOT NULL)",
-            [],
-        )?;
-        tx.commit()?;
-        tracing::info!("removed folder {} ({removed} photos)", body.path);
+        let remaining = scan_cfg.roots(conn)?;
+        let gone: Vec<i64> = conn
+            .prepare("SELECT id, path FROM photos WHERE substr(path, 1, ?1) = ?2")?
+            .query_map(params![prefix.chars().count() as i64, prefix], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
+            .filter_map(|row| match row {
+                Ok((id, path)) if !remaining.iter().any(|r| std::path::Path::new(&path).starts_with(r)) => Some(Ok(id)),
+                Ok(_) => None,
+                Err(e) => Some(Err(e)),
+            })
+            .collect::<Result<_, _>>()?;
+        crate::db::forget_photos(conn, &gone)?;
+        tracing::info!("removed folder {} ({} photos)", body.path, gone.len());
         Ok(())
     })
     .await?;
-    Ok(StatusCode::NO_CONTENT)
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+#[derive(Deserialize)]
+struct BrowseQuery {
+    path: Option<String>,
+}
+
+/// The folders inside `path` on the computer running Totufoto, for choosing photo folders
+/// from a browser. Without a path: next to the first photo folder, or the home folder.
+async fn browse_folders(State(s): State<Shared>, Query(q): Query<BrowseQuery>) -> ApiResult<Response> {
+    let scan_cfg = s.scan.clone();
+    let start = match q.path.filter(|p| !p.trim().is_empty()) {
+        Some(p) => Some(PathBuf::from(p.trim())),
+        None => {
+            let roots = db(&s, move |conn| scan_cfg.roots(conn)).await?;
+            roots
+                .into_iter()
+                .find_map(|r| r.parent().filter(|p| p.is_dir()).map(std::path::Path::to_path_buf))
+                .or_else(|| std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from))
+        }
+    };
+    let listing = tokio::task::spawn_blocking(move || list_dirs(start)).await?;
+    Ok(match listing {
+        Ok(v) => Json(v).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
+    })
+}
+
+fn list_dirs(path: Option<PathBuf>) -> Result<JsonValue> {
+    let entry = |p: &std::path::Path, name: String| json!({ "name": name, "path": p.to_string_lossy() });
+    // Windows without a path: the drives.
+    let Some(path) = path.or_else(|| (!cfg!(windows)).then(|| PathBuf::from("/"))) else {
+        let drives: Vec<JsonValue> = (b'A'..=b'Z')
+            .map(|d| PathBuf::from(format!("{}:\\", d as char)))
+            .filter(|p| p.is_dir())
+            .map(|p| entry(&p, p.to_string_lossy().into_owned()))
+            .collect();
+        return Ok(json!({ "path": "", "parent": null, "dirs": drives }));
+    };
+    let path = dunce::canonicalize(&path).map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?;
+    let mut dirs: Vec<(String, PathBuf)> = std::fs::read_dir(&path)
+        .map_err(|e| anyhow::anyhow!("{}: {e}", path.display()))?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
+        .filter(|(name, _)| !name.starts_with('.') && !name.starts_with('$'))
+        .collect();
+    dirs.sort_by_key(|(name, _)| name.to_lowercase());
+    dirs.truncate(5000);
+    // Windows: above a drive's root come the drives ("").
+    let parent = path.parent().map(|p| p.to_string_lossy().into_owned()).or_else(|| cfg!(windows).then(String::new));
+    Ok(json!({
+        "path": path.to_string_lossy(),
+        "parent": parent,
+        "dirs": dirs.iter().map(|(name, p)| entry(p, name.clone())).collect::<Vec<_>>(),
+    }))
 }
 
 #[derive(Deserialize)]
