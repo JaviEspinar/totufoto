@@ -4,6 +4,11 @@ use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 
 const SCHEMA: &str = "
+-- photos removed from the gallery by the user (the files stay): scans skip them
+CREATE TABLE IF NOT EXISTS excluded (
+    path TEXT PRIMARY KEY
+);
+
 -- files that could not be indexed, with the reason; retried when the file changes
 CREATE TABLE IF NOT EXISTS failures (
     path  TEXT PRIMARY KEY,

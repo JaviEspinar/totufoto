@@ -96,6 +96,8 @@ pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
         .route("/api/photos", get(photos))
         .route("/api/photos/{id}", get(photo_detail))
         .route("/api/photos/{id}/check", post(check_photo))
+        .route("/api/photos/{id}/remove", post(remove_photo))
+        .route("/api/excluded/clear", post(clear_excluded))
         .route("/api/groups", get(groups))
         .route("/api/places", get(places))
         .route("/api/people", get(people))
@@ -126,9 +128,16 @@ async fn check_host(State(allowed): State<Arc<Vec<String>>>, req: Request, next:
 async fn status(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
     let view = s.status.view();
     // Files that could not be indexed, saved across scans (see /api/failures).
-    let failed: i64 = db(&s, |conn| Ok(conn.query_row("SELECT COUNT(*) FROM failures", [], |r| r.get(0))?)).await?;
+    let (failed, excluded): (i64, i64) = db(&s, |conn| {
+        Ok(conn.query_row("SELECT (SELECT COUNT(*) FROM failures), (SELECT COUNT(*) FROM excluded)", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?)
+    })
+    .await?;
     let mut value = serde_json::to_value(view)?;
     value["failed"] = failed.into();
+    // Photos removed from the gallery (their files kept); see /api/excluded/clear.
+    value["excluded"] = excluded.into();
     Ok(Json(value))
 }
 
@@ -481,6 +490,65 @@ async fn check_photo(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<
     })
     .await?;
     Ok(Json(result))
+}
+
+#[derive(Deserialize)]
+struct RemoveBody {
+    /// "gallery": out of the gallery, the file stays; "disk": the file goes to the bin
+    from: String,
+    /// with "disk": delete for good when there is no bin to move the file to
+    #[serde(default)]
+    permanently: bool,
+}
+
+/// Removes a photo. From the gallery: the file stays, and scans leave it out from then on.
+/// From disk: the file is moved to the bin of the computer running the gallery; if that
+/// isn't possible the answer is "no-bin", and the file is only deleted for good when asked
+/// again with `permanently`. Only files inside the library folders can be deleted.
+async fn remove_photo(State(s): State<Shared>, Path(id): Path<i64>, Json(body): Json<RemoveBody>) -> ApiResult<Response> {
+    let scan_cfg = s.scan.clone();
+    let result = db(&s, move |conn| {
+        let Some(path) = conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get::<_, String>(0)).optional()? else {
+            return Ok((StatusCode::NOT_FOUND, json!({ "error": "no such photo" })));
+        };
+        match body.from.as_str() {
+            "gallery" => {
+                conn.execute("INSERT OR IGNORE INTO excluded (path) VALUES (?)", [&path])?;
+                crate::db::forget_photo(conn, id)?;
+                tracing::info!("{path}: removed from the gallery (file kept)");
+                Ok((StatusCode::OK, json!({ "status": "removed", "path": path })))
+            }
+            "disk" => {
+                let file = PathBuf::from(&path);
+                if !scan_cfg.roots(conn)?.iter().any(|r| file.starts_with(r)) {
+                    return Ok((StatusCode::FORBIDDEN, json!({ "error": "the file is outside the photo folders" })));
+                }
+                if file.exists() {
+                    if body.permanently {
+                        std::fs::remove_file(&file)?;
+                        tracing::info!("{path}: deleted permanently");
+                    } else if let Err(e) = trash::delete(&file) {
+                        tracing::warn!("{path}: can't move to the bin: {e}");
+                        return Ok((StatusCode::CONFLICT, json!({ "status": "no-bin", "error": e.to_string(), "path": path })));
+                    } else {
+                        tracing::info!("{path}: moved to the bin");
+                    }
+                }
+                crate::db::forget_photo(conn, id)?;
+                Ok((StatusCode::OK, json!({ "status": if body.permanently { "deleted" } else { "binned" }, "path": path })))
+            }
+            _ => Ok((StatusCode::BAD_REQUEST, json!({ "error": "from must be gallery or disk" }))),
+        }
+    })
+    .await?;
+    Ok((result.0, Json(result.1)).into_response())
+}
+
+/// Brings back the photos removed from the gallery (they are indexed again).
+async fn clear_excluded(State(s): State<Shared>) -> ApiResult<StatusCode> {
+    db(&s, |conn| Ok(conn.execute("DELETE FROM excluded", [])?)).await?;
+    scan::spawn(s.scan.clone(), s.status.clone());
+    Ok(StatusCode::ACCEPTED)
 }
 
 async fn photo_detail(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Json<JsonValue>> {
