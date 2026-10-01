@@ -259,28 +259,29 @@ async fn remove_folder(State(s): State<Shared>, Json(body): Json<FolderBody>) ->
         return Ok((StatusCode::CONFLICT, "this folder is given on the command line; remove it there").into_response());
     }
     let scan_cfg = s.scan.clone();
-    db(&s, move |conn| {
-        conn.execute("DELETE FROM folders WHERE path = ?", [&body.path])?;
-        // Its photos leave, except those another folder still includes (a folder inside it,
-        // or one given on the command line). Match "<folder><separator>" so removing /photos
-        // doesn't also remove /photos2.
-        let prefix = PathBuf::from(&body.path).join("").to_string_lossy().into_owned();
-        let remaining = scan_cfg.roots(conn)?;
-        let gone: Vec<i64> = conn
+    let (removed, kept) = db(&s, move |conn| {
+        let folder = PathBuf::from(&body.path);
+        // Its photos leave, except those another folder still includes (one given on the
+        // command line, say). Match "<folder><separator>" so removing /photos doesn't also
+        // remove /photos2.
+        let prefix = folder.join("").to_string_lossy().into_owned();
+        let remaining: Vec<PathBuf> = scan_cfg.roots(conn)?.into_iter().filter(|r| *r != folder).collect();
+        let rows: Vec<(i64, String)> = conn
             .prepare("SELECT id, path FROM photos WHERE substr(path, 1, ?1) = ?2")?
-            .query_map(params![prefix.chars().count() as i64, prefix], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
-            .filter_map(|row| match row {
-                Ok((id, path)) if !remaining.iter().any(|r| std::path::Path::new(&path).starts_with(r)) => Some(Ok(id)),
-                Ok(_) => None,
-                Err(e) => Some(Err(e)),
-            })
+            .query_map(params![prefix.chars().count() as i64, prefix], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<Result<_, _>>()?;
+        let (kept, gone): (Vec<_>, Vec<_>) =
+            rows.into_iter().partition(|(_, path)| remaining.iter().any(|r| std::path::Path::new(path).starts_with(r)));
+        let gone: Vec<i64> = gone.into_iter().map(|(id, _)| id).collect();
         crate::db::forget_photos(conn, &gone)?;
-        tracing::info!("removed folder {} ({} photos)", body.path, gone.len());
-        Ok(())
+        // Only once its photos are gone: if that fails, the folder stays listed and can be
+        // removed again (a folder no longer listed would keep its photos for good).
+        conn.execute("DELETE FROM folders WHERE path = ?", [&body.path])?;
+        tracing::info!("removed folder {} ({} photos, {} kept: in another folder)", body.path, gone.len(), kept.len());
+        Ok((gone.len(), kept.len()))
     })
     .await?;
-    Ok(StatusCode::NO_CONTENT.into_response())
+    Ok(Json(json!({ "removed": removed, "kept": kept })).into_response())
 }
 
 #[derive(Deserialize)]
