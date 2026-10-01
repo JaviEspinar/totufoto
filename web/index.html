@@ -194,9 +194,9 @@ body.no-aside aside { display: none; }
 .delete-what { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; }
 .delete-what img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; background: var(--chip); flex: none; }
 .delete-what .p { font-size: 12px; color: var(--muted); word-break: break-all; }
-.delete-options, .share-options { display: grid; gap: 8px; }
-.delete-options button, .share-options button { text-align: left; padding: 10px 12px; }
-.delete-options button small, .share-options button small { display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
+.delete-options { display: grid; gap: 8px; }
+.delete-options button { text-align: left; padding: 10px 12px; }
+.delete-options button small { display: block; color: var(--muted); font-weight: 400; margin-top: 2px; }
 .btn.danger { border-color: #c2410c; color: #c2410c; }
 .btn.danger:hover { background: #c2410c; color: #fff; }
 .btn.danger:hover small { color: rgba(255, 255, 255, 0.85); }
@@ -412,13 +412,13 @@ main { overflow-y: auto; min-height: 0; padding: 0 16px 40px; overscroll-behavio
 .vface button.is-cover { color: #8fdca4; border-color: #2f5a3b; opacity: 1; cursor: default; }
 .info a { color: #9dbaff; }
 .photo-acts { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 14px; }
-.photo-acts button {
+.photo-acts button, .photo-acts .btn-like {
   display: inline-flex; align-items: center; gap: 6px; background: transparent; border: 1px solid #3a3936; color: #ccc;
   border-radius: 7px; font-size: 12px; padding: 5px 10px;
 }
-.photo-acts button:hover { color: #fff; border-color: #777; }
+.photo-acts .btn-like { text-decoration: none; }
+.photo-acts button:hover, .photo-acts .btn-like:hover { color: #fff; border-color: #777; }
 .photo-acts button:disabled { opacity: 0.5; }
-.share-options { margin: 14px 0 4px; }
 .info label { display: flex; gap: 8px; align-items: center; color: #bbb; font-size: 12px; margin-top: 16px; }
 
 dialog {
@@ -599,18 +599,6 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
   <div class="dlg-body"></div>
 </dialog>
 
-<dialog id="shareDlg">
-  <div class="dlg-head"><h3>Share this photo</h3><button data-close title="Close">✕</button></div>
-  <div class="dlg-body">
-    <div class="delete-what"><img alt=""><div class="p"></div></div>
-    <div class="share-options">
-      <button class="btn" data-share="download">Download<small>Save a copy on this device, then send it from any app. Best for sending it to someone.</small></button>
-      <button class="btn" data-share="link">Copy link<small id="shareLinkHint"></small></button>
-    </div>
-    <div class="dlg-actions"><button class="btn" data-close>Cancel</button></div>
-  </div>
-</dialog>
-
 <dialog id="goneDlg">
   <div class="dlg-head"><h3 id="goneTitle"></h3></div>
   <div class="dlg-body">
@@ -664,7 +652,6 @@ const fmtFull = t => fmtDay(t) + " · " + t.slice(11, 16);
 const state = {
   view: "photos", sort: "desc", groupBy: "month", match: "all",
   people: new Set(), place: null, date: null, upcoming: 30,
-  folder: null, // only the photos directly in this folder (a path on the server)
   from: null, to: null, // capture date range, YYYY-MM-DD, both included
 };
 let people = [], places = [], placeById = new Map(), photos = [], viewerIndex = -1, renderToken = 0;
@@ -682,7 +669,6 @@ function saveHash() {
   if (state.upcoming !== 30) p.set("days", state.upcoming);
   if (state.from) p.set("from", state.from);
   if (state.to) p.set("to", state.to);
-  if (state.folder) p.set("folder", state.folder);
   history.replaceState(null, "", "#" + p.toString());
 }
 function loadHash() {
@@ -701,7 +687,6 @@ function loadHash() {
   const day = v => (/^\d{4}-\d{2}-\d{2}$/.test(v || "") ? v : null);
   state.from = day(p.get("from"));
   state.to = day(p.get("to"));
-  state.folder = p.get("folder") || null;
 }
 
 // ---- data ------------------------------------------------------------------
@@ -735,7 +720,6 @@ function photoQuery(extra = {}) {
   if (state.date) q.set("date", state.date);
   if (state.from) q.set("from", state.from);
   if (state.to) q.set("to", state.to);
-  if (state.folder) q.set("folder", state.folder);
   return "/api/photos?" + q;
 }
 
@@ -1097,10 +1081,6 @@ function filterChips() {
   if (state.place != null) { parts.push(chip(placeLabel(state.place), "place")); count++; }
   if (state.date) { parts.push(chip(dateLabel(state.date), "date")); count++; }
   if (state.from || state.to) { parts.push(chip(rangeLabel(), "range")); count++; }
-  if (state.folder) {
-    parts.push(chip(state.folder.split(/[\\/]/).filter(Boolean).pop() || state.folder, "folder").replace('<span class="chip"', `<span class="chip" title="${esc(state.folder)}"`));
-    count++;
-  }
   if (count) parts.push(`<button class="clear-all" data-clear="all">Clear all</button>`);
   return `<div class="filters">${parts.join("")}</div>`;
 }
@@ -1110,7 +1090,7 @@ function onChipClick(e) {
   if (k.startsWith("person:")) state.people.delete(+k.slice(7));
   else if (k === "people") state.people.clear();
   else if (k === "range") { state.from = null; state.to = null; }
-  else if (k === "all") { state.people.clear(); state.place = null; state.date = null; state.from = null; state.to = null; state.folder = null; }
+  else if (k === "all") { state.people.clear(); state.place = null; state.date = null; state.from = null; state.to = null; }
   else state[k] = null;
   syncRangeInputs();
   renderPeopleList();
@@ -1133,7 +1113,7 @@ async function renderPhotos(main, token, signal) {
   load.finish();
   load.head.querySelector(".count").textContent = `${shownPhotoCount.toLocaleString()} photos`;
   if (!shownPhotoCount) {
-    const filtered = state.people.size || state.place != null || state.date || state.from || state.to || state.folder;
+    const filtered = state.people.size || state.place != null || state.date || state.from || state.to;
     if (!filtered && !folderInfo.folders.length && folderInfo.managed) {
       main.innerHTML = `<div class="welcome"><h2>Welcome to totufoto</h2>
         <p>Add a folder with photos. It is indexed in the background, and subfolders are included.</p>
@@ -1178,7 +1158,7 @@ function photosShape() {
   return { cards: mode };
 }
 /** Filters as a key, to come back to the same scroll position when a group is closed. */
-const cardsViewKey = () => JSON.stringify([state.groupBy, state.sort, [...state.people].sort(), state.match, state.place, state.date, state.from, state.to, state.folder]);
+const cardsViewKey = () => JSON.stringify([state.groupBy, state.sort, [...state.people].sort(), state.match, state.place, state.date, state.from, state.to]);
 let cardsReturn = null; // { key, scroll } of the cards view left by opening a group
 /** Cards from the server's group summaries: `{ key, count, cover }` per group. */
 function renderGroupCards(container, groups, mode) {
@@ -1967,10 +1947,10 @@ async function openViewer(i) {
     <h3>${esc(fmtFull(d.taken))}</h3>
     <div class="s">${d.dateFromExif ? "" : "Date from file (no EXIF) · "}${d.width} × ${d.height}</div>
     <div class="photo-acts">
-      <button data-share-photo="${id}" title="Send this photo with another app"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg> Share</button>
-      ${folderInfo.local
-        ? `<button data-reveal="${id}" title="Show the file in its folder"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> Open in folder</button>`
-        : `<button data-show-folder="${id}" title="Show the photos in the same folder as this one"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> Photos in this folder</button>`}
+      ${folderInfo.desktop && canShareFiles
+        ? `<button data-share-photo="${id}" title="Send this photo with another app"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg> Share</button>`
+        : `<a class="btn-like" href="/original/${id}?download=1" download title="Save the photo on this device"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg> Download</a>`}
+      ${folderInfo.desktop ? `<button data-reveal="${id}" title="Show the file in its folder"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> Open in folder</button>` : ""}
     </div>
     ${place ? `<h5>Place</h5><div>${esc(place)}</div><div class="s"><a href="https://www.openstreetmap.org/?mlat=${d.lat}&mlon=${d.lon}#map=14/${d.lat}/${d.lon}" target="_blank" rel="noopener">Open map</a></div>` : ""}
     <h5>People (${d.faces.length})</h5>
@@ -2024,80 +2004,27 @@ function dropPhotoFromView(id) {
   loadMeta().then(() => refreshPeopleViews({ animate: false })).catch(() => {});
 }
 
-// ---- sharing and showing a photo's file ------------------------------------------------
+// ---- sharing and showing a photo's file (desktop app) -----------------------------------
 let viewerPath = "";
-/** Copies to the clipboard; without one (plain http on another device) through a hidden field. */
-async function copyText(text, done) {
-  try { await navigator.clipboard.writeText(text); }
-  catch {
-    const field = Object.assign(document.createElement("textarea"), { value: text });
-    field.style.cssText = "position:fixed;opacity:0";
-    document.body.append(field);
-    field.select();
-    const ok = document.execCommand("copy");
-    field.remove();
-    if (!ok) return toast("Couldn't copy it", true);
-  }
-  toast(done);
-}
-/** The system's share sheet with the photo itself where the browser has one (phones,
- *  the desktop app, https); otherwise download it or copy its link. */
+/** Whether this window has a system share sheet that takes files. */
+const canShareFiles = (() => {
+  try { return !!navigator.canShare?.({ files: [new File([""], "photo.jpg", { type: "image/jpeg" })] }); } catch { return false; }
+})();
 async function sharePhoto(id, button) {
   const name = viewerPath.split(/[\\/]/).pop() || `photo-${id}.jpg`;
-  if (navigator.canShare && window.isSecureContext) {
-    button.disabled = true;
-    try {
-      const blob = await (await fetch(`/original/${id}`)).blob();
-      const file = new File([blob], blob.type === "image/jpeg" ? name.replace(/\.(heic|heif|tiff?|avif)$/i, ".jpg") : name, { type: blob.type });
-      if (navigator.canShare({ files: [file] })) {
-        try { await navigator.share({ files: [file] }); } catch (err) { if (err.name !== "AbortError") toast(`Couldn't share it: ${err.message}`, true); }
-        return;
-      }
-    } catch { /* fall back to the dialog */ }
-    finally { button.disabled = false; }
+  button.disabled = true;
+  try {
+    const blob = await (await fetch(`/original/${id}`)).blob();
+    const file = new File([blob], blob.type === "image/jpeg" ? name.replace(/\.(heic|heif|tiff?|avif)$/i, ".jpg") : name, { type: blob.type });
+    await navigator.share({ files: [file] });
+  } catch (err) {
+    if (err.name !== "AbortError") toast(`Couldn't share it: ${err.message}`, true);
+  } finally {
+    button.disabled = false;
   }
-  const dlg = $("#shareDlg");
-  $(".delete-what img", dlg).src = `/thumb/${id}`;
-  $(".delete-what .p", dlg).textContent = viewerPath;
-  dlg.dataset.id = id;
-  // The link points at this gallery, so it opens only where the gallery can be reached.
-  const host = location.hostname;
-  const privateHost = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|169\.254\.|\[::1\]$|\[f[cd])|\.local$/i.test(host) || !host.includes(".");
-  $("#shareLinkHint").textContent = privateHost
-    ? `Opens only on devices that can reach ${location.host}, such as those on your home network. It won't work for someone elsewhere.`
-    : "Opens for anyone who can reach this gallery.";
-  dlg.showModal();
-}
-$("#shareDlg").addEventListener("click", e => {
-  const dlg = e.currentTarget, id = dlg.dataset.id;
-  const choice = e.target.closest("[data-share]")?.dataset.share;
-  if (choice === "download") {
-    const a = Object.assign(document.createElement("a"), { href: `/original/${id}?download=1`, download: "" });
-    document.body.append(a); a.click(); a.remove();
-  } else if (choice === "link") {
-    copyText(new URL(`/original/${id}`, location.href).href, "Link copied");
-  } else if (!(e.target.dataset.close != null || e.target === dlg)) return;
-  dlg.close();
-});
-/** The gallery with only the photos in the same folder as `path` (other filters cleared). */
-function showFolder(path) {
-  const cut = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
-  if (cut <= 0) return;
-  Object.assign(state, { view: "photos", folder: path.slice(0, cut), place: null, date: null, from: null, to: null });
-  state.people.clear();
-  closeViewer();
-  syncRangeInputs();
-  renderPeopleList();
-  render();
 }
 async function revealPhoto(id) {
   const r = await fetch(`/api/photos/${id}/reveal`, { method: "POST" });
-  if (r.status === 409) {
-    // Seen from another computer after all: the next best thing is that folder's photos here.
-    folderInfo.local = false;
-    toast("The photos are on another computer, so here are the photos of that folder");
-    return showFolder(viewerPath);
-  }
   if (!r.ok) toast(`Couldn't open its folder: ${await r.text() || r.status}`, true);
 }
 
@@ -2328,7 +2255,6 @@ $(".info", viewer).addEventListener("click", async e => {
   const act = e.target.closest(".photo-acts button");
   if (act?.dataset.sharePhoto) return sharePhoto(+act.dataset.sharePhoto, act);
   if (act?.dataset.reveal) return revealPhoto(+act.dataset.reveal);
-  if (act?.dataset.showFolder) return showFolder(viewerPath);
   if (e.target.dataset.assign) {
     return openAssign(+e.target.dataset.assign, e.target.dataset.current ? +e.target.dataset.current : null);
   }
