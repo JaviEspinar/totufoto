@@ -28,6 +28,11 @@ pub struct DupStatus {
     /// When the last search finished (local time), if any.
     pub finished: Mutex<Option<String>>,
     rerun: AtomicBool,
+    /// Deleting the duplicates: one deletion at a time, with its progress.
+    pub deleting: AtomicBool,
+    pub delete_done: AtomicU64,
+    pub delete_total: AtomicU64,
+    pub delete_freed: AtomicU64,
 }
 
 /// Searches in a background thread; one asked for while searching runs right after.
@@ -176,12 +181,29 @@ pub struct DeleteResult {
 /// Removes the duplicate copies (all, or only `only`), keeping the oldest of each set. Each
 /// file is checked first: it and the copy that is kept must still be there and unchanged,
 /// and it must be inside the photo folders.
-pub fn delete(conn: &mut Connection, roots: &[PathBuf], only: Option<&[i64]>, permanently: bool) -> Result<DeleteResult> {
+/// Progress goes to `status` (files done of total, bytes freed).
+pub fn delete(
+    conn: &mut Connection,
+    roots: &[PathBuf],
+    only: Option<&[i64]>,
+    permanently: bool,
+    status: &DupStatus,
+) -> Result<DeleteResult> {
     let mut result = DeleteResult::default();
     let mut gone = Vec::new();
-    for group in report(conn)? {
-        let keep_ok = unchanged(Path::new(&group.keep.path), group.keep.mtime, group.keep.size);
-        for file in group.remove.iter().filter(|f| only.is_none_or(|ids| ids.contains(&f.id))) {
+    let only: Option<std::collections::HashSet<i64>> = only.map(|ids| ids.iter().copied().collect());
+    let groups: Vec<(DupFile, Vec<DupFile>)> = report(conn)?
+        .into_iter()
+        .map(|g| (g.keep, g.remove.into_iter().filter(|f| only.as_ref().is_none_or(|ids| ids.contains(&f.id))).collect::<Vec<_>>()))
+        .filter(|(_, remove)| !remove.is_empty())
+        .collect();
+    status.delete_done.store(0, Ordering::Relaxed);
+    status.delete_freed.store(0, Ordering::Relaxed);
+    status.delete_total.store(groups.iter().map(|(_, r)| r.len() as u64).sum(), Ordering::Relaxed);
+    for (keep, remove) in &groups {
+        let keep_ok = unchanged(Path::new(&keep.path), keep.mtime, keep.size);
+        for file in remove {
+            status.delete_done.fetch_add(1, Ordering::Relaxed);
             let path = PathBuf::from(&file.path);
             if !keep_ok || !unchanged(&path, file.mtime, file.size) || !roots.iter().any(|r| path.starts_with(r)) {
                 result.skipped.push(file.path.clone());
@@ -204,13 +226,12 @@ pub fn delete(conn: &mut Connection, roots: &[PathBuf], only: Option<&[i64]>, pe
                 result.binned += 1;
             }
             result.freed += file.size;
+            status.delete_freed.fetch_add(file.size as u64, Ordering::Relaxed);
             gone.push(file.id);
         }
     }
     // Their faces are the same as the kept copy's, so the people only lose the duplicates.
-    for id in &gone {
-        crate::db::forget_photo(conn, *id)?;
-    }
+    crate::db::forget_photos(conn, &gone)?;
     tracing::info!("duplicates: {} to the bin, {} deleted, {} bytes freed", result.binned, result.deleted, result.freed);
     Ok(result)
 }

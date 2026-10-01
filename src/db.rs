@@ -200,13 +200,34 @@ pub fn remember_named_people(conn: &Connection, only: Option<&[i64]>) -> Result<
 
 /// Removes one photo from the index (its file is gone), remembering its named people first.
 pub fn forget_photo(conn: &mut Connection, id: i64) -> Result<()> {
-    let people: Vec<i64> = conn
-        .prepare("SELECT DISTINCT person_id FROM faces WHERE photo_id = ? AND person_id IS NOT NULL")?
-        .query_map([id], |r| r.get(0))?
-        .collect::<Result<_, _>>()?;
+    forget_photos(conn, &[id])
+}
+
+/// [`forget_photo`] for many photos at once: the people are remembered and the empty
+/// groups cleared once, not for every photo.
+pub fn forget_photos(conn: &mut Connection, ids: &[i64]) -> Result<()> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let mut people = Vec::new();
+    {
+        let mut query = conn.prepare("SELECT DISTINCT person_id FROM faces WHERE photo_id = ? AND person_id IS NOT NULL")?;
+        for id in ids {
+            for person in query.query_map([id], |r| r.get::<_, i64>(0))? {
+                people.push(person?);
+            }
+        }
+    }
+    people.sort_unstable();
+    people.dedup();
     remember_named_people(conn, Some(&people))?;
     let tx = conn.transaction()?;
-    tx.execute("DELETE FROM photos WHERE id = ?", [id])?;
+    {
+        let mut delete = tx.prepare("DELETE FROM photos WHERE id = ?")?;
+        for id in ids {
+            delete.execute([id])?;
+        }
+    }
     tx.execute(
         "DELETE FROM persons WHERE name IS NULL AND id NOT IN (SELECT DISTINCT person_id FROM faces WHERE person_id IS NOT NULL)",
         [],
