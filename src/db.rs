@@ -56,7 +56,10 @@ CREATE TABLE IF NOT EXISTS persons (
     id     INTEGER PRIMARY KEY,
     -- NULL until the user names the person; named persons keep their faces across re-clustering
     name   TEXT,
-    hidden INTEGER NOT NULL DEFAULT 0
+    hidden INTEGER NOT NULL DEFAULT 0,
+    -- for named people: their average face, so new or restored photos of them rejoin the name
+    -- even when none of their photos are left
+    face_memory BLOB
 );
 
 CREATE TABLE IF NOT EXISTS faces (
@@ -114,6 +117,14 @@ fn migrate(conn: &Connection) -> Result<()> {
         // Faces in an existing index were grouped by the full passes of older versions.
         conn.execute_batch("ALTER TABLE faces ADD COLUMN grouped INTEGER NOT NULL DEFAULT 1")?;
     }
+    let has_memory: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('persons') WHERE name = 'face_memory'",
+        [],
+        |r| r.get(0),
+    )?;
+    if !has_memory {
+        conn.execute_batch("ALTER TABLE persons ADD COLUMN face_memory BLOB")?;
+    }
     Ok(())
 }
 
@@ -139,6 +150,52 @@ pub fn move_face_to_new_person(conn: &mut Connection, face: i64) -> Result<Optio
     }
     tx.commit()?;
     Ok(Some(person))
+}
+
+/// Saves the average face of named people (all, or `only` these), so their photos rejoin the
+/// name when they come back even if, by then, none of their photos are left.
+pub fn remember_named_people(conn: &Connection, only: Option<&[i64]>) -> Result<()> {
+    let filter = only.map(|ids| format!(" AND p.id IN ({})", ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")));
+    if only.is_some_and(|ids| ids.is_empty()) {
+        return Ok(());
+    }
+    let mut sums: std::collections::HashMap<i64, Vec<f32>> = std::collections::HashMap::new();
+    {
+        let mut stmt = conn.prepare(&format!(
+            "SELECT f.person_id, f.embedding FROM faces f JOIN persons p ON p.id = f.person_id WHERE p.name IS NOT NULL{}",
+            filter.unwrap_or_default()
+        ))?;
+        let mut rows = stmt.query([])?;
+        while let Some(r) = rows.next()? {
+            let embedding = crate::faces::embedding_from_bytes(&r.get::<_, Vec<u8>>(1)?);
+            let sum = sums.entry(r.get(0)?).or_insert_with(|| vec![0f32; crate::faces::EMBEDDING_DIM]);
+            sum.iter_mut().zip(&embedding).for_each(|(a, b)| *a += b);
+        }
+    }
+    let mut save = conn.prepare("UPDATE persons SET face_memory = ? WHERE id = ?")?;
+    for (person, mut sum) in sums {
+        let norm = sum.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-12);
+        sum.iter_mut().for_each(|x| *x /= norm);
+        save.execute(params![crate::faces::embedding_to_bytes(&sum), person])?;
+    }
+    Ok(())
+}
+
+/// Removes one photo from the index (its file is gone), remembering its named people first.
+pub fn forget_photo(conn: &mut Connection, id: i64) -> Result<()> {
+    let people: Vec<i64> = conn
+        .prepare("SELECT DISTINCT person_id FROM faces WHERE photo_id = ? AND person_id IS NOT NULL")?
+        .query_map([id], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    remember_named_people(conn, Some(&people))?;
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM photos WHERE id = ?", [id])?;
+    tx.execute(
+        "DELETE FROM persons WHERE name IS NULL AND id NOT IN (SELECT DISTINCT person_id FROM faces WHERE person_id IS NOT NULL)",
+        [],
+    )?;
+    tx.commit()?;
+    Ok(())
 }
 
 /// Moves one face to an existing person ("Same as" in the photo viewer). The face stays
@@ -191,6 +248,19 @@ pub fn rename_person(conn: &mut Connection, id: i64, name: Option<&str>) -> Resu
     let name = name.map(str::trim).filter(|n| !n.is_empty()).map(str::to_string);
     let name = match name {
         Some(wanted) => {
+            // A named person with no photos left gives the name up to this one.
+            let empty: Vec<(i64, String)> = tx
+                .prepare(
+                    "SELECT id, name FROM persons WHERE name IS NOT NULL AND id != ?
+                     AND NOT EXISTS (SELECT 1 FROM faces WHERE person_id = persons.id)",
+                )?
+                .query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<Result<_, _>>()?;
+            for (other, other_name) in empty {
+                if other_name.to_lowercase() == wanted.to_lowercase() {
+                    tx.execute("DELETE FROM persons WHERE id = ?", [other])?;
+                }
+            }
             let taken: std::collections::HashSet<String> = tx
                 .prepare("SELECT name FROM persons WHERE name IS NOT NULL AND id != ?")?
                 .query_map([id], |r| r.get::<_, String>(0))?

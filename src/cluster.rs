@@ -52,14 +52,28 @@ pub fn update_groups(conn: &mut Connection, threshold: f32, full: bool, progress
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     if full || (new > 0 && new as f64 > total as f64 * FULL_REGROUP_SHARE) {
-        recluster(conn, threshold, progress)
+        recluster(conn, threshold, progress)?;
     } else if new > 0 {
-        group_new_faces(conn, threshold, progress)
+        group_new_faces(conn, threshold, progress)?;
     } else {
         delete_empty_people(conn)?;
         tracing::info!("no new faces to group");
-        Ok(())
     }
+    crate::db::remember_named_people(conn, None)
+}
+
+/// Remembered faces of named people who have no faces in the index right now (`with_faces`
+/// are the people that do).
+fn face_memories(conn: &Connection, with_faces: &HashSet<i64>) -> Result<Vec<(i64, Vec<f32>)>> {
+    let rows: Vec<(i64, Vec<u8>)> = conn
+        .prepare("SELECT id, face_memory FROM persons WHERE name IS NOT NULL AND face_memory IS NOT NULL")?
+        .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<Result<_, _>>()?;
+    Ok(rows
+        .into_iter()
+        .filter(|(id, _)| !with_faces.contains(id))
+        .map(|(id, bytes)| (id, embedding_from_bytes(&bytes)))
+        .collect())
 }
 
 fn delete_empty_people(conn: &Connection) -> Result<()> {
@@ -138,10 +152,15 @@ pub fn recluster(conn: &mut Connection, threshold: f32, progress: &Progress) -> 
     // for the greedy pass and one per refinement pass; the total is corrected once known.
     progress.start(free.len() * (2 + REFINE_PASSES));
 
-    // 1. Attach free faces to named persons.
-    let named_ids: Vec<i64> = fixed.keys().copied().collect();
+    // 1. Attach free faces to named persons (also those with no photos left, by the face
+    // remembered for them).
+    let mut named_ids: Vec<i64> = fixed.keys().copied().collect();
     let named_groups: Vec<Vec<usize>> = named_ids.iter().map(|id| fixed[id].clone()).collect();
-    let named_centroids = centroids(&named_groups, &faces);
+    let mut named_centroids = centroids(&named_groups, &faces);
+    for (person, memory) in face_memories(conn, &fixed.keys().copied().collect())? {
+        named_ids.push(person);
+        named_centroids.push(memory);
+    }
     let matches: Vec<Option<usize>> = free
         .par_iter()
         .map(|&i| {
@@ -282,8 +301,14 @@ fn group_new_faces(conn: &mut Connection, threshold: f32, progress: &Progress) -
             }
         }
     }
-    let (ids, mut units): (Vec<i64>, Vec<Vec<f32>>) = sums.into_iter().unzip();
+    let with_faces: HashSet<i64> = sums.keys().copied().collect();
+    let (mut ids, mut units): (Vec<i64>, Vec<Vec<f32>>) = sums.into_iter().unzip();
     units.par_iter_mut().for_each(|u| normalize(u));
+    // Named people with no photos left still attract their faces.
+    for (person, memory) in face_memories(conn, &with_faces)? {
+        ids.push(person);
+        units.push(memory);
+    }
     progress.start(new_faces.len() * 2);
 
     // 1. New faces join the closest person.
