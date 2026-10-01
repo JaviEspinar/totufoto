@@ -98,6 +98,7 @@ pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
         .route("/api/photos/{id}/check", post(check_photo))
         .route("/api/photos/{id}/remove", post(remove_photo))
         .route("/api/photos/{id}/reveal", post(reveal_photo))
+        .route("/api/photos/{id}/rotate", post(rotate_photo))
         .route("/api/excluded/clear", post(clear_excluded))
         .route("/api/duplicates", get(duplicates_report))
         .route("/api/duplicates/search", post(duplicates_search))
@@ -409,7 +410,7 @@ async fn photos(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResu
         let (filters, args, days) = photo_filters(&q);
         let desc = q.sort.as_deref() != Some("asc");
         let order = if desc { "taken DESC, id DESC" } else { "taken ASC, id ASC" };
-        let sql = format!("SELECT id, width, height, taken, place_id FROM photos WHERE 1 = 1{filters} ORDER BY {order}");
+        let sql = format!("SELECT id, width, height, taken, place_id, version FROM photos WHERE 1 = 1{filters} ORDER BY {order}");
         let mut stmt = conn.prepare_cached(&sql)?;
         let rows: Vec<JsonValue> = stmt
             .query_map(params_from_iter(args), |r| {
@@ -418,7 +419,8 @@ async fn photos(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResu
                     r.get::<_, i64>(1)?,
                     r.get::<_, i64>(2)?,
                     r.get::<_, String>(3)?,
-                    r.get::<_, Option<i64>>(4)?
+                    r.get::<_, Option<i64>>(4)?,
+                    r.get::<_, i64>(5)?
                 ]))
             })?
             .collect::<Result<_, _>>()?;
@@ -447,18 +449,18 @@ async fn groups(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResu
         // SQLite takes the other columns from the row that has the MAX/MIN: the cover.
         let pick = if desc { "MAX(taken)" } else { "MIN(taken)" };
         let order = if by_place { "n DESC, k" } else if desc { "k DESC" } else { "k ASC" };
-        let sql = format!("SELECT {key} AS k, COUNT(*) AS n, id, {pick} FROM photos WHERE 1 = 1{filters} GROUP BY k ORDER BY {order}");
+        let sql = format!("SELECT {key} AS k, COUNT(*) AS n, id, {pick}, version FROM photos WHERE 1 = 1{filters} GROUP BY k ORDER BY {order}");
         let mut stmt = conn.prepare_cached(&sql)?;
         let mut total = 0i64;
         let rows: Vec<JsonValue> = stmt
             .query_map(params_from_iter(args), |r| {
                 let key: JsonValue = if by_place { r.get::<_, i64>(0)?.into() } else { r.get::<_, String>(0)?.into() };
-                Ok((key, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?))
+                Ok((key, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(4)?))
             })?
             .map(|row| {
-                row.map(|(key, count, cover)| {
+                row.map(|(key, count, cover, version)| {
                     total += count;
-                    json!({ "key": key, "count": count, "cover": cover })
+                    json!({ "key": key, "count": count, "cover": cover, "v": version })
                 })
             })
             .collect::<Result<_, _>>()?;
@@ -625,7 +627,7 @@ async fn photo_detail(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult
     let result = db(&s, move |conn| {
         let photo = conn
             .query_row(
-                "SELECT p.path, p.taken, p.date_from_exif, p.width, p.height, p.lat, p.lon, pl.city, pl.region, pl.country
+                "SELECT p.path, p.taken, p.date_from_exif, p.width, p.height, p.lat, p.lon, pl.city, pl.region, pl.country, p.version
                  FROM photos p LEFT JOIN places pl ON pl.id = p.place_id WHERE p.id = ?",
                 [id],
                 |r| {
@@ -641,6 +643,8 @@ async fn photo_detail(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult
                         "city": r.get::<_, Option<String>>(7)?,
                         "region": r.get::<_, Option<String>>(8)?,
                         "country": r.get::<_, Option<String>>(9)?,
+                        "version": r.get::<_, i64>(10)?,
+                        "rotatable": crate::rotate::can_rotate(std::path::Path::new(&r.get::<_, String>(0)?)),
                     }))
                 },
             )
@@ -850,6 +854,35 @@ async fn thumb(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Respon
 
 async fn face_thumb(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
     blob(&s, "SELECT thumb FROM faces WHERE id = ?", id).await
+}
+
+#[derive(Deserialize)]
+struct RotateBody {
+    /// quarter turns clockwise (negative: counterclockwise)
+    turns: i32,
+}
+
+/// Turns the photo in its file (JPEG: its EXIF orientation, so nothing is recompressed;
+/// PNG: rewritten turned) and in the gallery.
+async fn rotate_photo(State(s): State<Shared>, Path(id): Path<i64>, Json(body): Json<RotateBody>) -> ApiResult<Response> {
+    if s.status.running.load(std::sync::atomic::Ordering::Relaxed) {
+        return Ok((StatusCode::CONFLICT, "the photos are being scanned; try again when the scan ends").into_response());
+    }
+    let turns = body.turns.rem_euclid(4) as u8;
+    let scan_cfg = s.scan.clone();
+    let outcome = db(&s, move |conn| {
+        let roots = scan_cfg.roots(conn)?;
+        crate::rotate::rotate_photo(conn, &roots, id, turns)
+    })
+    .await?;
+    use crate::rotate::Outcome;
+    Ok(match outcome {
+        Outcome::Rotated { width, height, version } => Json(json!({ "width": width, "height": height, "version": version })).into_response(),
+        Outcome::NotFound => StatusCode::NOT_FOUND.into_response(),
+        Outcome::Unsupported => (StatusCode::UNSUPPORTED_MEDIA_TYPE, "only JPEG and PNG photos can be rotated").into_response(),
+        Outcome::Outside => (StatusCode::FORBIDDEN, "the file is not in the photo folders").into_response(),
+        Outcome::Changed => (StatusCode::CONFLICT, "the file changed since it was indexed; rescan first").into_response(),
+    })
 }
 
 /// Shows the photo's file in the file manager (desktop app only; 409 otherwise).

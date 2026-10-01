@@ -320,6 +320,12 @@ enum Outcome {
     Failed(FileEntry, String),
 }
 
+/// The gallery's thumbnail of a decoded (upright) photo.
+pub(crate) fn thumbnail(img: &image::RgbImage) -> Result<Vec<u8>> {
+    let work = imaging::fit(img, WORK_MAX_SIDE)?;
+    imaging::encode_jpeg(&imaging::fit_box(&work, THUMB_MAX_W, THUMB_MAX_H)?, 78)
+}
+
 fn process(file: FileEntry, models: Option<&ModelPaths>) -> Result<Processed, (FileEntry, anyhow::Error)> {
     let copy = FileEntry { path: file.path.clone(), mtime: file.mtime, size: file.size };
     process_inner(file, models).map_err(|e| (copy, e))
@@ -334,7 +340,7 @@ fn process_inner(file: FileEntry, models: Option<&ModelPaths>) -> Result<Process
     let (width, height) = img.dimensions();
     let work = imaging::fit(&img, WORK_MAX_SIDE)?;
     drop(img);
-    let thumb = imaging::encode_jpeg(&imaging::fit_box(&work, THUMB_MAX_W, THUMB_MAX_H)?, 78)?;
+    let thumb = thumbnail(&work)?;
 
     let exif_date = exif.as_ref().and_then(exif_datetime);
     let taken = exif_date.clone().unwrap_or_else(|| {
