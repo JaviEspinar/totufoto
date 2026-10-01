@@ -1246,7 +1246,7 @@ const DUP_BATCH = 100;
 async function renderOptimization(main, token, signal) {
   const report = await api("/api/duplicates", { signal });
   if (token !== renderToken) return;
-  const intro = `<h2>Duplicate photos</h2><p class="lead">Identical files (the very same bytes) take space twice. Of each set, the copy with the oldest file date is kept.</p>`;
+  const intro = `<h2>Duplicate photos</h2><p class="lead">Identical files (the very same bytes) take space twice. Of each set, the copy with the oldest file date is kept. Nothing is deleted until you click <b>Delete duplicates</b>.</p>`;
   if (report.scanning || report.running) {
     // While the scan or the search runs: progress, refreshed every second.
     const what = report.scanning ? "Waiting for the photo scan to finish…"
@@ -1266,7 +1266,9 @@ async function renderOptimization(main, token, signal) {
        <div class="acts"><button class="btn" data-dup-search>Search again</button></div>`;
   main.innerHTML = `<div class="opt">${intro}<div class="opt-summary">${summary}</div><div id="dupGroups"></div></div>`;
   const list = $("#dupGroups");
-  const file = (f, kind) => `<div class="dup-file ${kind}"><span class="tag">${kind === "keep" ? "Kept" : "Deleted"}</span>
+  const file = (f, kind) => `<div class="dup-file ${kind}">${kind === "keep"
+    ? `<span class="tag" title="The oldest copy: it stays where it is">Keep</span>`
+    : `<span class="tag" title="Moved to the bin only when you click Delete duplicates">To delete</span>`}
       <span class="p" title="${esc(f.path)}"><bdi>${esc(f.path)}</bdi></span><span class="when">${fmtFileDate(f.mtime)}</span></div>`;
   let shown = 0;
   const more = () => {
