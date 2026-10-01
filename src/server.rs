@@ -302,6 +302,8 @@ struct PhotoQuery {
     upcoming: Option<u32>,
     /// /api/groups only: "year", "month", "day" or "place"
     by: Option<String>,
+    /// only the photos directly in this folder (not its subfolders)
+    folder: Option<String>,
 }
 
 fn parse_ids(s: &str) -> Vec<i64> {
@@ -401,6 +403,15 @@ fn photo_filters(q: &PhotoQuery) -> (String, Vec<Value>, Vec<String>) {
         args.extend(list.iter().cloned().map(Value::from));
         args.push((year as i64).into());
         days = list;
+    }
+    if let Some(folder) = q.folder.as_deref().filter(|f| !f.is_empty()) {
+        // Windows paths use backslashes; the folder's own separator tells which.
+        let sep = if folder.contains('\\') && !folder.contains('/') { "\\" } else { "/" };
+        let prefix = format!("{}{sep}", folder.trim_end_matches(sep));
+        // SQLite's substr counts characters, not bytes.
+        let len = prefix.chars().count() as i64;
+        sql.push_str(" AND substr(path, 1, ?) = ? AND instr(substr(path, ?), ?) = 0");
+        args.extend([Value::from(len), Value::from(prefix), Value::from(len + 1), Value::from(sep.to_string())]);
     }
     sql.push_str(&people_filter("id", q.people.as_deref(), q.match_mode.as_deref()));
     (sql, args, days)
