@@ -16,6 +16,8 @@ pub trait Host: Send + Sync + 'static {
     fn pick_folder(&self) -> Option<PathBuf>;
     /// Opens a web page in the system browser.
     fn open_url(&self, url: &str);
+    /// Shows a file in the system's file manager, selected.
+    fn reveal(&self, path: &Path);
 }
 
 pub struct Config {
@@ -84,7 +86,8 @@ impl Gallery {
             server::AppState { pool: server::Pool::new(self.scan.db_path.clone()), status: self.status, scan: self.scan, host: self.host },
             allowed_hosts(addr),
         );
-        axum::serve(listener, app).await?;
+        // Knowing who is asking tells "Open in folder" whether the files are on that computer.
+        axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
         Ok(())
     }
 }
