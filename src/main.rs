@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::Parser;
-use totufoto::{Config, Gallery};
+use imadive::{Config, Gallery};
 
 /// Fast local photo gallery with timeline, places and face grouping.
 #[derive(Parser)]
@@ -11,9 +11,10 @@ struct Args {
     /// Folders containing photos (scanned recursively). Without folders, the ones added
     /// from the web UI are used.
     library: Vec<PathBuf>,
-    /// Where the index database lives
-    #[arg(long, default_value = "totufoto-data")]
-    data: PathBuf,
+    /// Where the index database lives [default: imadive-data, or totufoto-data when only
+    /// that one exists (Imadive was called Totufoto)]
+    #[arg(long)]
+    data: Option<PathBuf>,
     /// Folder with det_500m.onnx and w600k_mbf.onnx
     #[arg(long, default_value = "models")]
     models: PathBuf,
@@ -46,11 +47,11 @@ struct Args {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    totufoto::init_logging();
+    imadive::init_logging();
     let args = Args::parse();
-    let models = if args.no_faces { None } else { totufoto::enable_faces(&args.models, args.onnxruntime.as_deref()) };
+    let models = if args.no_faces { None } else { imadive::enable_faces(&args.models, args.onnxruntime.as_deref()) };
     let gallery = Gallery::open(Config {
-        data_dir: args.data,
+        data_dir: args.data.unwrap_or_else(default_data_dir),
         folders: args.library,
         models,
         face_threshold: args.face_threshold,
@@ -65,4 +66,15 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::bind((args.host.as_str(), args.port)).await?;
     tracing::info!("gallery ready at http://{}", listener.local_addr()?);
     gallery.serve(listener).await
+}
+
+/// `imadive-data`, unless only the folder of the app's old name exists: then that one, so an
+/// existing index keeps working after the rename.
+fn default_data_dir() -> PathBuf {
+    let (now, old) = (PathBuf::from("imadive-data"), PathBuf::from("totufoto-data"));
+    if !now.exists() && old.is_dir() {
+        tracing::info!("using the index in ./totufoto-data (rename it to imadive-data whenever you like)");
+        return old;
+    }
+    now
 }

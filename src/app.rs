@@ -128,6 +128,6 @@ pub fn enable_faces(models_dir: &Path, onnxruntime: Option<&Path>) -> Option<Mod
 
 pub fn init_logging() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "totufoto=info,totufoto_desktop=info,ort=error,warn".into());
+        .unwrap_or_else(|_| "imadive=info,imadive_desktop=info,ort=error,warn".into());
     let _ = tracing_subscriber::fmt().with_env_filter(filter).try_init();
 }

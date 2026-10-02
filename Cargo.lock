@@ -2259,6 +2259,51 @@ dependencies = [
 ]
 
 [[package]]
+name = "imadive"
+version = "0.1.10"
+dependencies = [
+ "anyhow",
+ "axum",
+ "blake3",
+ "chrono",
+ "clap",
+ "dunce",
+ "fast_image_resize",
+ "image",
+ "kamadak-exif",
+ "libloading 0.9.0",
+ "ort",
+ "rayon",
+ "reverse_geocoder",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tower",
+ "tower-http 0.7.1",
+ "tracing",
+ "tracing-subscriber",
+ "trash",
+ "walkdir",
+]
+
+[[package]]
+name = "imadive-desktop"
+version = "0.1.10"
+dependencies = [
+ "anyhow",
+ "imadive",
+ "image",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "tauri-plugin-single-instance",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "image"
 version = "0.25.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5236,51 +5281,6 @@ name = "toml_writer"
 version = "1.1.2+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
-
-[[package]]
-name = "totufoto"
-version = "0.1.10"
-dependencies = [
- "anyhow",
- "axum",
- "blake3",
- "chrono",
- "clap",
- "dunce",
- "fast_image_resize",
- "image",
- "kamadak-exif",
- "libloading 0.9.0",
- "ort",
- "rayon",
- "reverse_geocoder",
- "rusqlite",
- "serde",
- "serde_json",
- "tokio",
- "tower",
- "tower-http 0.7.1",
- "tracing",
- "tracing-subscriber",
- "trash",
- "walkdir",
-]
-
-[[package]]
-name = "totufoto-desktop"
-version = "0.1.10"
-dependencies = [
- "anyhow",
- "image",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "tauri-plugin-single-instance",
- "tokio",
- "totufoto",
- "tracing",
-]
 
 [[package]]
 name = "tower"

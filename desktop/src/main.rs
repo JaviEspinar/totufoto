@@ -3,14 +3,14 @@
 
 mod runtime;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use imadive::{Config, Gallery, Host};
 use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
-use totufoto::{Config, Gallery, Host};
 
 const FACE_THRESHOLD: f32 = 0.42;
 
@@ -41,7 +41,7 @@ impl Host for DesktopHost {
 }
 
 fn main() {
-    totufoto::init_logging();
+    imadive::init_logging();
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--self-test") {
         std::process::exit(self_test(&args[2..]));
@@ -61,24 +61,51 @@ fn main() {
             if let Err(e) = start(app) {
                 tracing::error!("{e:#}");
                 app.dialog()
-                    .message(format!("Totufoto could not start:\n\n{e:#}"))
+                    .message(format!("Imadive could not start:\n\n{e:#}"))
                     .kind(MessageDialogKind::Error)
-                    .title("Totufoto")
+                    .title("Imadive")
                     .blocking_show();
                 std::process::exit(1);
             }
             Ok(())
         })
         .run(tauri::generate_context!())
-        .expect("error while running Totufoto");
+        .expect("error while running Imadive");
+}
+
+/// Imadive was called Totufoto, whose folders were named after its old identifier. When
+/// `folder` doesn't exist yet but the old one next to it does, the old one is moved to it,
+/// so the library carries over. Returns the folder to use: the old one when it couldn't be
+/// moved (an old copy of the app still running, say), so nothing is lost; the move is tried
+/// again on the next start.
+fn adopt_old_folder(folder: &Path) -> PathBuf {
+    const OLD_IDENTIFIER: &str = "com.javiespinar.totufoto";
+    let Some(old) = folder.parent().map(|p| p.join(OLD_IDENTIFIER)) else { return folder.to_path_buf() };
+    if folder.exists() || !old.is_dir() {
+        return folder.to_path_buf();
+    }
+    match std::fs::rename(&old, folder) {
+        Ok(()) => {
+            tracing::info!("moved {} to {}", old.display(), folder.display());
+            folder.to_path_buf()
+        }
+        Err(e) => {
+            tracing::warn!("couldn't move {} to {} ({e}); using it where it is", old.display(), folder.display());
+            old
+        }
+    }
 }
 
 /// Starts the gallery server on a free local port and opens the window on it.
 fn start(app: &mut tauri::App) -> Result<()> {
-    let data_dir = app.path().app_data_dir().context("finding the app data folder")?;
+    let data_dir = adopt_old_folder(&app.path().app_data_dir().context("finding the app data folder")?);
+    // On Windows the window's own data (saved preferences) is in a second folder.
+    if let Ok(local) = app.path().app_local_data_dir() {
+        adopt_old_folder(&local);
+    }
     tracing::info!("data folder: {}", data_dir.display());
     let models = match runtime::install(&data_dir.join("runtime")) {
-        Ok(rt) => totufoto::enable_faces(&rt.models, Some(&rt.onnxruntime)),
+        Ok(rt) => imadive::enable_faces(&rt.models, Some(&rt.onnxruntime)),
         Err(e) => {
             tracing::warn!("face recognition disabled: {e:#}");
             None
@@ -109,14 +136,14 @@ fn start(app: &mut tauri::App) -> Result<()> {
 
     let url = format!("http://127.0.0.1:{port}/").parse()?;
     WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
-        .title("Totufoto")
+        .title("Imadive")
         .inner_size(1400.0, 900.0)
         .min_inner_size(720.0, 480.0)
         .build()?;
     Ok(())
 }
 
-/// `totufoto-desktop --self-test [photos-folder] [report-file]`: checks, without a window,
+/// `imadive-desktop --self-test [photos-folder] [report-file]`: checks, without a window,
 /// that the embedded runtime loads and indexes photos. Used by CI on every platform.
 fn self_test(args: &[String]) -> i32 {
     let report_path = args.get(1).map(|a| launch_relative(a));
@@ -143,7 +170,7 @@ fn launch_relative(arg: &str) -> PathBuf {
 }
 
 fn run_self_test(photos: Option<PathBuf>) -> Result<(bool, String)> {
-    let dir = std::env::temp_dir().join(format!("totufoto-self-test-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("imadive-self-test-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let rt = runtime::install(&dir.join("runtime"))?;
     let mut report = format!(
@@ -151,16 +178,16 @@ fn run_self_test(photos: Option<PathBuf>) -> Result<(bool, String)> {
         env!("CARGO_PKG_VERSION"),
         std::env::consts::OS,
         std::env::consts::ARCH,
-        totufoto::faces::cpu_features()
+        imadive::faces::cpu_features()
     );
-    let Some(models) = totufoto::enable_faces(&rt.models, Some(&rt.onnxruntime)) else {
+    let Some(models) = imadive::enable_faces(&rt.models, Some(&rt.onnxruntime)) else {
         report.push_str("face recognition: FAILED to load\n");
         return Ok((false, report));
     };
     report.push_str("face recognition: loaded\n");
 
     // Run the models once on a synthetic image, independent of any photos.
-    let mut face_models = totufoto::faces::FaceModels::load(&models)?;
+    let mut face_models = imadive::faces::FaceModels::load(&models)?;
     let blank = image::RgbImage::from_pixel(640, 480, image::Rgb([128, 128, 128]));
     let detections = face_models.detect(&blank)?;
     report.push_str(&format!("synthetic image: {} faces (expected 0)\n", detections.len()));
@@ -182,4 +209,33 @@ fn run_self_test(photos: Option<PathBuf>) -> Result<(bool, String)> {
     }
     let _ = std::fs::remove_dir_all(&dir);
     Ok((ok, report))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::adopt_old_folder;
+
+    #[test]
+    fn the_old_library_moves_to_the_new_name_once() {
+        let base = std::env::temp_dir().join(format!("imadive-adopt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (old, new) = (base.join("com.javiespinar.totufoto"), base.join("com.waiting4timeout.imadive"));
+        std::fs::create_dir_all(old.join("data")).unwrap();
+        std::fs::write(old.join("data/index.sqlite"), b"library").unwrap();
+
+        assert_eq!(adopt_old_folder(&new), new);
+        assert_eq!(std::fs::read(new.join("data/index.sqlite")).unwrap(), b"library");
+        assert!(!old.exists());
+
+        // A folder of the new name is never replaced by an old one.
+        std::fs::create_dir_all(&old).unwrap();
+        assert_eq!(adopt_old_folder(&new), new);
+        assert!(old.exists() && new.join("data/index.sqlite").exists());
+        // Nothing to move: nothing happens.
+        let other = base.join("fresh");
+        std::fs::remove_dir_all(&old).unwrap();
+        assert_eq!(adopt_old_folder(&other), other);
+        assert!(!other.exists());
+        std::fs::remove_dir_all(&base).unwrap();
+    }
 }

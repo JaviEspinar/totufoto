@@ -1,4 +1,6 @@
-# totufoto
+# Imadive
+
+*Formerly Totufoto (until version 0.1.10). Existing libraries carry over: the desktop app moves its data on first start, and the command-line app keeps using a `totufoto-data` folder when there is no `imadive-data`.*
 
 A fast local photo gallery written in Rust. Point it at your photo folders and it indexes them in parallel: timeline, places, upcoming anniversaries and people found by face recognition. Everything runs on your computer and your photos are never uploaded; the files only change when you ask (rotating or deleting a photo).
 
@@ -28,11 +30,11 @@ To report a security problem, see [SECURITY.md](SECURITY.md).
 
 Download the file for your system from the [latest release](https://github.com/JaviEspinar/totufoto/releases/latest) and run it. There is nothing to install: face recognition and everything it needs are built in.
 
-- **Windows 10/11**: `Totufoto-<version>-windows-x64.exe`. Double-click it. It is not signed, so the first time Windows SmartScreen may say "Windows protected your PC": click **More info** → **Run anyway**.
-- **Linux (x86-64)**: `Totufoto-<version>-linux-x86_64.AppImage`. Make it executable and run it:
+- **Windows 10/11**: `Imadive-<version>-windows-x64.exe`. Double-click it. It is not signed, so the first time Windows SmartScreen may say "Windows protected your PC": click **More info** → **Run anyway**.
+- **Linux (x86-64)**: `Imadive-<version>-linux-x86_64.AppImage`. Make it executable and run it:
   ```sh
-  chmod +x Totufoto-*.AppImage
-  ./Totufoto-*.AppImage
+  chmod +x Imadive-*.AppImage
+  ./Imadive-*.AppImage
   ```
   If it says FUSE is missing, install it (`sudo apt install libfuse2` on Ubuntu/Debian) or run it with `--appimage-extract-and-run`.
 
@@ -42,8 +44,11 @@ Where the index is kept (delete it to start over):
 
 | | |
 |---|---|
-| Windows | `%APPDATA%\com.javiespinar.totufoto` |
-| Linux | `~/.local/share/com.javiespinar.totufoto` |
+| Windows | `%APPDATA%\com.waiting4timeout.imadive` |
+| Linux | `~/.local/share/com.waiting4timeout.imadive` |
+| macOS | `~/Library/Application Support/com.waiting4timeout.imadive` |
+
+Imadive was called Totufoto until version 0.1.10. On its first start, the app moves the library of a Totufoto installation (`com.javiespinar.totufoto`) to the folder above, so names, people and the index carry over.
 
 Any 64-bit x86 CPU works, including older ones without AVX2 such as the AMD FX series. On Windows the app uses the WebView2 runtime that comes with Windows 10 and 11.
 
@@ -56,11 +61,11 @@ Releases are built by GitHub Actions (`.github/workflows/desktop.yml`) when a `v
 cargo install tauri-cli --version "^2" --locked
 cd desktop && cargo tauri build --bundles appimage
 
-# Windows: a single portable exe in target\release\totufoto-desktop.exe
-cargo build --release -p totufoto-desktop --features custom-protocol
+# Windows: a single portable exe in target\release\imadive-desktop.exe
+cargo build --release -p imadive-desktop --features custom-protocol
 ```
 
-`totufoto-desktop --self-test [photos-folder] [report-file]` checks, without opening a window, that face recognition loads and that the photos index.
+`imadive-desktop --self-test [photos-folder] [report-file]` checks, without opening a window, that face recognition loads and that the photos index.
 
 ## Command-line app
 
@@ -120,13 +125,13 @@ Subfolders are included automatically, and you can pass several folders:
 cargo run --release -- ~/Pictures/2023 ~/Pictures/2024 /Volumes/Backup/Photos
 ```
 
-To skip the build step next time, run the compiled binary directly from the project folder: `./target/release/totufoto ~/Pictures/Holidays` (on Windows `.\target\release\totufoto.exe C:\Users\me\Pictures`).
+To skip the build step next time, run the compiled binary directly from the project folder: `./target/release/imadive ~/Pictures/Holidays` (on Windows `.\target\release\imadive.exe C:\Users\me\Pictures`).
 
 The startup log shows whether face recognition is on, which ONNX Runtime library it loaded, and on x86 which SIMD instructions the CPU has (for example `avx2=no avx=yes`).
 
 ### Apple Photos library
 
-Point it at the originals inside the library package. The gallery only reads these files (don't rotate or delete photos inside the Photos library from Totufoto; use Photos for that):
+Point it at the originals inside the library package. The gallery only reads these files (don't rotate or delete photos inside the Photos library from Imadive; use Photos for that):
 
 ```sh
 cargo run --release -- ~/Pictures/"Photos Library.photoslibrary"/originals
@@ -143,11 +148,11 @@ Only photos stored on the Mac are found. Photos kept only in iCloud ("Optimize M
 - **Sidebar**: tick people (click the checkbox or their picture) to filter Photos and Upcoming, and pick *Together*, *Any* or *Only them* to decide how they combine. Click a name to rename that person right there (Enter saves, Esc cancels). The button at the top right of the column collapses it to a thin strip (showing how many people are selected), and opens it again. Names are unique: using a name someone already has asks whether they are the same person (*Merge them*) or not (*Keep separate* adds a number, like "Ana (1)").
 - **Date range**: *From* and *to* in the top bar keep only photos taken between those days (both included; either can be left empty). It applies to Photos and Upcoming.
 - **Filter chips**: each selected person, place and date range shows as a chip above the photos; × removes one, *Clear all* removes them all.
-- **Deleting**: the bin button in the viewer (or the Delete key) asks how: *Remove from gallery* keeps the file and leaves it out of later scans (Settings can show such photos again); *Remove from disk* moves the file to the bin of the computer running Totufoto (if its drive has no bin, it asks before deleting for good). Only files inside the photo folders can be deleted. The gallery has no login, so anyone who can open it on your network can delete photos too (see [Privacy and security](#privacy-and-security)).
+- **Deleting**: the bin button in the viewer (or the Delete key) asks how: *Remove from gallery* keeps the file and leaves it out of later scans (Settings can show such photos again); *Remove from disk* moves the file to the bin of the computer running Imadive (if its drive has no bin, it asks before deleting for good). Only files inside the photo folders can be deleted. The gallery has no login, so anyone who can open it on your network can delete photos too (see [Privacy and security](#privacy-and-security)).
 - **Download, Share and Open in folder**: buttons under the photo's date. In the browser there is *Download*, which saves the original file with its own name (HEIC and TIFF are saved as JPEG). The desktop app has *Share*, which opens the system share sheet with the photo (or *Download* where the system has none), and *Open in folder*, which shows the file selected in the file manager (Finder, Explorer, or the Linux file manager).
 - **Rotate**: the two arrow buttons under the photo's date (or `R` and `Shift+R`) turn the photo right or left, and the file is saved turned. JPEG photos are turned through their EXIF orientation, so the picture is not compressed again and loses no quality; PNG is rewritten turned (it is lossless). Other formats (HEIC, WebP, GIF, TIFF) can't be rotated. Several quick turns are saved once. Face boxes, people and thumbnails stay right, and the photo isn't indexed again. Rotating waits while a scan is running.
 - **Viewer**: click a photo to open it. Use the arrow keys to move and `Esc` to close. Click the open photo to zoom in where you clicked (click again to fit), drag to move around, and use the mouse wheel or a trackpad pinch to zoom in and out (up to 8x). The side panel shows the date, place and people. Click the name of an unnamed person (or of a face in no group) to name it there; a name that already exists offers to merge. For each face, *Same as…* moves just that face to the person you pick, and *Not them* moves it to a new unnamed group, which you can rename, hide or merge in People. *Card photo* makes that face the one shown on the person's card in People (it stays while the face belongs to them). Automatic grouping never moves a face you placed. *Show face boxes* draws the detected faces. The button at the top right of the details (or the `I` key) folds them away to give the photo more room, like the *People in the photo* column; the choice is remembered.
-- **Settings** (the gear at the top right): photo folders. *Add folder…* opens the system folder picker in the desktop app; in the browser it lists the folders of the computer running Totufoto (open one, or type or paste a path, then *Add this folder*). A folder inside one already in the gallery isn't needed and is refused; adding a folder that contains others replaces them. *Remove* takes a folder's photos out of the gallery (the files stay on disk), except photos another folder still includes; its row shows the progress, a scan still running stops first (and continues with the other folders afterwards), and one folder is removed at a time. Folders given on the command line are marked *command line* and can't be removed here. Also in Settings: the library status with progress while indexing or grouping faces, and *Rescan* to pick up new, changed or deleted photos without restarting; files that could not be read, with the reason (they are skipped until the file changes, or *Try again*); and *Regroup all faces*. After each scan only the new faces are placed into people, which is fast even with hundreds of thousands of faces; regrouping everything from scratch is slower and only happens on the first index or when you ask.
+- **Settings** (the gear at the top right): photo folders. *Add folder…* opens the system folder picker in the desktop app; in the browser it lists the folders of the computer running Imadive (open one, or type or paste a path, then *Add this folder*). A folder inside one already in the gallery isn't needed and is refused; adding a folder that contains others replaces them. *Remove* takes a folder's photos out of the gallery (the files stay on disk), except photos another folder still includes; its row shows the progress, a scan still running stops first (and continues with the other folders afterwards), and one folder is removed at a time. Folders given on the command line are marked *command line* and can't be removed here. Also in Settings: the library status with progress while indexing or grouping faces, and *Rescan* to pick up new, changed or deleted photos without restarting; files that could not be read, with the reason (they are skipped until the file changes, or *Try again*); and *Regroup all faces*. After each scan only the new faces are placed into people, which is fast even with hundreds of thousands of faces; regrouping everything from scratch is slower and only happens on the first index or when you ask.
 
 ### Phones and tablets
 
@@ -160,7 +165,7 @@ The gallery adapts to small screens; nothing needs installing, just open the ser
 
 ## The index
 
-Everything the gallery learns is stored in `totufoto-data/index.sqlite`: metadata, thumbnails, faces, names and corrections. Photos are never copied, and their files only change when you rotate or delete them.
+Everything the gallery learns is stored in `imadive-data/index.sqlite`: metadata, thumbnails, faces, names and corrections. Photos are never copied, and their files only change when you rotate or delete them.
 
 - Stopping and starting again does **not** re-index. Only new or changed files are processed, and deleted ones are removed.
 - Deleted photos are removed at the next scan. If you open one before that, the viewer tells you it is no longer in its folder and removes it at once; if its whole folder can't be reached (an unplugged drive), nothing is removed.
@@ -172,11 +177,11 @@ Everything the gallery learns is stored in `totufoto-data/index.sqlite`: metadat
 
 ## Options
 
-Run `totufoto --help` for the full list:
+Run `imadive --help` for the full list:
 
 | flag | default | |
 |---|---|---|
-| `--data DIR` | `totufoto-data` | where the SQLite index (with thumbnails) is stored |
+| `--data DIR` | `imadive-data` | where the SQLite index (with thumbnails) is stored |
 | `--models DIR` | `models` | folder with `det_500m.onnx` and `w600k_mbf.onnx` |
 | `--onnxruntime PATH` | | ONNX Runtime library file or folder. By default it looks at `ORT_DYLIB_PATH`, next to the executable, and in `./onnxruntime` |
 | `--port` / `--host` | `7878` / `127.0.0.1` | `--host 0.0.0.0` shares the gallery with your network; there is no login, so only on a network you trust (see [Privacy and security](#privacy-and-security)) |
@@ -223,11 +228,11 @@ desktop/           Tauri desktop app: window, folder picker, embedded models and
 
 ## License
 
-Totufoto is **source-available**: you may use, copy, change and share it for personal and other non-commercial purposes under the [PolyForm Noncommercial License 1.0.0](LICENSE). Non-profits, schools, public institutions and evaluation are covered too. For commercial use, ask [waiting4timeout](https://github.com/waiting4timeout) for a commercial license.
+Imadive is **source-available**: you may use, copy, change and share it for personal and other non-commercial purposes under the [PolyForm Noncommercial License 1.0.0](LICENSE). Non-profits, schools, public institutions and evaluation are covered too. For commercial use, ask [waiting4timeout](https://github.com/waiting4timeout) for a commercial license.
 
 This is not an open-source license in the OSI sense, because it does not allow commercial use.
 
 Third-party components come with their own terms, listed in [THIRD_PARTY.md](THIRD_PARTY.md). Two of them matter in particular:
 
-- The **face models** (InsightFace `buffalo_s`) are released for non-commercial research use only, and the desktop app embeds them. This applies even with a commercial license for Totufoto's code: for commercial use, build it with face models whose license allows it.
+- The **face models** (InsightFace `buffalo_s`) are released for non-commercial research use only, and the desktop app embeds them. This applies even with a commercial license for Imadive's code: for commercial use, build it with face models whose license allows it.
 - **City names** come from [GeoNames](https://www.geonames.org), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

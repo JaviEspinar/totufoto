@@ -335,7 +335,7 @@ struct BrowseQuery {
     path: Option<String>,
 }
 
-/// The folders inside `path` on the computer running Totufoto, for choosing photo folders
+/// The folders inside `path` on the computer running Imadive, for choosing photo folders
 /// from a browser. Without a path: next to the first photo folder, or the home folder.
 async fn browse_folders(State(s): State<Shared>, Query(q): Query<BrowseQuery>) -> ApiResult<Response> {
     let scan_cfg = s.scan.clone();
