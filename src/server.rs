@@ -702,11 +702,12 @@ async fn duplicates_delete(State(s): State<Shared>, Json(body): Json<DupDelete>)
     let scan_cfg = s.scan.clone();
     let progress = dups.clone();
     let result = db(&s, move |conn| {
+        // Cleared when the work ends, even if the page that asked for it is gone by then.
+        let _deleting = crate::scan::ClearOnDrop(&progress.deleting);
         let roots = scan_cfg.roots(conn)?;
         crate::duplicates::delete(conn, &roots, body.ids.as_deref(), body.permanently, &progress)
     })
     .await;
-    dups.deleting.store(false, std::sync::atomic::Ordering::SeqCst);
     Ok(Json(serde_json::to_value(result?)?).into_response())
 }
 
