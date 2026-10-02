@@ -1,8 +1,8 @@
 # totufoto
 
-A fast local photo gallery written in Rust. Point it at your photo folders and it indexes them in parallel: timeline, places, upcoming anniversaries and people found by face recognition. Everything runs on your computer and your photos are never uploaded or changed.
+A fast local photo gallery written in Rust. Point it at your photo folders and it indexes them in parallel: timeline, places, upcoming anniversaries and people found by face recognition. Everything runs on your computer and your photos are never uploaded; the files only change when you ask (rotating or deleting a photo).
 
-It comes as a desktop app for Windows and Linux, and as a command-line app that serves the gallery to your browser.
+It comes as a desktop app for Windows and Linux, and as a command-line app that serves the gallery to your browser. It is free for personal and other non-commercial use, and its source code is available ([license](#license)).
 
 ## Features
 
@@ -151,7 +151,7 @@ The gallery adapts to small screens; nothing needs installing, just open the ser
 
 ## The index
 
-Everything the gallery learns is stored in `totufoto-data/index.sqlite`: metadata, thumbnails, faces, names and corrections. Your photos are never modified or copied.
+Everything the gallery learns is stored in `totufoto-data/index.sqlite`: metadata, thumbnails, faces, names and corrections. Photos are never copied, and their files only change when you rotate or delete them.
 
 - Stopping and starting again does **not** re-index. Only new or changed files are processed, and deleted ones are removed.
 - Deleted photos are removed at the next scan. If you open one before that, the viewer tells you it is no longer in its folder and removes it at once; if its whole folder can't be reached (an unplugged drive), nothing is removed.
@@ -180,7 +180,6 @@ Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP, and HEIC/HEIF on macOS (deco
 ## Troubleshooting
 
 - **"face recognition disabled: ... not found"**: run `scripts/fetch-onnxruntime.sh` (or the `.ps1` on Windows) from the project folder, or point `--onnxruntime` at the library.
-- **Crash with "illegal instruction" on an older CPU**: you are running a build from before ONNX Runtime was loaded as a separate library. Pull the latest code, run the fetch script and rebuild.
 
 ## How it's fast
 
@@ -193,22 +192,29 @@ Measured on an 8-core Apple Silicon Mac: 300 photos at 12 MP fully indexed (thum
 ## Layout
 
 ```
-src/main.rs     CLI and startup
-src/scan.rs     file walking, per-photo pipeline, batched DB writes
-src/faces.rs    SCRFD detection, landmark alignment, ArcFace embeddings
-src/cluster.rs  grouping faces into people
-src/geo.rs      offline reverse geocoding
-src/db.rs       SQLite schema
-src/server.rs   HTTP API (axum)
-src/app.rs      startup shared by both apps
-web/index.html  UI (embedded into the binary)
-desktop/        Tauri desktop app: window, folder picker, embedded models and ONNX Runtime
+src/main.rs        CLI and startup
+src/lib.rs         the library both apps are built on
+src/app.rs         startup shared by both apps
+src/scan.rs        file walking, per-photo pipeline, batched DB writes
+src/imaging.rs     decoding, orientation, resizing, JPEG encoding
+src/faces.rs       SCRFD detection, landmark alignment, ArcFace embeddings
+src/cluster.rs     grouping faces into people
+src/geo.rs         offline reverse geocoding
+src/duplicates.rs  finding and deleting identical files
+src/rotate.rs      rotating photos in their files
+src/db.rs          SQLite schema and shared queries
+src/server.rs      HTTP API (axum)
+web/index.html     UI (embedded into the binary)
+desktop/           Tauri desktop app: window, folder picker, embedded models and ONNX Runtime
 ```
 
-## Third-party components
+## License
 
-The desktop app embeds Microsoft's [ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT license) and, on Windows, the Visual C++ runtime DLLs it needs, redistributed under the Visual Studio redistribution terms.
+Totufoto is **source-available**: you may use, copy, change and share it for personal and other non-commercial purposes under the [PolyForm Noncommercial License 1.0.0](LICENSE). Non-profits, schools, public institutions and evaluation are covered too. For commercial use, ask the author for a commercial license.
 
-## Face models license
+This is not an open-source license in the OSI sense, because it does not allow commercial use.
 
-The InsightFace `buffalo_s` models are released for non-commercial research purposes. For commercial use, swap in models with a suitable license (any SCRFD-style detector with 5 landmarks and a 112x112 ArcFace embedder works).
+Third-party components come with their own terms, listed in [THIRD_PARTY.md](THIRD_PARTY.md). Two of them matter in particular:
+
+- The **face models** (InsightFace `buffalo_s`) are released for non-commercial research use only, and the desktop app embeds them. This applies even with a commercial license for Totufoto's code: for commercial use, build it with face models whose license allows it.
+- **City names** come from [GeoNames](https://www.geonames.org), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
