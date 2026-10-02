@@ -19,7 +19,7 @@ It comes as a desktop app for Windows and Linux, and as a command-line app that 
 ## Privacy and security
 
 - **Private by design**: everything runs on your computer. There is no account, no cloud and no telemetry; places are found with an offline city list, and the only network requests are the ones you make yourself (opening a map link).
-- **No login**: by default the gallery only accepts this computer. If you share it with your network (`--host 0.0.0.0`, to use it from a phone), anyone who can reach it can see your photos, rotate them and delete them. Only do that on a network you trust, such as your home network, and never expose it to the internet.
+- **No login**: by default the gallery only accepts this computer. If you share it with your network (`--host 0.0.0.0`, to use it from a phone), anyone who can reach it can see your photos, rotate them and delete them, and add any folder of the computer to the gallery (so also see and delete images you never shared). Only do that on a network you trust, such as your home network, and never expose it to the internet.
 - **Other websites can't use it**: requests for a name other than an IP address, `localhost`, this computer's own name or one you allow with `--allow-host` are refused (this blocks DNS rebinding), and requests that change something are refused when they come from another site.
 
 To report a security problem, see [SECURITY.md](SECURITY.md).
