@@ -411,3 +411,15 @@ Still open from phase 1: the donation platform (`FUNDING.yml`, About entry) and 
 | 14 | Empty photo folders count as unplugged; changed photos keep their id | `95f1ccf` |
 | 15 | Bounded pool, one scan thread at a time, scans survive panics, stop on save failure | `cb7f9b3` |
 | 16 | `fixtures/photos` (public-domain portrait with date and GPS) used by the CI self-test | `7edb6e9` |
+
+### Phase 3: done
+
+| # | Result | Commit |
+|---|---|---|
+| 17 | `server.rs` split into `src/http/` (pure move), then the SQL moved out of the handlers into typed queries in `src/db/` (`photos.rs`, `people.rs`, `filters.rs`); a test pins the JSON shapes the page reads | `30ee4c2`, `1779cd4`, `202d78e` |
+| 18 | `web/index.html` split into `index.html`, `app.css`, `app.js`, linked by content hash; CI checks that the script parses | `87aed19` |
+| 19 | `peopleById`, `askChoice`/`#choiceDlg`, `ApiError` in `api()`, four silent failures fixed, About section in Settings | `ac28b81` |
+| 20 | Cards and candidates are buttons, focusable names and faces, the viewer is a modal dialog with focus handling, labels, reduced motion. The keyboard test found that Escape didn't close the viewer from its checkbox | `da95296` |
+| 21 | Icon sprite, `plural()`, `pref`, `parseDay()`, people grid sizes set only by the script, one render `job` (`alive()`, `signal`) instead of hand-written token checks | `9c9fa6a`, `c0f226f`, this commit |
+
+Not done on purpose: folding the People and Optimization views into `beginViewLoad`. Their loading is deliberately different (the keyed people grid that doesn't flicker, the progress screens), and the render job already gives them the same cancellation as the other views.
