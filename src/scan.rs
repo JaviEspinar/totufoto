@@ -141,6 +141,9 @@ struct FileEntry {
     path: PathBuf,
     mtime: i64,
     size: i64,
+    /// The photo's id when the file was indexed before (it changed): it is updated in place,
+    /// so the photo keeps its id.
+    known: Option<i64>,
 }
 
 struct FaceOut {
@@ -213,7 +216,7 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
         return Ok(());
     }
     // Photos on a folder that is currently unavailable (say, an unplugged drive) are kept.
-    let offline: Vec<&PathBuf> = roots.iter().filter(|r| !r.is_dir()).collect();
+    let offline: Vec<&PathBuf> = roots.iter().filter(|r| !crate::library::reachable(r)).collect();
     for r in &offline {
         tracing::warn!("folder {} is not available; keeping its photos", r.display());
     }
@@ -246,7 +249,7 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     // their own photos when removed, so a scan only drops photos inside the current folders
     // whose files are gone.
     let whole_library = !cfg.fixed_roots.is_empty();
-    let mut stale: Vec<i64> = known
+    let stale: Vec<i64> = known
         .iter()
         .filter(|(p, _)| {
             let path = Path::new(p);
@@ -259,21 +262,24 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     let removed = stale.len();
     let todo: Vec<FileEntry> = files
         .into_iter()
-        .filter(|f| match known.get(f.path.to_string_lossy().as_ref()) {
-            // Changed files, and photos indexed while face recognition was unavailable.
+        .filter_map(|mut f| match known.get(f.path.to_string_lossy().as_ref()) {
+            // Changed files, and photos indexed while face recognition was unavailable: read
+            // again, and updated in place.
             Some(&(id, mtime, size, faces_scanned))
                 if mtime != f.mtime || size != f.size || (models.is_some() && !faces_scanned) =>
             {
-                stale.push(id);
-                true
+                f.known = Some(id);
+                Some(f)
             }
-            Some(_) => false,
+            Some(_) => None,
             None => {
                 let path = f.path.to_string_lossy();
-                !excluded.contains(path.as_ref()) && failed.get(path.as_ref()) != Some(&(f.mtime, f.size))
+                let wanted = !excluded.contains(path.as_ref()) && failed.get(path.as_ref()) != Some(&(f.mtime, f.size));
+                wanted.then_some(f)
             }
         })
         .collect();
+    let updated = todo.iter().filter(|f| f.known.is_some()).count();
 
     if !stale.is_empty() {
         // Named people whose photos are going keep their face, to rejoin them if they return.
@@ -287,7 +293,7 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
 
     status.total.store(todo.len() as u64, Ordering::Relaxed);
     status.set_phase("indexing photos");
-    tracing::info!("{} photos to index ({} updated), {} removed", todo.len(), stale.len() - removed, removed);
+    tracing::info!("{} photos to index ({updated} changed), {removed} removed", todo.len());
 
     let (sender, receiver) = mpsc::sync_channel::<Outcome>(256);
     std::thread::scope(|s| -> Result<()> {
@@ -296,7 +302,7 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
                 if status.hold.load(Ordering::Relaxed) {
                     return; // stopped: what is done so far is kept, the rest waits for the next scan
                 }
-                let copy = FileEntry { path: file.path.clone(), mtime: file.mtime, size: file.size };
+                let copy = FileEntry { path: file.path.clone(), mtime: file.mtime, size: file.size, known: file.known };
                 // A file that crashes a decoder (or the face models) is a failed file, not a failed scan.
                 let processed =
                     std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| process(file, models.as_ref())));
@@ -357,7 +363,7 @@ fn list_files(roots: &[PathBuf]) -> Vec<FileEntry> {
                 .filter_map(|e| {
                     let meta = e.metadata().ok()?;
                     let mtime = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
-                    Some(FileEntry { path: e.into_path(), mtime, size: meta.len() as i64 })
+                    Some(FileEntry { path: e.into_path(), mtime, size: meta.len() as i64, known: None })
                 })
         })
         .collect()
@@ -376,7 +382,7 @@ pub(crate) fn thumbnail(img: &image::RgbImage) -> Result<Vec<u8>> {
 }
 
 fn process(file: FileEntry, models: Option<&ModelPaths>) -> Result<Processed, (FileEntry, anyhow::Error)> {
-    let copy = FileEntry { path: file.path.clone(), mtime: file.mtime, size: file.size };
+    let copy = FileEntry { path: file.path.clone(), mtime: file.mtime, size: file.size, known: file.known };
     process_inner(file, models).map_err(|e| (copy, e))
 }
 
@@ -446,6 +452,18 @@ fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Outcome>, statu
                 Outcome::Indexed(p) => p,
                 Outcome::Failed(file, error) => {
                     let error: String = error.chars().take(300).collect();
+                    // A photo whose file changed and can no longer be read leaves the gallery
+                    // (its named people are remembered first).
+                    if let Some(id) = file.known {
+                        let people: Vec<i64> = tx
+                            .prepare_cached(
+                                "SELECT DISTINCT person_id FROM faces WHERE photo_id = ? AND person_id IS NOT NULL",
+                            )?
+                            .query_map([id], |r| r.get(0))?
+                            .collect::<Result<_, _>>()?;
+                        crate::db::remember_named_people(&tx, Some(&people))?;
+                        tx.execute("DELETE FROM photos WHERE id = ?", [id])?;
+                    }
                     tx.execute(
                         "INSERT OR REPLACE INTO failures (path, mtime, size, error) VALUES (?, ?, ?, ?)",
                         params![file.path.to_string_lossy(), file.mtime, file.size, error],
@@ -460,24 +478,53 @@ fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Outcome>, statu
                 Some((lat, lon)) => Some(place_id(&tx, places, lat, lon)?),
                 None => None,
             };
-            tx.execute(
-                "INSERT INTO photos (path, mtime, size, width, height, taken, date_from_exif, lat, lon, place_id, faces_scanned)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                params![
-                    p.file.path.to_string_lossy(),
-                    p.file.mtime,
-                    p.file.size,
-                    p.width,
-                    p.height,
-                    p.taken,
-                    p.from_exif,
-                    p.gps.map(|g| g.0),
-                    p.gps.map(|g| g.1),
-                    place_id,
-                    p.faces_scanned
-                ],
-            )?;
-            let photo_id = tx.last_insert_rowid();
+            let photo_id = match p.file.known {
+                // Changed: the same photo with what the file says now. Its faces are found
+                // again; the version tells browsers to fetch the new thumbnail.
+                Some(id) => {
+                    tx.execute(
+                        "UPDATE photos SET mtime = ?, size = ?, width = ?, height = ?, taken = ?, date_from_exif = ?,
+                             lat = ?, lon = ?, place_id = ?, faces_scanned = ?, content_hash = NULL, version = version + 1
+                         WHERE id = ?",
+                        params![
+                            p.file.mtime,
+                            p.file.size,
+                            p.width,
+                            p.height,
+                            p.taken,
+                            p.from_exif,
+                            p.gps.map(|g| g.0),
+                            p.gps.map(|g| g.1),
+                            place_id,
+                            p.faces_scanned,
+                            id
+                        ],
+                    )?;
+                    tx.execute("DELETE FROM thumbs WHERE photo_id = ?", [id])?;
+                    tx.execute("DELETE FROM faces WHERE photo_id = ?", [id])?;
+                    id
+                }
+                None => {
+                    tx.execute(
+                        "INSERT INTO photos (path, mtime, size, width, height, taken, date_from_exif, lat, lon, place_id, faces_scanned)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        params![
+                            p.file.path.to_string_lossy(),
+                            p.file.mtime,
+                            p.file.size,
+                            p.width,
+                            p.height,
+                            p.taken,
+                            p.from_exif,
+                            p.gps.map(|g| g.0),
+                            p.gps.map(|g| g.1),
+                            place_id,
+                            p.faces_scanned
+                        ],
+                    )?;
+                    tx.last_insert_rowid()
+                }
+            };
             tx.execute("INSERT INTO thumbs (photo_id, data) VALUES (?, ?)", params![photo_id, p.thumb])?;
             for f in &p.faces {
                 tx.execute(
@@ -788,5 +835,65 @@ mod tests {
         assert_eq!(indexed(&cfg, &dir), ["/photos/broken.jpg", "/photos/keep.jpg"]);
         let failures: i64 = conn.query_row("SELECT COUNT(*) FROM failures", [], |r| r.get(0)).unwrap();
         assert_eq!(failures, 0);
+    }
+
+    #[test]
+    fn an_empty_photo_folder_counts_as_unplugged() {
+        // On Linux an unmounted drive leaves its mount point as an empty folder; its photos
+        // must not be taken for deleted.
+        let lib = crate::testutil::Library::new();
+        lib.add("a.jpg", Photo::default());
+        lib.add("sub/b.jpg", Photo { color: [1, 2, 3], ..Photo::default() });
+        lib.scan();
+        std::fs::remove_dir_all(lib.root()).unwrap();
+        std::fs::create_dir(lib.root()).unwrap();
+        lib.scan();
+        let conn = lib.conn();
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 2);
+        // A folder that only lost some files is pruned as usual.
+        lib.add("c.jpg", Photo { color: [4, 5, 6], ..Photo::default() });
+        lib.scan();
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
+    }
+
+    #[test]
+    fn a_changed_file_keeps_its_id() {
+        let lib = crate::testutil::Library::new();
+        lib.add("a.jpg", Photo { width: 64, height: 48, ..Photo::default() });
+        lib.scan();
+        let id = lib.id("a.jpg");
+        lib.add("a.jpg", Photo { width: 30, height: 20, taken: Some("2018:02:03 04:05:06"), ..Photo::default() });
+        let status = lib.scan();
+        assert_eq!(status.total, 1);
+        assert_eq!(lib.id("a.jpg"), id, "same photo, so links to it keep working");
+        let (w, h, taken, version): (u32, u32, String, i64) = lib
+            .conn()
+            .query_row("SELECT width, height, taken, version FROM photos WHERE id = ?", [id], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+            })
+            .unwrap();
+        assert_eq!((w, h, taken.as_str()), (30, 20, "2018-02-03 04:05:06"));
+        assert_eq!(version, 1, "browsers fetch the new thumbnail");
+        let thumbs: i64 = lib.conn().query_row("SELECT COUNT(*) FROM thumbs", [], |r| r.get(0)).unwrap();
+        assert_eq!(thumbs, 1);
+    }
+
+    #[test]
+    fn a_changed_file_that_breaks_leaves_the_gallery() {
+        let lib = crate::testutil::Library::new();
+        lib.add("a.jpg", Photo::default());
+        lib.scan();
+        std::fs::write(lib.root().join("a.jpg"), b"broken now").unwrap();
+        let status = lib.scan();
+        assert_eq!(status.errors, 1);
+        let conn = lib.conn();
+        let (photos, failures): (i64, i64) = conn
+            .query_row("SELECT (SELECT COUNT(*) FROM photos), (SELECT COUNT(*) FROM failures)", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((photos, failures), (0, 1));
     }
 }
