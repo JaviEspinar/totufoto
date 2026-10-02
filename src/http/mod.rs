@@ -1,6 +1,5 @@
 //! HTTP API and embedded web UI: the router, the connection pool, errors, and the page.
 
-mod filters;
 mod folders;
 mod people;
 mod photos;
@@ -238,6 +237,116 @@ mod tests {
         lib.scan();
         let id = lib.id("a.jpg");
         (lib, id)
+    }
+
+    /// The field names of a JSON object, sorted.
+    fn keys(v: &JsonValue) -> Vec<&str> {
+        let mut k: Vec<&str> = v.as_object().expect("an object").keys().map(String::as_str).collect();
+        k.sort();
+        k
+    }
+
+    #[tokio::test]
+    async fn responses_keep_the_shape_the_page_reads() {
+        let lib = crate::testutil::Library::new();
+        lib.add(
+            "madrid.jpg",
+            crate::testutil::Photo {
+                taken: Some("2019:07:04 18:30:00"),
+                gps: Some((40.4168, -3.7038)),
+                ..Default::default()
+            },
+        );
+        lib.add("plain.jpg", crate::testutil::Photo { color: [1, 2, 3], ..Default::default() });
+        std::fs::write(lib.root().join("broken.jpg"), b"not a photo").unwrap();
+        lib.scan();
+        let madrid = lib.id("madrid.jpg");
+        lib.conn()
+            .execute_batch(&format!(
+                "INSERT INTO persons (id, name) VALUES (1, 'Ana'), (2, NULL);
+                 INSERT INTO faces (id, photo_id, x, y, w, h, score, embedding, thumb, person_id) VALUES
+                     (1, {madrid}, 0.1, 0.2, 0.3, 0.4, 0.9, x'', x'01', 1), (2, {madrid}, 0.5, 0.5, 0.1, 0.1, 0.8, x'', x'02', 2);"
+            ))
+            .unwrap();
+        let app = app(&lib);
+        let get = |uri: String| {
+            let app = app.clone();
+            async move { call(&app, "GET", &uri, None).await }
+        };
+
+        let (_, v) = get("/api/photos".into()).await;
+        assert_eq!(keys(&v), ["days", "photos"]);
+        let rows = v["photos"].as_array().unwrap();
+        assert_eq!(rows.len(), 2);
+        let row = rows.iter().find(|r| r[0] == madrid).unwrap().as_array().unwrap();
+        assert_eq!(row.len(), 6, "[id, width, height, taken, place, version]");
+        assert_eq!(
+            (&row[1], &row[2], &row[3], &row[5]),
+            (&json!(64), &json!(48), &json!("2019-07-04 18:30:00"), &json!(0))
+        );
+        assert!(row[4].is_i64(), "a place");
+
+        let (_, v) = get("/api/groups?by=month".into()).await;
+        assert_eq!(keys(&v), ["groups", "total"]);
+        assert_eq!(v["total"], 2);
+        assert_eq!(keys(&v["groups"][0]), ["count", "cover", "key", "v"]);
+        let (_, v) = get("/api/groups?by=place".into()).await;
+        assert!(v["groups"].as_array().unwrap().iter().any(|g| g["key"] == 0), "no location is key 0");
+
+        let (_, v) = get(format!("/api/photos/{madrid}")).await;
+        assert_eq!(
+            keys(&v),
+            [
+                "city",
+                "country",
+                "dateFromExif",
+                "faces",
+                "height",
+                "id",
+                "lat",
+                "lon",
+                "path",
+                "region",
+                "rotatable",
+                "taken",
+                "version",
+                "width"
+            ]
+        );
+        assert_eq!((&v["city"], &v["dateFromExif"], &v["rotatable"]), (&json!("Madrid"), &json!(true), &json!(true)));
+        assert_eq!(keys(&v["faces"][0]), ["box", "id", "name", "person"]);
+        assert_eq!((&v["faces"][0]["name"], &v["faces"][0]["box"]), (&json!("Ana"), &json!([0.1, 0.2, 0.3, 0.4])));
+
+        let (_, v) = get("/api/places".into()).await;
+        assert_eq!(keys(&v[0]), ["city", "count", "country", "cover", "id", "region"]);
+        assert_eq!(v[0]["cover"], madrid);
+
+        let (_, v) = get("/api/people".into()).await;
+        assert_eq!(keys(&v[0]), ["count", "face", "hidden", "id", "name"]);
+        assert_eq!((&v[0]["name"], &v[1]["name"]), (&json!("Ana"), &JsonValue::Null), "named first");
+
+        let (_, v) = get("/api/status".into()).await;
+        for k in ["excluded", "failed", "phase", "running", "total", "done", "faces", "removing"] {
+            assert!(v.get(k).is_some(), "status.{k}");
+        }
+        assert_eq!(v["failed"], 1);
+        let (_, v) = get("/api/failures".into()).await;
+        assert_eq!(keys(&v[0]), ["error", "path"]);
+
+        // People updates answer as the page expects.
+        let (status, v) = call(&app, "POST", "/api/people/2", Some(json!({ "name": "ana" }))).await;
+        assert_eq!((status, &v["name"]), (StatusCode::OK, &json!("ana (1)")));
+        let (status, _) = call(&app, "POST", "/api/people/2", Some(json!({ "hidden": true }))).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (status, v) = call(&app, "POST", "/api/faces/2/cover", None).await;
+        assert_eq!((status, &v["person"]), (StatusCode::OK, &json!(2)));
+        let (status, _) = call(&app, "POST", "/api/people/2/merge", Some(json!({ "into": 1 }))).await;
+        assert_eq!(status, StatusCode::NO_CONTENT);
+        let (_, v) = get("/api/people".into()).await;
+        assert_eq!(v.as_array().unwrap().len(), 1);
+        assert_eq!((&v[0]["name"], &v[0]["count"]), (&json!("Ana"), &json!(1)));
+        assert_eq!(get("/face/1".into()).await.0, StatusCode::OK);
+        assert_eq!(get(format!("/thumb/{madrid}")).await.0, StatusCode::OK);
     }
 
     #[tokio::test]

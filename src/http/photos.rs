@@ -13,8 +13,8 @@ use serde_json::{Value as JsonValue, json};
 
 use crate::{imaging, library};
 
-use super::filters::{PhotoQuery, date_range_filter, people_filter, photo_filters};
 use super::{ApiError, ApiResult, IMMUTABLE, Shared, db};
+use crate::db::filters::{PhotoQuery, date_range_filter, people_filter, photo_filters};
 
 pub(super) async fn photos(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResult<Json<JsonValue>> {
     let result = db(&s, move |conn| {

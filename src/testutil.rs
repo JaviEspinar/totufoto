@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use image::{Rgb, RgbImage};
+use rusqlite::{Connection, params};
 
 /// `rel` ("a/b.jpg") as a path with this system's separator, so it compares equal to the
 /// paths the scan stores (on Windows, `dir.join("a/b.jpg")` keeps the forward slash).
@@ -99,6 +100,31 @@ impl Library {
 pub fn set_mtime(path: &Path, secs: u64) {
     let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(946_684_800 + secs);
     std::fs::File::options().write(true).open(path).unwrap().set_modified(t).unwrap();
+}
+
+/// Persons 1 Ana (faces 1, 2), 2 unnamed (face 3), 3 Ben (face 4), 4 Old Ana (no faces).
+pub fn people_index() -> Connection {
+    let conn = crate::db::open_in_memory();
+    conn.execute_batch(
+        "INSERT INTO persons (id, name) VALUES (1, 'Ana'), (2, NULL), (3, 'Ben'), (4, 'Old Ana');
+         INSERT INTO photos (id, path, mtime, size, width, height, taken, date_from_exif)
+             VALUES (1, '/p/1.jpg', 0, 1, 1, 1, '2020-01-01 00:00:00', 1);",
+    )
+    .unwrap();
+    let embedding = crate::faces::embedding_to_bytes(&[1.0; crate::faces::EMBEDDING_DIM]);
+    for (face, person) in [(1, 1), (2, 1), (3, 2), (4, 3)] {
+        conn.execute(
+            "INSERT INTO faces (id, photo_id, x, y, w, h, score, embedding, thumb, person_id)
+             VALUES (?, 1, 0, 0, 1, 1, 1, ?, x'', ?)",
+            params![face, embedding, person],
+        )
+        .unwrap();
+    }
+    conn
+}
+
+pub fn person_exists(conn: &Connection, person: i64) -> bool {
+    conn.query_row("SELECT EXISTS (SELECT 1 FROM persons WHERE id = ?)", [person], |r| r.get(0)).unwrap()
 }
 
 /// What to put in a generated photo.

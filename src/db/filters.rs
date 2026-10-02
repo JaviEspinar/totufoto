@@ -1,13 +1,14 @@
-//! The photo query the UI sends, and the SQL conditions it turns into.
+//! The photo query the page sends, and the SQL conditions it turns into (shared by the photo
+//! list, the group cards and the places).
 
 use chrono::{Datelike, Duration, Local};
 use rusqlite::types::Value;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
-pub(super) struct PhotoQuery {
+pub(crate) struct PhotoQuery {
     /// "asc" or "desc" (default) by capture date
-    pub(super) sort: Option<String>,
+    pub(crate) sort: Option<String>,
     place: Option<i64>,
     /// comma separated person ids
     people: Option<String>,
@@ -23,17 +24,17 @@ pub(super) struct PhotoQuery {
     /// photos from previous years whose anniversary falls within the next `upcoming` days
     upcoming: Option<u32>,
     /// /api/groups only: "year", "month", "day" or "place"
-    pub(super) by: Option<String>,
+    pub(crate) by: Option<String>,
 }
 
-pub(super) fn parse_ids(s: &str) -> Vec<i64> {
+pub(crate) fn parse_ids(s: &str) -> Vec<i64> {
     s.split(',').filter_map(|p| p.trim().parse().ok()).collect()
 }
 
 /// SQL condition (starting with " AND") and its arguments keeping photos whose `taken`
 /// column falls in the range, both days included. Either end may be missing; invalid
 /// dates are ignored, and a reversed range is put the right way round.
-pub(super) fn date_range_filter(taken: &str, from: Option<&str>, to: Option<&str>) -> (String, Vec<Value>) {
+pub(crate) fn date_range_filter(taken: &str, from: Option<&str>, to: Option<&str>) -> (String, Vec<Value>) {
     let parse = |d: Option<&str>| d.and_then(|d| chrono::NaiveDate::parse_from_str(d.trim(), "%Y-%m-%d").ok());
     let (mut from, mut to) = (parse(from), parse(to));
     if let (Some(f), Some(t)) = (from, to)
@@ -58,7 +59,7 @@ pub(super) fn date_range_filter(taken: &str, from: Option<&str>, to: Option<&str
 /// SQL condition (starting with " AND") keeping photos, by their `photo_id` column, where
 /// the given people appear. `match_mode`: "all" (default) all of them together, "any" at
 /// least one, "only" all of them and no other known person. Empty without people.
-pub(super) fn people_filter(photo_id: &str, people: Option<&str>, match_mode: Option<&str>) -> String {
+pub(crate) fn people_filter(photo_id: &str, people: Option<&str>, match_mode: Option<&str>) -> String {
     let people = people.map(parse_ids).unwrap_or_default();
     if people.is_empty() {
         return String::new();
@@ -85,7 +86,7 @@ pub(super) fn people_filter(photo_id: &str, people: Option<&str>, match_mode: Op
 }
 
 /// `MM-DD` for today and the following days, and the current year.
-pub(super) fn upcoming_days(days: u32) -> (Vec<String>, i32) {
+pub(crate) fn upcoming_days(days: u32) -> (Vec<String>, i32) {
     let today = Local::now().date_naive();
     let list =
         (0..days.clamp(1, 366)).map(|d| (today + Duration::days(d as i64)).format("%m-%d").to_string()).collect();
@@ -95,7 +96,7 @@ pub(super) fn upcoming_days(days: u32) -> (Vec<String>, i32) {
 /// The filters of a photo query as SQL conditions (each starting with " AND") and their
 /// arguments, shared by the photo list and the group summaries so both always agree. Also
 /// returns the upcoming days (`MM-DD`) when `upcoming` is set.
-pub(super) fn photo_filters(q: &PhotoQuery) -> (String, Vec<Value>, Vec<String>) {
+pub(crate) fn photo_filters(q: &PhotoQuery) -> (String, Vec<Value>, Vec<String>) {
     let mut sql = String::new();
     let mut args: Vec<Value> = Vec::new();
     match q.place {
