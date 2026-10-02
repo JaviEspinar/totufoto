@@ -440,3 +440,14 @@ Corrections on the way:
 - The plan wanted the desktop build only for tags. A change in `src/` can break the desktop crate, which `ci.yml` can't build without the models, so pushes that touch Rust code or packaging still build it.
 
 Still open from phase 4: README screenshots. They need photos that may be published (the fixture images are flat colours, and the test photos used during development are not redistributable).
+
+### Phase 5: partly done
+
+| # | Result | Commit |
+|---|---|---|
+| 27 | Desktop app: log file in the data folder (`logs/imadive.log`, the previous run's kept) with "Open log folder" in Settings; older `runtime/<version>` folders deleted on start; unpacked files checked byte for byte; the self-test fails when it can't write its report; one shared `DEFAULT_FACE_THRESHOLD`. Not done: the window before extraction (it only matters on the first start, for a second or two) | `4039886` |
+| 30 | Tests for face grouping (6.2 item 10) and for busy work refusing a second start (item 12); EXIF reading moved to `metadata.rs` with tests; the concurrency model in `scan.rs`'s module doc. Not done on purpose: migrations through `user_version`; the table of added columns works and is tested, and changing it only adds risk to existing indexes | `c74d43f`, `bec3fcf`, `6d18e40` |
+
+Smaller points from sections 4.2, 4.5, 4.7 and 4.8, done on the way: photo rows read by name instead of by position; a danger colour token with a readable dark-mode value; a notice when the server can't be reached; a details cache and prefetch in the viewer; light progress polling in Optimization; a retry button on a view that failed to load (`6d18e40`, `a4b933c`, `0232356`).
+
+Left for later, each a larger change worth doing with the owner: 26 (ES modules), 28 (macOS build, which needs signing and notarization to be usable, and `cargo xtask fetch`), 29 (API cleanup before 1.0, breaking).
