@@ -68,15 +68,6 @@ jobs:
           mkdir -p dist
           cp target/release/totufoto-desktop.exe "dist/Totufoto-${VERSION}-windows-x64.exe"
 
-      - name: Test photos
-        shell: bash
-        run: |
-          mkdir -p test-photos
-          # Public-domain official portrait (one face) and an EXIF sample with GPS data.
-          curl -fsSL -A "totufoto-ci/1.0 (https://github.com/JaviEspinar/totufoto)" -o test-photos/portrait.jpg \
-            https://upload.wikimedia.org/wikipedia/commons/8/8d/President_Barack_Obama.jpg
-          curl -fsSL -o test-photos/gps.jpg https://raw.githubusercontent.com/ianare/exif-samples/master/jpg/gps/DSCN0010.jpg
-
       - name: Self-test (Linux)
         if: runner.os == 'Linux'
         env:
@@ -86,13 +77,13 @@ jobs:
           chmod +x "$app"
           set +e
           # Relative paths also work (resolved from the launch folder); absolute keeps it explicit.
-          "$app" --self-test "$PWD/test-photos" "$PWD/report.txt" > out.txt 2>&1
+          "$app" --self-test "$PWD/fixtures/photos" "$PWD/report.txt" > out.txt 2>&1
           code=$?
           if [ $code -ne 0 ]; then
             # Tell a packaging problem apart from an app problem: run the binary outside the AppImage.
             echo "--- AppImage exit code $code; running the extracted binary" >> out.txt
             "$app" --appimage-extract > /dev/null 2>&1
-            ./squashfs-root/usr/bin/totufoto-desktop --self-test "$PWD/test-photos" >> out.txt 2>&1
+            ./squashfs-root/usr/bin/totufoto-desktop --self-test "$PWD/fixtures/photos" >> out.txt 2>&1
             echo "extracted binary exit code: $?" >> out.txt
             ldd ./squashfs-root/usr/bin/totufoto-desktop | grep "not found" >> out.txt
           fi
@@ -108,7 +99,7 @@ jobs:
         run: |
           # The exe is a GUI app, so wait for it explicitly and read the report file.
           $exe = Get-ChildItem dist\*.exe | Select-Object -First 1
-          $p = Start-Process -FilePath $exe.FullName -ArgumentList '--self-test', 'test-photos', 'report.txt' -Wait -PassThru -NoNewWindow
+          $p = Start-Process -FilePath $exe.FullName -ArgumentList '--self-test', 'fixtures\photos', 'report.txt' -Wait -PassThru -NoNewWindow
           $report = if (Test-Path report.txt) { Get-Content report.txt -Raw } else { "no report written" }
           Write-Output $report
           $level = if ($p.ExitCode -eq 0) { "notice" } else { "error" }
