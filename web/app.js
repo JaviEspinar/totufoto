@@ -1,4 +1,12 @@
 "use strict";
+// Elements that act as buttons without being <button>s (names to rename, faces to open)
+// answer Enter and Space like buttons do.
+document.addEventListener("keydown", e => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches?.('[role="button"]:not(button)')) {
+    e.preventDefault();
+    e.target.click();
+  }
+});
 // Imadive was called Totufoto: preferences saved under the old name carry over once.
 try {
   for (const key of Object.keys(localStorage)) {
@@ -163,13 +171,15 @@ function sidebarRow(p) {
     row.className = "person";
     row.dataset.person = p.id;
     row.innerHTML = `<input type="checkbox" data-id="${p.id}" aria-label="Select">
-      <img loading="lazy" alt="" title="Select"><span class="n" title="Click to rename"></span><span class="c"></span>`;
+      <img loading="lazy" alt="" title="Select"><span class="n" title="Click to rename" tabindex="0" role="button"></span><span class="c"></span>`;
     sidebarRows.set(p.id, row);
   }
   const img = row.querySelector("img"), name = row.querySelector(".n");
   if (img.dataset.face !== String(p.face)) { img.dataset.face = p.face; img.src = `/face/${p.face}`; }
   name.textContent = personName(p);
   name.classList.toggle("unnamed", !p.name);
+  name.setAttribute("aria-label", `Rename ${personName(p)}`);
+  row.querySelector("input").setAttribute("aria-label", `Select ${personName(p)}`);
   row.querySelector(".c").textContent = p.count;
   row.querySelector("input").checked = state.people.has(p.id);
   return row;
@@ -573,11 +583,11 @@ function renderGroupCards(container, groups, mode) {
   const card = g => {
     const place = mode === "place" && g.key !== 0 ? placeById.get(g.key) : null;
     const where = place ? `${esc([place.region, regionName(place.country)].filter(Boolean).join(", "))} · ` : "";
-    return `<div class="card group-card" data-group="${esc(String(g.key))}">
+    return `<button type="button" class="card group-card" data-group="${esc(String(g.key))}">
       <img src="${thumbUrl(g.cover, g.v)}" loading="lazy" decoding="async" alt="">
-      <div class="meta"><div class="t">${esc(title(g.key))}</div>
-      <div class="s">${where}${g.count.toLocaleString()} photo${g.count === 1 ? "" : "s"}</div></div>
-    </div>`;
+      <span class="meta"><span class="t">${esc(title(g.key))}</span>
+      <span class="s">${where}${g.count.toLocaleString()} photo${g.count === 1 ? "" : "s"}</span></span>
+    </button>`;
   };
   const grid = document.createElement("div");
   grid.className = "cards";
@@ -775,7 +785,7 @@ const faceImg = id => loadedFaces.has(String(id))
   : `<img src="/face/${id}" alt="" data-face="${id}" decoding="async" onload="faceLoaded(this)" onerror="faceLoaded(this)">`;
 const faceCard = p => `
   <div class="card face-card ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}">
-    <div class="avatar" title="Show photos">${faceImg(p.face)}</div>
+    <div class="avatar" title="Show photos" tabindex="0" role="button" aria-label="Show ${esc(personName(p))}'s photos">${faceImg(p.face)}</div>
     <input value="${esc(p.name || "")}" placeholder="Add a name" data-rename="${p.id}">
     <div class="s">${p.count} photo${p.count === 1 ? "" : "s"}</div>
     <div class="row">
@@ -789,7 +799,7 @@ const skeletonCard = () => `
   </div>`;
 const faceRow = p => `
   <div class="face-row ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}">
-    <div class="avatar" title="Show photos">${faceImg(p.face)}</div>
+    <div class="avatar" title="Show photos" tabindex="0" role="button" aria-label="Show ${esc(personName(p))}'s photos">${faceImg(p.face)}</div>
     <input value="${esc(p.name || "")}" placeholder="Add a name" data-rename="${p.id}">
     <span class="s">${p.count} photo${p.count === 1 ? "" : "s"}</span>
     <button class="btn" data-merge="${p.id}" title="Merge with another person">Same as…</button>
@@ -1090,11 +1100,11 @@ function peopleAlphabetical() {
 function renderMergeCandidates() {
   const all = matchPeople($("#mergeFilter").value, peopleAlphabetical()).filter(p => p.id !== mergeFrom);
   $("#mergeDlg .candidates").innerHTML = all.slice(0, MERGE_LIMIT).map(p => `
-    <div class="candidate" data-into="${p.id}">
-      <div class="avatar-sm">${faceImg(p.face)}</div>
+    <button type="button" class="candidate" data-into="${p.id}">
+      <span class="avatar-sm">${faceImg(p.face)}</span>
       <span class="n ${p.name ? "" : "unnamed"}">${esc(personName(p))}</span>
       <span class="c">${p.count} photo${p.count === 1 ? "" : "s"}</span>
-    </div>`).join("") +
+    </button>`).join("") +
     (all.length > MERGE_LIMIT ? `<div class="more">${(all.length - MERGE_LIMIT).toLocaleString()} more. Type a name to narrow it down.</div>` : "") +
     (!all.length ? `<div class="more">Nobody matches.</div>` : "");
 }
@@ -1229,7 +1239,10 @@ async function renamePerson(id, value) {
 let viewRequest = null; // the current view's request, cancelled when another view replaces it
 async function render() {
   saveHash();
-  for (const b of $("#tabs").children) b.classList.toggle("on", b.dataset.view === state.view);
+  for (const b of $("#tabs").children) {
+    b.classList.toggle("on", b.dataset.view === state.view);
+    if (b.dataset.view === state.view) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  }
   // People and Optimization have no "People in the photo" column.
   const noAside = state.view === "people" || state.view === "optimization";
   document.body.classList.toggle("no-aside", noAside);
@@ -1358,6 +1371,7 @@ async function openViewer(i, { keepImage = false } = {}) {
   $(".next", viewer).hidden = i === photos.length - 1;
   const [id, w, h, , , v] = photos[i];
   viewer.classList.add("open");
+  setViewerModal(true);
   if (!keepImage) await showViewerImage(i, id, w, h, v);
   if (viewerIndex !== i) return;
   let d;
@@ -1393,8 +1407,8 @@ async function openViewer(i, { keepImage = false } = {}) {
       const person = personById(f.person);
       return `<div class="vface"><img src="/face/${f.id}" alt="">
         <span class="who">${person?.name
-          ? `<span class="n" data-person="${f.person}" title="Show ${esc(person.name)}'s photos">${esc(person.name)}</span>`
-          : `<span class="n unnamed editable" data-name-face="${f.id}" data-current="${f.person ?? ""}" title="Click to name this person">${person ? esc(personName(person)) : "Not grouped"}</span>`}
+          ? `<span class="n" data-person="${f.person}" title="Show ${esc(person.name)}'s photos" tabindex="0" role="button">${esc(person.name)}</span>`
+          : `<span class="n unnamed editable" data-name-face="${f.id}" data-current="${f.person ?? ""}" title="Click to name this person" tabindex="0" role="button">${person ? esc(personName(person)) : "Not grouped"}</span>`}
         <span class="acts">
           <button data-assign="${f.id}" data-current="${f.person ?? ""}" title="Pick who this face is">Same as…</button>
           ${person ? `<button data-reject="${f.id}" title="This face is not ${esc(personName(person))}: move it to a new group you can rename or hide">Not them</button>` : ""}
@@ -1631,7 +1645,29 @@ function startViewerRename(label) {
   input.addEventListener("blur", () => finish(true));
 }
 
-function closeViewer() { flushRotation(); resetZoom(); viewer.classList.remove("open"); viewerIndex = -1; $(".frame img", viewer).src = ""; }
+function closeViewer() {
+  flushRotation();
+  resetZoom();
+  viewer.classList.remove("open");
+  setViewerModal(false);
+  viewerIndex = -1;
+  $(".frame img", viewer).src = "";
+}
+/** While the viewer is open, the page behind it can't be reached (keyboard, screen
+ *  readers); focus moves into it, and back to where it was when it closes. */
+let focusBeforeViewer = null;
+function setViewerModal(open) {
+  const behind = [$("header"), $("aside"), $("#main"), $("#indexPill")];
+  if (open && !behind[0].inert) {
+    focusBeforeViewer = document.activeElement;
+    behind.forEach(el => { el.inert = true; });
+    $(".close", viewer).focus({ preventScroll: true });
+  } else if (!open && behind[0].inert) {
+    behind.forEach(el => { el.inert = false; });
+    if (focusBeforeViewer?.isConnected) focusBeforeViewer.focus({ preventScroll: true });
+    focusBeforeViewer = null;
+  }
+}
 
 // ---- viewer zoom ----------------------------------------------------------------------
 // Click zooms in where clicked (click again to fit), drag moves the zoomed photo, the wheel
@@ -1818,7 +1854,9 @@ $(".info", viewer).addEventListener("click", async e => {
   }
 });
 document.addEventListener("keydown", e => {
-  if (!viewer.classList.contains("open") || e.target.matches("input, textarea, select")) return;
+  // Keys go to fields being typed in (a name), not to checkboxes, which only take Space.
+  const typing = e.target.matches('input:not([type="checkbox"]):not([type="range"]), textarea, select');
+  if (!viewer.classList.contains("open") || typing) return;
   if (document.querySelector("dialog[open]")) return;
   if (e.key === "Escape") closeViewer();
   else if (e.key === "Delete") deleteViewerPhoto();
@@ -1853,7 +1891,7 @@ function browseForFolder() {
       $("[data-up]", dlg).disabled = r.parent == null;
       $("[data-add-here]", dlg).disabled = !r.path;
       list.innerHTML = r.dirs.length
-        ? r.dirs.map(d => `<button data-dir="${esc(d.path)}" role="listitem">${icon}<span>${esc(d.name)}</span></button>`).join("")
+        ? r.dirs.map(d => `<button type="button" data-dir="${esc(d.path)}">${icon}<span>${esc(d.name)}</span></button>`).join("")
         : `<div class="empty">No folders inside.</div>`;
       list.scrollTop = 0;
     } catch (e) {
