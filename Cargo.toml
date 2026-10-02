@@ -30,12 +30,22 @@ keywords = ["photos", "gallery", "face-recognition", "exif", "self-hosted"]
 categories = ["multimedia::images", "web-programming::http-server"]
 publish = false
 
+# The command-line app needs clap; the desktop app uses the library without it.
+[features]
+default = ["cli"]
+cli = ["dep:clap"]
+
+[[bin]]
+name = "imadive"
+path = "src/main.rs"
+required-features = ["cli"]
+
 [dependencies]
 anyhow = "1"
 axum = "0.8"
-chrono = { version = "0.4", features = ["serde"] }
+chrono = "0.4"
 dunce = "1"
-clap = { version = "4", features = ["derive"] }
+clap = { version = "4", features = ["derive"], optional = true }
 fast_image_resize = { version = "6", features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "tiff", "gif", "bmp", "rayon"] }
 kamadak-exif = "0.6"
@@ -65,6 +75,8 @@ libloading = "0.9"
 lto = "thin"
 codegen-units = 1
 opt-level = 3
+# Smaller downloads; panics still report the file and line.
+strip = "symbols"
 
 [profile.dev.package."*"]
 opt-level = 3

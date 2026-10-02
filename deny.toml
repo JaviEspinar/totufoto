@@ -1,0 +1,41 @@
+# cargo-deny: checks dependency licenses, security advisories and sources (`cargo deny check`,
+# also run in CI). The project's own license is not listed here: these are the licenses its
+# dependencies may use.
+
+[graph]
+all-features = true
+
+[advisories]
+# Unmaintained crates are reported only when a direct dependency is the one affected.
+unmaintained = "workspace"
+
+[licenses]
+allow = [
+  "MIT",
+  "MIT-0",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "Unlicense",
+  "BSL-1.0",
+]
+confidence-threshold = 0.9
+
+# The project's own packages (publish = false), under PolyForm Noncommercial.
+[licenses.private]
+ignore = true
+
+[bans]
+# Two versions of one crate are common through Tauri; reported, not failed.
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
