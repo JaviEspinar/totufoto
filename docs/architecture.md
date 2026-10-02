@@ -1,0 +1,123 @@
+# How Imadive works
+
+A tour of the code for people who want to change it. For using the gallery, see the [user guide](user-guide.md); for the HTTP API, [api.md](api.md).
+
+## The big picture
+
+```
+             ┌────────────── imadive (library crate, src/) ───────────────┐
+ photo       │  scan ──► imaging, faces, geo ──► db (SQLite: index.sqlite) │
+ folders ───►│    │                               ▲                       │
+             │    └► cluster (faces → people)     │                       │
+             │       duplicates (identical files) │                       │
+             │                                    │                       │
+             │  http (axum) ── guard ── library ──┘                       │
+             │    └ serves web/ (index.html, app.css, app.js, embedded)   │
+             └────────────────────────────▲───────────────────────────────┘
+                                          │ http://127.0.0.1:<port>
+            src/main.rs (command line) ───┤
+            desktop/ (Tauri window) ──────┘
+```
+
+There is one program: a library crate (`imadive`) that indexes photos into a SQLite file and serves a single-page UI and a JSON API over HTTP. Two thin front ends start it:
+
+- **The command-line app** (`src/main.rs`) parses the options with clap, finds the face models and ONNX Runtime, and serves on `127.0.0.1:7878` (or `--host`/`--port`) for any browser.
+- **The desktop app** (`desktop/`, Tauri 2) embeds the face models and ONNX Runtime in the executable, writes them to the app data folder on first start (`desktop/src/runtime.rs`), serves on a random loopback port and opens a window on that address. It adds native services through the `Host` trait (`src/app.rs`): the folder picker, opening links, showing a file in the file manager.
+
+Both call `app::Gallery::open`, `start_scan` and `serve`, so the UI and the API are the same everywhere; the page asks `/api/folders` whether it runs in the desktop app (`"desktop": true`) to show or hide the native buttons.
+
+## Source files
+
+```
+src/main.rs        command-line options and startup (the `cli` feature)
+src/lib.rs         the library both apps are built on
+src/app.rs         startup shared by both apps; the Host trait
+src/scan.rs        file walking, the per-photo pipeline, batched database writes
+src/imaging.rs     decoding, orientation, resizing, JPEG encoding
+src/faces.rs       SCRFD detection, landmark alignment, ArcFace embeddings
+src/cluster.rs     grouping faces into people
+src/geo.rs         offline reverse geocoding
+src/duplicates.rs  finding and deleting identical files
+src/rotate.rs      rotating photos in their files
+src/library.rs     photo folders, and what may happen to the photos in them
+src/guard.rs       request checks (DNS rebinding, cross-site requests)
+src/db/            the SQLite index: schema and migrations (mod.rs), photos, people, filters
+src/http/          the HTTP API: router, errors and pool (mod.rs), then one file per area
+src/testutil.rs    test helpers: temporary libraries with generated JPEGs and EXIF
+web/               the UI: index.html, app.css, app.js, built into the binary
+web/tests/         browser tests (Playwright) on a fixture library
+desktop/           the Tauri desktop app
+fixtures/photos/   a public-domain photo for the desktop self-test
+scripts/           downloads of the face models and ONNX Runtime, with checksums
+```
+
+## Indexing (`scan.rs`)
+
+A scan runs in a background thread, one at a time: asking for a scan while one runs makes another follow it. Each pass:
+
+1. **Lists the files** under the photo folders (`library::roots`: the command-line folders and the ones saved in Settings, without folders nested in others) and compares them with the index by path, size and modification time.
+2. **Prunes** photos whose files are gone, except under a folder that can't be reached: a missing or empty folder counts as an unplugged drive. Photos removed from the gallery (`excluded`) stay out, and files that failed before are only tried again once they change.
+3. **Processes** the new and changed files in parallel with rayon. Each file is read once: EXIF (date, GPS, orientation), decoding, the thumbnail (resized with SIMD by `fast_image_resize`), and the faces detected on the same decoded image, with one ONNX Runtime session per worker thread. A file that crashes a decoder or the models is a failed file, not a failed scan (`catch_unwind`).
+4. **Writes** the results from one thread, in transactions of 64 photos, fed through a bounded channel. Changed files keep their photo id and get `version + 1`, so the page's cached thumbnails are fetched again.
+5. **Groups the faces** (`cluster.rs`). Faces of named people are fixed; new faces are matched against them and the rest are clustered by cosine similarity. Normally only the new faces are placed; everything is regrouped on the first index, when most faces are new, or when asked.
+6. **Looks for identical files** (`duplicates.rs`): only files that share their size with another are read and fingerprinted with BLAKE3.
+
+Progress is kept in `ScanStatus` (atomics), which `/api/status` reads without touching the database. Busy flags are cleared by guards when dropped, so a panic never leaves the gallery stuck as busy.
+
+## The index (`db/`)
+
+One SQLite file, `index.sqlite`, in WAL mode with memory-mapped reads. The tables, and who writes them, are described at the top of `src/db/mod.rs`. In short:
+
+- `photos` with their `thumbs` and `faces` are written by the scan; handlers only forget photos through `forget_photos`, which first remembers the faces of named people.
+- `persons` are created by grouping and by the user. A named person with no faces left is kept, with an average face (`face_memory`), so the name comes back when their photos do.
+- `faces.rejected` marks faces the user placed ("Not them", "Same as"); grouping never moves them.
+- `folders` (saved in Settings), `excluded` (removed from the gallery) and `failures` (files that could not be read).
+
+New columns are added by a table of migrations (`ADDED_COLUMNS`), so an index from any earlier version opens and carries over. Thumbnails live in SQLite too: for small blobs it is faster than the filesystem, and the whole library is one file to back up or delete.
+
+The handlers never write SQL: `db/photos.rs`, `db/people.rs` and `db/filters.rs` hold the queries and return typed rows that are serialized as they are.
+
+## The server (`http/`, `guard.rs`, `library.rs`)
+
+axum on tokio. Every database call runs on the blocking pool through a small connection pool (`http::Pool`), limited to twice the number of cores, since a page asks for dozens of thumbnails at a time. Errors are an `ApiError` with a status code, sent as `{"error": "..."}`.
+
+`guard.rs` runs before every route. There is no login, so it only keeps other websites from using the gallery through a visitor's browser: the `Host` header must be an IP address, `localhost`, one of the computer's own names or an `--allow-host` name (this stops DNS rebinding), and requests that change something must come from the gallery's own page (`Sec-Fetch-Site`, or `Origin`). Anyone who can reach the server can use it; see the README's Privacy and security section and [SECURITY.md](../SECURITY.md).
+
+`library.rs` decides what may happen to photos: which folders make up the library, adding and removing folders, checking a photo whose file has gone, and removing photos from the gallery or the disk. Only files inside the photo folders can be deleted or rotated.
+
+Thumbnails and face pictures are served with immutable cache headers, keyed by the photo's `version` (`/thumb/{id}?v=`). The page's stylesheet and script are linked by a hash of their contents, so browsers keep them until an upgrade changes them.
+
+## The page (`web/`)
+
+Plain HTML, one stylesheet and one script, with no build step and no dependencies; `include_str!` puts them in the binary. The state of a view (tab, filters, grouping, order) lives in the address (`#view=people&people=3,5`), so Back, bookmarks and reloads work.
+
+- **Rendering**: each view renders into `#main` under a render job (`{token, signal, alive()}`); starting a new view cancels the old job's requests and stops its rendering.
+- **Photos**: a justified layout done in CSS (each tile's width comes from its aspect ratio), lazy images, and progressive rendering, so libraries with tens of thousands of photos stay smooth.
+- **People**: a virtualised grid, keyed by person, that changes without flicker as names and merges come in.
+- **Viewer**: a modal dialog with focus kept inside, zoom and swipe, the details panel and the face tools.
+- **Accessibility**: cards and candidates are buttons, names and faces can be reached from the keyboard, and animations follow `prefers-reduced-motion`.
+
+Small helpers at the top of `app.js` (`api()` with typed errors, `icon()` for the SVG sprite in `index.html`, `plural()`, `pref` for remembered settings, `askChoice()` for questions) keep the rest short.
+
+## The desktop app (`desktop/`)
+
+- **Embedded models and runtime**: the face models (about 16 MB) and ONNX Runtime (and on Windows the Visual C++ runtime it needs) are in the executable, written to `runtime/<version>/` in the app data folder on first start. This makes the first start work offline with nothing to install, at the cost of a bigger download; it also means the executable isn't signed by anyone Windows knows, so SmartScreen warns about it.
+- **One window**: a second launch brings the open window to the front.
+- **Self-test**: `imadive-desktop --self-test [photos] [report]` loads face recognition and indexes the photos without opening a window. CI runs it on every build, on `fixtures/photos`.
+- **Old installations**: the library of a Totufoto installation (`com.javiespinar.totufoto`) is moved to the new folder on first start.
+
+## Tests
+
+- `cargo test`: unit tests next to the code, and the `testutil` fixtures (temporary libraries with generated JPEGs carrying real EXIF dates and GPS). They cover the destructive paths (deleting, rotating, removing folders, pruning), the filters, migrations, the request guard and the JSON shapes the page reads.
+- `web/tests`: Playwright drives Chromium against the real program on a fixture library, with people written into the index (the tests run without face recognition). See [CONTRIBUTING.md](../CONTRIBUTING.md) for how to run them.
+- The desktop self-test, in `desktop.yml`.
+
+## Speed
+
+Measured in September 2026 on an 8-core Apple Silicon Mac: 300 photos at 12 MP fully indexed (thumbnails and faces) in 8.7 s. The main reasons:
+
+- one read and one decode per file, with all the work on the same decoded image;
+- every core busy (rayon), and one ONNX Runtime session per worker;
+- one writer thread with batched transactions;
+- SQLite for thumbnails, served with immutable cache headers;
+- a page without a framework, which only builds what is on screen.

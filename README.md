@@ -48,6 +48,8 @@ Where the index is kept (delete it to start over):
 | Linux | `~/.local/share/com.waiting4timeout.imadive` |
 | macOS | `~/Library/Application Support/com.waiting4timeout.imadive` |
 
+It holds the index (`index.sqlite`, with the thumbnails and people) and, in `runtime/`, the face models and ONNX Runtime the app unpacks on first start.
+
 Imadive was called Totufoto until version 0.1.10. On its first start, the app moves the library of a Totufoto installation (`com.javiespinar.totufoto`) to the folder above, so names, people and the index carry over.
 
 Any 64-bit x86 CPU works, including older ones without AVX2 such as the AMD FX series. On Windows the app uses the WebView2 runtime that comes with Windows 10 and 11.
@@ -65,11 +67,11 @@ cd desktop && cargo tauri build --bundles appimage
 cargo build --release -p imadive-desktop --features custom-protocol
 ```
 
-`imadive-desktop --self-test [photos-folder] [report-file]` checks, without opening a window, that face recognition loads and that the photos index.
+`imadive-desktop --self-test [photos-folder] [report-file]` checks, without opening a window, that face recognition loads and that the photos index. With [just](https://just.systems), `just fetch` and `just desktop` do the same (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 ## Command-line app
 
-The command-line app serves the gallery at `http://127.0.0.1:7878` for your browser. It is handy on a server or NAS, or on macOS.
+The command-line app serves the gallery at `http://127.0.0.1:7878` for your browser. It is handy on a server or NAS, or on macOS. To keep it running on a Linux server, see [Running it on a home server](docs/server.md).
 
 ### 1. Install Rust
 
@@ -141,39 +143,17 @@ Only photos stored on the Mac are found. Photos kept only in iCloud ("Optimize M
 
 ## Using the gallery
 
-- **Photos**: the timeline. With *Group* set to a year, month, day or place, the groups show as cards (cover, title, number of photos); click one to see its photos, with a chip for that group, and close the chip to go back to the cards. Places come with the most photos first, and a *No location* card holds the photos without GPS data. *No groups* shows all photos. *Newest/Oldest first* in the top bar sets the order. The bar with the filter chips and the photo count stays at the top while you scroll.
-- **Upcoming**: memories from past years for the next 7 to 90 days.
-- **Optimization**: finds identical photo files (the very same bytes) in the background after each scan and shows how much space they take. *Delete duplicates* moves the copies to the bin, keeping the one with the oldest file date of each set (if two have the same date, one of them). Only files that share their size with another are read, so the search is quick.
-- **People**: name each person by typing under their face, use *Same as…* to merge two groups of the same person, and *Hide* for people you don't care about. Switch between *Cards* (big faces) and *List* (compact rows, several times more people on screen; the actions show when you point at a row). The size slider next to it makes cards or rows bigger or smaller. Sort people by *Most photos* or by *Name* (A to Z, unnamed last); the sidebar uses the same order.
-- **Sidebar**: tick people (click the checkbox or their picture) to filter Photos and Upcoming, and pick *Together*, *Any* or *Only them* to decide how they combine. Click a name to rename that person right there (Enter saves, Esc cancels). The button at the top right of the column collapses it to a thin strip (showing how many people are selected), and opens it again. Names are unique: using a name someone already has asks whether they are the same person (*Merge them*) or not (*Keep separate* adds a number, like "Ana (1)").
-- **Date range**: *From* and *to* in the top bar keep only photos taken between those days (both included; either can be left empty). It applies to Photos and Upcoming.
-- **Filter chips**: each selected person, place and date range shows as a chip above the photos; × removes one, *Clear all* removes them all.
-- **Deleting**: the bin button in the viewer (or the Delete key) asks how: *Remove from gallery* keeps the file and leaves it out of later scans (Settings can show such photos again); *Remove from disk* moves the file to the bin of the computer running Imadive (if its drive has no bin, it asks before deleting for good). Only files inside the photo folders can be deleted. The gallery has no login, so anyone who can open it on your network can delete photos too (see [Privacy and security](#privacy-and-security)).
-- **Download, Share and Open in folder**: buttons under the photo's date. In the browser there is *Download*, which saves the original file with its own name (HEIC and TIFF are saved as JPEG). The desktop app has *Share*, which opens the system share sheet with the photo (or *Download* where the system has none), and *Open in folder*, which shows the file selected in the file manager (Finder, Explorer, or the Linux file manager).
-- **Rotate**: the two arrow buttons under the photo's date (or `R` and `Shift+R`) turn the photo right or left, and the file is saved turned. JPEG photos are turned through their EXIF orientation, so the picture is not compressed again and loses no quality; PNG is rewritten turned (it is lossless). Other formats (HEIC, WebP, GIF, TIFF) can't be rotated. Several quick turns are saved once. Face boxes, people and thumbnails stay right, and the photo isn't indexed again. Rotating waits while a scan is running.
-- **Viewer**: click a photo to open it. Use the arrow keys to move and `Esc` to close. Click the open photo to zoom in where you clicked (click again to fit), drag to move around, and use the mouse wheel or a trackpad pinch to zoom in and out (up to 8x). The side panel shows the date, place and people. Click the name of an unnamed person (or of a face in no group) to name it there; a name that already exists offers to merge. For each face, *Same as…* moves just that face to the person you pick, and *Not them* moves it to a new unnamed group, which you can rename, hide or merge in People. *Card photo* makes that face the one shown on the person's card in People (it stays while the face belongs to them). Automatic grouping never moves a face you placed. *Show face boxes* draws the detected faces. The button at the top right of the details (or the `I` key) folds them away to give the photo more room, like the *People in the photo* column; the choice is remembered.
-- **Settings** (the gear at the top right): photo folders. *Add folder…* opens the system folder picker in the desktop app; in the browser it lists the folders of the computer running Imadive (open one, or type or paste a path, then *Add this folder*). A folder inside one already in the gallery isn't needed and is refused; adding a folder that contains others replaces them. *Remove* takes a folder's photos out of the gallery (the files stay on disk), except photos another folder still includes; its row shows the progress, a scan still running stops first (and continues with the other folders afterwards), and one folder is removed at a time. Folders given on the command line are marked *command line* and can't be removed here. Also in Settings: the library status with progress while indexing or grouping faces, and *Rescan* to pick up new, changed or deleted photos without restarting; files that could not be read, with the reason (they are skipped until the file changes, or *Try again*); and *Regroup all faces*. After each scan only the new faces are placed into people, which is fast even with hundreds of thousands of faces; regrouping everything from scratch is slower and only happens on the first index or when you ask.
+- **Photos**: the timeline, as cards per month (or year, day or place); open a card to see its photos.
+- **Upcoming**: photos taken on the coming days in earlier years.
+- **People**: the faces found, grouped into people. Name them, merge two groups of the same person, hide the ones you don't care about.
+- **The sidebar**: tick people to see only their photos, together, any of them, or only them.
+- **The viewer**: arrow keys to move, a click to zoom, the details and the people on the side, and buttons to rotate, download or delete a photo.
+- **Optimization**: identical files, and how much space deleting the copies frees.
+- **Settings** (the gear at the top right): photo folders, the indexing progress, files that could not be read.
 
-### Phones and tablets
+On a phone, open the same address in the browser: the gallery adapts to small screens, and Back undoes one step at a time.
 
-The gallery adapts to small screens; nothing needs installing, just open the server's address in the phone's browser.
-
-- **Tablets and narrow windows**: dates, grouping and order are behind the sliders button in the top bar (a dot shows when a date range is active).
-- **Phones**: the tabs get their own row, and *People in the photo* slides in from the people button (its badge shows how many are selected); tap outside to close it.
-- **Back button**: it undoes one step at a time: it closes an open dialog, the open photo (back to where its thumbnail is) or a panel, then clears the filter chips, then goes back to Photos from another tab. With nothing left to undo it asks before leaving the gallery.
-- **Viewer**: the photo uses the full width with the details below it. Swipe left or right for the next or previous photo, tap to zoom, drag with one finger and pinch to zoom in and out.
-
-## The index
-
-Everything the gallery learns is stored in `imadive-data/index.sqlite`: metadata, thumbnails, faces, names and corrections. Photos are never copied, and their files only change when you rotate or delete them.
-
-- Stopping and starting again does **not** re-index. Only new or changed files are processed, and deleted ones are removed.
-- Deleted photos are removed at the next scan. If you open one before that, the viewer tells you it is no longer in its folder and removes it at once; if its whole folder can't be reached (an unplugged drive), nothing is removed.
-- A photo folder that is missing or completely empty is taken for an unplugged drive (on Linux an unmounted drive leaves an empty folder behind), so its photos stay in the gallery and Settings shows it as *not available*. If you really emptied it, remove it in Settings.
-- A photo whose file changes (edited in another app, say) is read again and keeps its place in the gallery; its faces are found again.
-- People you have named are remembered even when all their photos are gone: if the photos come back, or new ones appear, their faces rejoin the name.
-- Photos are tracked by path. Moving or renaming the photo folder makes them look new, so they are indexed again. Named people are matched to the re-indexed faces automatically.
-- Use `--data DIR` to keep separate indexes for separate libraries. Delete the data folder to start from scratch.
+Everything is explained in the [user guide](docs/user-guide.md), including how the index follows changes to your folders.
 
 ## Options
 
@@ -194,39 +174,35 @@ When passing options through cargo, put them after `--`, for example `cargo run 
 
 Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP, and HEIC/HEIF on macOS (decoded with `sips`).
 
+## Limitations
+
+- **Formats**: JPEG, PNG, WebP, TIFF, GIF and BMP everywhere, and HEIC/HEIF only on macOS. No RAW files and no videos.
+- **Photos are tracked by path**: moving or renaming a photo folder makes its photos look new, so they are indexed again (named people are matched again automatically).
+- **No login**: anyone who can reach the gallery can use all of it (see [Privacy and security](#privacy-and-security)).
+- **Desktop app**: Windows and Linux only, not signed. On macOS use the command-line app.
+- **Face recognition** needs ONNX Runtime, which Microsoft doesn't publish for Intel Macs, and its models are for non-commercial use only (see [License](#license)).
+
 ## Troubleshooting
 
+- **Windows says "Windows protected your PC"**: the app isn't signed yet. Click **More info**, then **Run anyway**. You can check the file against `SHA256SUMS` on the release page first ([how](docs/releasing.md#checking-a-download)).
+- **The desktop app opens an empty window on Windows**: it needs the Microsoft Edge WebView2 runtime, which comes with Windows 10 and 11. If it was removed, install it from Microsoft's WebView2 page.
+- **People stay empty, or something else looks wrong in the desktop app**: run its self-test and include the report in an issue. Close the app, then on Windows run `.\Imadive-<version>-windows-x64.exe --self-test C:\path\to\photos report.txt` in PowerShell and open `report.txt`; on Linux run `./Imadive-<version>-linux-x86_64.AppImage --self-test ~/Pictures/some-folder`.
+- **Logs**: the command-line app logs to the terminal (or to `journalctl -u imadive` as a service); the Linux desktop app too, when started from a terminal. Set `RUST_LOG=imadive=debug` for more detail.
 - **"unexpected Host header"**: you opened the gallery through a host name it doesn't know (for example a name set up on your router). Start it with `--allow-host that-name`, or use the computer's IP address.
 - **"face recognition disabled: ... not found"**: run `scripts/fetch-onnxruntime.sh` (or the `.ps1` on Windows) from the project folder, or point `--onnxruntime` at the library.
+- **A service that stopped after the rename to Imadive** (`status=203/EXEC`): see [Coming from Totufoto](docs/server.md#3-updating).
 
-## How it's fast
+## Documentation
 
-- One pass per file: the file is read once, EXIF parsed, decoded, resized with SIMD (`fast_image_resize`), and faces are detected on the same buffer, spread over all cores with `rayon`, one ONNX Runtime session per worker thread.
-- Thumbnails live inside SQLite (WAL, mmap), served with immutable cache headers; SQLite is faster than the filesystem for small blobs.
-- The UI is a dependency-free page (HTML, one stylesheet, one script) with a CSS-only justified layout, lazy images, and progressive rendering, so libraries with tens of thousands of photos stay smooth.
+- [User guide](docs/user-guide.md): the gallery, tab by tab.
+- [Running it on a home server](docs/server.md): the command-line app as a systemd service.
+- [How it works](docs/architecture.md): the code, for people who want to change it.
+- [HTTP API](docs/api.md).
+- [Releasing](docs/releasing.md).
 
-Measured on an 8-core Apple Silicon Mac: 300 photos at 12 MP fully indexed (thumbnails + faces) in 8.7 s.
+## Contributing
 
-## Layout
-
-```
-src/main.rs        CLI and startup
-src/lib.rs         the library both apps are built on
-src/app.rs         startup shared by both apps
-src/scan.rs        file walking, per-photo pipeline, batched DB writes
-src/imaging.rs     decoding, orientation, resizing, JPEG encoding
-src/faces.rs       SCRFD detection, landmark alignment, ArcFace embeddings
-src/cluster.rs     grouping faces into people
-src/geo.rs         offline reverse geocoding
-src/duplicates.rs  finding and deleting identical files
-src/rotate.rs      rotating photos in their files
-src/db.rs          SQLite schema, migrations and shared queries
-src/library.rs     photo folders and what may happen to the photos in them
-src/guard.rs       request checks (DNS rebinding, cross-site requests)
-src/http/          HTTP API (axum): router and errors, then one file per area
-web/               UI: index.html, app.css, app.js (embedded into the binary)
-desktop/           Tauri desktop app: window, folder picker, embedded models and ONNX Runtime
-```
+Bug reports, ideas and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test and send changes, and the [code of conduct](CODE_OF_CONDUCT.md).
 
 ## License
 

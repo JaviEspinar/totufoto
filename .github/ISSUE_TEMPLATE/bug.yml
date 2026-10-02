@@ -1,0 +1,63 @@
+name: Something doesn't work
+description: A bug, a crash, or the gallery doing something it shouldn't
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. For a security problem, don't use this form: see the repository's Security tab.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead. Screenshots help.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: In Settings → About, or `imadive --version`.
+      placeholder: "0.1.11"
+    validations:
+      required: true
+  - type: dropdown
+    id: app
+    attributes:
+      label: Which app
+      options:
+        - Desktop app (Windows)
+        - Desktop app (Linux AppImage)
+        - Command-line app, browser on the same computer
+        - Command-line app, browser on another device
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: System
+      description: The operating system and its version, and for the command-line app the browser.
+      placeholder: "Windows 11 23H2 / Ubuntu 24.04, Firefox 131"
+    validations:
+      required: true
+  - type: textarea
+    id: selftest
+    attributes:
+      label: Self-test report (desktop app)
+      description: |
+        Close the app, then run it once with `--self-test` from a terminal and paste what it prints:
+        - Windows (PowerShell): `.\Imadive-<version>-windows-x64.exe --self-test C:\path\to\some\photos report.txt`, then paste `report.txt`
+        - Linux: `./Imadive-<version>-linux-x86_64.AppImage --self-test ~/Pictures/some-folder`
+      render: text
+  - type: textarea
+    id: log
+    attributes:
+      label: Log (command-line app)
+      description: What the terminal printed around the problem, or `journalctl -u imadive` for a service.
+      render: text
+  - type: input
+    id: library
+    attributes:
+      label: Library size
+      description: Roughly how many photos, and where they are (local disk, USB drive, network share).
+      placeholder: "about 40,000 photos on a USB drive"
