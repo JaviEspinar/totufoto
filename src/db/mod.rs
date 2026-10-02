@@ -176,6 +176,40 @@ fn migrate(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
+/// Files that could not be indexed, and photos removed from the gallery (their files kept).
+pub fn problem_counts(conn: &Connection) -> Result<(i64, i64)> {
+    Ok(conn.query_row("SELECT (SELECT COUNT(*) FROM failures), (SELECT COUNT(*) FROM excluded)", [], |r| {
+        Ok((r.get(0)?, r.get(1)?))
+    })?)
+}
+
+/// A file that could not be indexed.
+#[derive(serde::Serialize)]
+pub struct Failure {
+    pub path: String,
+    pub error: String,
+}
+
+/// The first `limit` files that could not be indexed, by path.
+pub fn failures(conn: &Connection, limit: i64) -> Result<Vec<Failure>> {
+    Ok(conn
+        .prepare_cached("SELECT path, error FROM failures ORDER BY path LIMIT ?")?
+        .query_map([limit], |r| Ok(Failure { path: r.get(0)?, error: r.get(1)? }))?
+        .collect::<Result<_, _>>()?)
+}
+
+/// Forgets the files that could not be indexed, so the next scan tries them again.
+pub fn forget_failures(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM failures", [])?;
+    Ok(())
+}
+
+/// Brings back the photos removed from the gallery: the next scan indexes them again.
+pub fn clear_excluded(conn: &Connection) -> Result<()> {
+    conn.execute("DELETE FROM excluded", [])?;
+    Ok(())
+}
+
 /// Saves the average face of named people (all, or `only` these), so their photos rejoin the
 /// name when they come back even if, by then, none of their photos are left.
 pub fn remember_named_people(conn: &Connection, only: Option<&[i64]>) -> Result<()> {

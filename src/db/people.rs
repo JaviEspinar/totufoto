@@ -2,6 +2,69 @@
 
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
+use serde::Serialize;
+
+/// A person as the People tab and the sidebar show them.
+#[derive(Serialize)]
+pub struct PersonSummary {
+    pub id: i64,
+    pub name: Option<String>,
+    pub hidden: bool,
+    /// Photos they are in.
+    pub count: i64,
+    /// The face on their card: the one chosen for it while it is still theirs, else their
+    /// clearest one.
+    pub face: i64,
+}
+
+/// Everyone with at least one face: named people first, then by number of photos.
+pub fn list_people(conn: &Connection) -> Result<Vec<PersonSummary>> {
+    Ok(conn
+        .prepare_cached(
+            "SELECT p.id, p.name, p.hidden, COUNT(DISTINCT f.photo_id) AS n,
+                    COALESCE((SELECT id FROM faces WHERE id = p.cover_face AND person_id = p.id),
+                             (SELECT id FROM faces WHERE person_id = p.id ORDER BY score DESC LIMIT 1))
+             FROM persons p JOIN faces f ON f.person_id = p.id
+             GROUP BY p.id ORDER BY p.name IS NULL, n DESC, p.name",
+        )?
+        .query_map([], |r| {
+            Ok(PersonSummary { id: r.get(0)?, name: r.get(1)?, hidden: r.get(2)?, count: r.get(3)?, face: r.get(4)? })
+        })?
+        .collect::<Result<_, _>>()?)
+}
+
+pub fn set_hidden(conn: &Connection, person: i64, hidden: bool) -> Result<()> {
+    conn.execute("UPDATE persons SET hidden = ? WHERE id = ?", params![hidden, person])?;
+    Ok(())
+}
+
+/// Merges `from` into `into` ("Same as" in People): its faces join `into`, which takes its
+/// name if it has none, and `from` goes.
+pub fn merge_persons(conn: &mut Connection, from: i64, into: i64) -> Result<()> {
+    if from == into {
+        return Ok(());
+    }
+    let tx = conn.transaction()?;
+    tx.execute(
+        "UPDATE persons SET name = COALESCE(name, (SELECT name FROM persons WHERE id = ?1)) WHERE id = ?2",
+        params![from, into],
+    )?;
+    tx.execute("UPDATE faces SET person_id = ? WHERE person_id = ?", params![into, from])?;
+    tx.execute("DELETE FROM persons WHERE id = ?", [from])?;
+    tx.commit()?;
+    Ok(())
+}
+
+/// Shows this face on its person's card. Returns the person, `None` if the face doesn't
+/// exist or belongs to no one.
+pub fn set_cover_face(conn: &Connection, face: i64) -> Result<Option<i64>> {
+    let person: Option<i64> =
+        conn.query_row("SELECT person_id FROM faces WHERE id = ?", [face], |r| r.get(0)).optional()?.flatten();
+    if let Some(person) = person {
+        conn.execute("UPDATE persons SET cover_face = ? WHERE id = ?", [face, person])?;
+    }
+    Ok(person)
+}
 
 /// Moves a face out of its person into a new unnamed person of its own ("Not them").
 /// Returns the new person's id, or `None` if the face doesn't exist.
@@ -121,6 +184,47 @@ mod tests {
 
     fn person_of(conn: &Connection, face: i64) -> Option<i64> {
         conn.query_row("SELECT person_id FROM faces WHERE id = ?", [face], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn merging_moves_the_faces_and_keeps_a_name() {
+        let mut conn = crate::testutil::people_index();
+        // The unnamed person into Ana: Ana keeps her name and gets the face.
+        merge_persons(&mut conn, 2, 1).unwrap();
+        assert_eq!(person_of(&conn, 3), Some(1));
+        assert!(!crate::testutil::person_exists(&conn, 2));
+        // Ben into a new unnamed person: it takes his name.
+        conn.execute("INSERT INTO persons (id, name) VALUES (9, NULL)", []).unwrap();
+        merge_persons(&mut conn, 3, 9).unwrap();
+        let name: Option<String> = conn.query_row("SELECT name FROM persons WHERE id = 9", [], |r| r.get(0)).unwrap();
+        assert_eq!(name.as_deref(), Some("Ben"));
+        merge_persons(&mut conn, 1, 1).unwrap();
+        assert!(crate::testutil::person_exists(&conn, 1), "merging into oneself does nothing");
+    }
+
+    #[test]
+    fn the_card_face_is_chosen_while_it_belongs_to_them() {
+        let mut conn = crate::testutil::people_index();
+        let face_of =
+            |conn: &Connection, id: i64| list_people(conn).unwrap().into_iter().find(|p| p.id == id).unwrap().face;
+        conn.execute("UPDATE faces SET score = 0.5 WHERE id = 2", []).unwrap();
+        assert_eq!(face_of(&conn, 1), 1, "the clearest face");
+        assert_eq!(set_cover_face(&conn, 2).unwrap(), Some(1));
+        assert_eq!(face_of(&conn, 1), 2, "the chosen one");
+        // Once the face is someone else's, the card goes back to the clearest.
+        assign_face(&mut conn, 2, 3).unwrap();
+        assert_eq!(face_of(&conn, 1), 1);
+        assert_eq!(set_cover_face(&conn, 99).unwrap(), None);
+    }
+
+    #[test]
+    fn listing_people() {
+        let conn = crate::testutil::people_index();
+        set_hidden(&conn, 3, true).unwrap();
+        let people = list_people(&conn).unwrap();
+        // Named first; Old Ana has no faces, so she isn't listed.
+        let names: Vec<_> = people.iter().map(|p| (p.id, p.name.as_deref(), p.hidden)).collect();
+        assert_eq!(names, [(1, Some("Ana"), false), (3, Some("Ben"), true), (2, None, false)]);
     }
 
     #[test]

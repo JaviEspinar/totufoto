@@ -1,6 +1,5 @@
 //! Library status, scans, duplicates, and opening links (desktop app).
 
-use anyhow::Result;
 use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
@@ -15,12 +14,7 @@ use super::{ApiError, ApiResult, Shared, db};
 pub(super) async fn status(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
     let view = s.status.view();
     // Files that could not be indexed, saved across scans (see /api/failures).
-    let (failed, excluded): (i64, i64) = db(&s, |conn| {
-        Ok(conn.query_row("SELECT (SELECT COUNT(*) FROM failures), (SELECT COUNT(*) FROM excluded)", [], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })?)
-    })
-    .await?;
+    let (failed, excluded) = db(&s, |conn| crate::db::problem_counts(conn)).await?;
     let mut value = serde_json::to_value(view)?;
     value["failed"] = failed.into();
     // Photos removed from the gallery (their files kept); see /api/excluded/clear.
@@ -29,21 +23,13 @@ pub(super) async fn status(State(s): State<Shared>) -> ApiResult<Json<JsonValue>
 }
 
 /// Files that could not be indexed, with the reason (first 500).
-pub(super) async fn failures(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
-    let rows = db(&s, |conn| {
-        let rows: Vec<JsonValue> = conn
-            .prepare_cached("SELECT path, error FROM failures ORDER BY path LIMIT 500")?
-            .query_map([], |r| Ok(json!({ "path": r.get::<_, String>(0)?, "error": r.get::<_, String>(1)? })))?
-            .collect::<Result<_, _>>()?;
-        Ok(rows)
-    })
-    .await?;
-    Ok(Json(rows.into()))
+pub(super) async fn failures(State(s): State<Shared>) -> ApiResult<Json<Vec<crate::db::Failure>>> {
+    Ok(Json(db(&s, |conn| crate::db::failures(conn, 500)).await?))
 }
 
 /// Forgets the failures and scans again, so those files are tried once more.
 pub(super) async fn retry_failures(State(s): State<Shared>) -> ApiResult<StatusCode> {
-    db(&s, |conn| Ok(conn.execute("DELETE FROM failures", [])?)).await?;
+    db(&s, |conn| crate::db::forget_failures(conn)).await?;
     scan::spawn(s.scan.clone(), s.status.clone());
     Ok(StatusCode::ACCEPTED)
 }
@@ -145,7 +131,7 @@ pub(super) async fn duplicates_progress(State(s): State<Shared>) -> Json<JsonVal
 
 /// Brings back the photos removed from the gallery (they are indexed again).
 pub(super) async fn clear_excluded(State(s): State<Shared>) -> ApiResult<StatusCode> {
-    db(&s, |conn| Ok(conn.execute("DELETE FROM excluded", [])?)).await?;
+    db(&s, |conn| crate::db::clear_excluded(conn)).await?;
     scan::spawn(s.scan.clone(), s.status.clone());
     Ok(StatusCode::ACCEPTED)
 }
