@@ -22,7 +22,27 @@ use crate::scan::{self, ScanConfig, ScanStatus};
 use crate::{imaging, library};
 
 const INDEX_HTML: &str = include_str!("../web/index.html");
+const APP_CSS: &str = include_str!("../web/app.css");
+const APP_JS: &str = include_str!("../web/app.js");
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+
+/// The page, with its stylesheet and script linked by a hash of their contents
+/// (`/app.js?v=...`): browsers may keep them for good, and still fetch the new ones after an
+/// upgrade, since the hash changes with them.
+fn index_html() -> &'static str {
+    static PAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PAGE.get_or_init(|| {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(APP_CSS.as_bytes());
+        hasher.update(APP_JS.as_bytes());
+        let hash = hasher.finalize().to_hex();
+        INDEX_HTML.replace("{{assets}}", &hash[..12])
+    })
+}
+
+fn asset(content_type: &'static str, body: &'static str) -> Response {
+    ([(header::CONTENT_TYPE, content_type), (header::CACHE_CONTROL, IMMUTABLE)], body).into_response()
+}
 
 /// Tiny SQLite connection pool: reusing connections keeps their page cache warm, and the
 /// number in use at once is limited (a page asks for dozens of thumbnails at a time, and
@@ -128,7 +148,9 @@ async fn db<T: Send + 'static>(
 
 pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
     let router = Router::new()
-        .route("/", get(|| async { Html(INDEX_HTML) }))
+        .route("/", get(|| async { Html(index_html()) }))
+        .route("/app.css", get(|| async { asset("text/css; charset=utf-8", APP_CSS) }))
+        .route("/app.js", get(|| async { asset("text/javascript; charset=utf-8", APP_JS) }))
         .route("/api/status", get(status))
         .route("/api/scan", post(start_scan))
         .route("/api/regroup", post(regroup))
@@ -1173,6 +1195,30 @@ mod tests {
         lib.scan();
         let id = lib.id("a.jpg");
         (lib, id)
+    }
+
+    #[tokio::test]
+    async fn the_page_links_its_stylesheet_and_script_by_content() {
+        use tower::ServiceExt;
+        let (lib, _) = library_with_a_photo();
+        let app = app(&lib);
+        let get = |uri: &str| {
+            axum::http::Request::builder()
+                .uri(uri)
+                .header("host", "127.0.0.1:7878")
+                .body(axum::body::Body::empty())
+                .unwrap()
+        };
+        let page = app.clone().oneshot(get("/")).await.unwrap();
+        let page = String::from_utf8(axum::body::to_bytes(page.into_body(), 1 << 20).await.unwrap().to_vec()).unwrap();
+        assert!(!page.contains("{{assets}}"));
+        let js = page.split("src=\"").nth(1).unwrap().split('"').next().unwrap().to_string();
+        assert!(js.starts_with("/app.js?v=") && js.len() == "/app.js?v=".len() + 12, "{js}");
+        for (uri, kind) in [(js.as_str(), "text/javascript"), ("/app.css", "text/css")] {
+            let res = app.clone().oneshot(get(uri)).await.unwrap();
+            assert_eq!(res.status(), StatusCode::OK);
+            assert!(res.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with(kind));
+        }
     }
 
     #[tokio::test]

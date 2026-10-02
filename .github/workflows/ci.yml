@@ -30,6 +30,8 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --all --check
+      # The UI's script, built into the binary as it is: at least it must parse.
+      - run: node --check web/app.js
 
   clippy:
     name: Lints
