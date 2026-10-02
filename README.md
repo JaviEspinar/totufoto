@@ -203,7 +203,7 @@ Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP, and HEIC/HEIF on macOS (deco
 
 - One pass per file: the file is read once, EXIF parsed, decoded, resized with SIMD (`fast_image_resize`), and faces are detected on the same buffer, spread over all cores with `rayon`, one ONNX Runtime session per worker thread.
 - Thumbnails live inside SQLite (WAL, mmap), served with immutable cache headers; SQLite is faster than the filesystem for small blobs.
-- The UI is a single dependency-free HTML page with a CSS-only justified layout, lazy images, and progressive rendering, so libraries with tens of thousands of photos stay smooth.
+- The UI is a dependency-free page (HTML, one stylesheet, one script) with a CSS-only justified layout, lazy images, and progressive rendering, so libraries with tens of thousands of photos stay smooth.
 
 Measured on an 8-core Apple Silicon Mac: 300 photos at 12 MP fully indexed (thumbnails + faces) in 8.7 s.
 
@@ -222,7 +222,7 @@ src/duplicates.rs  finding and deleting identical files
 src/rotate.rs      rotating photos in their files
 src/db.rs          SQLite schema and shared queries
 src/server.rs      HTTP API (axum)
-web/index.html     UI (embedded into the binary)
+web/               UI: index.html, app.css, app.js (embedded into the binary)
 desktop/           Tauri desktop app: window, folder picker, embedded models and ONNX Runtime
 ```
 
