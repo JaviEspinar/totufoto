@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: A security problem
+    url: https://github.com/JaviEspinar/totufoto/security/advisories/new
+    about: Report it privately, not as a public issue (see SECURITY.md).
+  - name: How to use the gallery
+    url: https://github.com/JaviEspinar/totufoto/blob/main/docs/user-guide.md
+    about: The user guide, tab by tab.

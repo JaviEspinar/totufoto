@@ -423,3 +423,20 @@ Still open from phase 1: the donation platform (`FUNDING.yml`, About entry) and 
 | 21 | Icon sprite, `plural()`, `pref`, `parseDay()`, people grid sizes set only by the script, one render `job` (`alive()`, `signal`) instead of hand-written token checks | `9c9fa6a`, `c0f226f`, this commit |
 
 Not done on purpose: folding the People and Optimization views into `beginViewLoad`. Their loading is deliberately different (the keyed people grid that doesn't flicker, the progress screens), and the render job already gives them the same cancellation as the other views.
+
+### Phase 4: done
+
+| # | Result | Commit |
+|---|---|---|
+| 22 | `web/tests`: Playwright on a generated fixture library, with people written into the index (the tests run without face recognition). 19 tests across the first scenarios of 6.3: groups and filters, the viewer and its keyboard handling, people, optimization, folders, rotate and remove, the phone layout. A `ui` job in CI | `60738fe` |
+| 23 | Tag and version checked against `Cargo.toml` and the notes before building; `SHA256SUMS` and build provenance on every release; prebuilt tauri-cli; write permissions only in the release job; concurrency, timeouts, artifact retention; desktop builds only for tags, by hand, or Rust and packaging changes; every action pinned to a SHA; Dependabot for actions, cargo and npm | `6771aa1` |
+| 24 | `justfile`, `scripts/release.sh`, `CONTRIBUTING.md` (with the contribution licensing note), `CODE_OF_CONDUCT.md`, issue forms, `docs/user-guide.md`, `docs/architecture.md`, `docs/api.md`, `docs/releasing.md`, `docs/server.md`; README with a short tour, Limitations, Troubleshooting, Documentation and Contributing | this commit |
+| 25 | `cargo-deny` job and `deny.toml`; `clap` behind a default `cli` feature; chrono without `serde`; stripped release binaries (the MSRV job came with phase 1) | `6771aa1` |
+
+Corrections on the way:
+
+- The contribution note grants the maintainer the right to license contributions under other terms too: "inbound = outbound" alone (PolyForm Noncommercial in, PolyForm Noncommercial out) would make a commercial license of the whole impossible once outside code is merged.
+- `cargo-deny` needed the Unlicense (through `reverse_geocoder`); CC-BY-4.0 is not a crate license here (GeoNames data), so it isn't listed.
+- The plan wanted the desktop build only for tags. A change in `src/` can break the desktop crate, which `ci.yml` can't build without the models, so pushes that touch Rust code or packaging still build it.
+
+Still open from phase 4: README screenshots. They need photos that may be published (the fixture images are flat colours, and the test photos used during development are not redistributable).

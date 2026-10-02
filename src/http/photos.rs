@@ -167,7 +167,7 @@ pub(super) async fn rotate_photo(
     }
 }
 
-/// Shows the photo's file in the file manager (desktop app only; 409 otherwise).
+/// Shows the photo's file in the file manager (desktop app only; 501 otherwise).
 pub(super) async fn reveal_photo(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
     let path = db(&s, move |conn| photos::photo_path(conn, id)).await?;
     let Some(path) = path.map(PathBuf::from) else { return Err(ApiError::not_found("photo")) };
