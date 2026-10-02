@@ -8,7 +8,7 @@ What the server can do, for anyone who can reach it:
 
 - show every photo in the gallery and download the original files;
 - rotate photos (the files are rewritten) and delete them (moved to the bin, or deleted for good when the drive has no bin);
-- add and remove photo folders, and list the folders of the computer to choose one.
+- add and remove photo folders, and list the folders of the computer to choose one. Because any folder can be added, this reaches further than the gallery: someone on your network can add a folder you never shared, then view and delete the images in it.
 
 So:
 
@@ -18,7 +18,9 @@ So:
 What it does protect against, on every address:
 
 - **Web pages on other sites** using the gallery through your browser. Requests for a host name other than an IP address, `localhost`, the computer's own name or a name given with `--allow-host` are refused, which blocks DNS rebinding, and requests that change something are refused when the browser says they come from another site.
-- **Paths outside the gallery**: files are only served, rotated or deleted when they are photos indexed from your folders.
+- **Paths outside the gallery**: files are only served, rotated or deleted when they are photos indexed from the gallery's folders (which, as above, anyone on the network can add to).
+
+This is deliberate: Totufoto is meant for a home network, and managing its folders from another computer's browser is part of how it is used there. If that's not acceptable for your network, keep the default address (`127.0.0.1`) and use the desktop app or a browser on the same computer.
 
 ## Reporting a vulnerability
 

@@ -119,8 +119,8 @@ Already in place and worth advertising: the Host allow-list on loopback (`app.rs
 Gaps, in order:
 
 1. **No Host or Origin check once bound to a non-loopback address** (`app.rs:96-101` returns `None`, which disables `check_host`). A web page can DNS-rebind to the LAN address and call every endpoint, including `POST /api/photos/{id}/remove {"from":"disk","permanently":true}`. **Fix (one middleware, always on):** for every non-GET request require `Sec-Fetch-Site: same-origin` or `none`, or an `Origin` header whose host equals the request `Host`. All current browsers send `Sec-Fetch-Site`. Keep the Host allow-list too, built from the bound address and the machine's own interface addresses instead of being switched off.
-2. **`POST /api/folders` enrols any directory on the machine** (`server.rs:244-246`). A LAN client can add `/` or `C:\Users`, wait for the scan, then delete any image through `remove`, `duplicates/delete` or `rotate`, because "inside the photo folders" now means anywhere. Combined with gap 1 this is reachable from a web page. **Fix:** make folder add, remove, browse and pick available only to loopback clients or the desktop app (like `pick_folder` already is), or behind a token printed at startup.
-3. **`GET /api/folders/browse?path=` lists any directory** (`server.rs:334-381`): host filesystem layout disclosure to the LAN. Same fix as 2.
+2. **`POST /api/folders` enrols any directory on the machine** (`server.rs:244-246`). A LAN client can add `/` or `C:\Users`, wait for the scan, then delete any image through `remove`, `duplicates/delete` or `rotate`, because "inside the photo folders" now means anywhere. **Decision: keep it.** Totufoto is for a home network and managing folders from another computer's browser is part of its use; the risk is documented in the README and `SECURITY.md` instead. Web pages can no longer reach it (gap 1 is fixed), so only a device on the network can.
+3. **`GET /api/folders/browse?path=` lists any directory** (`server.rs:334-381`): host filesystem layout disclosure to the LAN. Kept for the same reason as 2, and documented.
 4. **Body-less POSTs are reachable from a plain cross-site form** when the allow-list is off: `/api/scan`, `/api/regroup`, `/api/failures/retry`, `/api/excluded/clear`, `/api/duplicates/search`, `/api/photos/{id}/check` (which can forget index rows), `/api/faces/{id}/reject`, `/api/faces/{id}/cover`. The `Sec-Fetch-Site` check from gap 1 closes all of them.
 5. **Error bodies leak internal paths** (`server.rs:70, 211, 214, 349`). With the typed `ApiError` (3.4), log the chain and return a short message.
 6. **Release binaries are unsigned on both platforms** and nothing lets a user verify a download. Attach `SHA256SUMS` and a build provenance attestation to each release (section 5.3).
@@ -326,7 +326,7 @@ Effort: S under half a day, M one to two days, L a week or more. Dependencies ar
 | 1 | `LICENSE` (PolyForm Noncommercial 1.0.0), `THIRD_PARTY.md` (ORT, VC++, InsightFace, GeoNames), License section in README and release notes with the source-available wording, `.github/FUNDING.yml` and the donation link | S | 2.2 |
 | 2 | Cargo metadata with `license = "PolyForm-Noncommercial-1.0.0"`; `[workspace.package] version`; drop `version` from `tauri.conf.json` | S | 2.2 |
 | 3 | Same-origin check for non-GET requests, always on; keep the Host allow-list built from own addresses | S | 3.3 |
-| 4 | Folder add/remove/browse/pick only for loopback or the desktop app | S | 3.3 |
+| 4 | ~~Folder add/remove/browse/pick only for loopback or the desktop app~~ Decided against: documented instead (README, `SECURITY.md`) | S | 3.3 |
 | 5 | `Drop` guards for `running` and `deleting` | S | 3.2 |
 | 6 | `ci.yml` with fmt, clippy `-D warnings`, `cargo test` on three OSes; `default-members` or a build.rs skip flag so it works on a fresh clone | M | 5.3 |
 | 7 | `rustfmt.toml` plus one formatting commit; `.editorconfig` | S | 2.2 |
