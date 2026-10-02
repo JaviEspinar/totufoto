@@ -1,11 +1,15 @@
 [workspace]
 members = ["desktop"]
+# Plain `cargo build`, `test` and `clippy` cover the library and the command-line app, which
+# build without the face models; the desktop app needs them (`-p totufoto-desktop`, see
+# scripts/fetch-*).
+default-members = ["."]
 
 # Shared by both packages; the desktop app's tauri.conf.json takes its version from here too.
 [workspace.package]
 version = "0.1.9"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.93" # checked in CI; reverse_geocoder needs it (through `fixed`)
 license = "PolyForm-Noncommercial-1.0.0"
 repository = "https://github.com/JaviEspinar/totufoto"
 homepage = "https://github.com/JaviEspinar/totufoto"
