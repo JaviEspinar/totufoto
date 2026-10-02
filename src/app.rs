@@ -91,7 +91,12 @@ impl Gallery {
             tracing::info!("answering to IP addresses, localhost and {:?}", names.names());
         }
         let app = server::router(
-            server::AppState { pool: server::Pool::new(self.scan.db_path.clone()), status: self.status, scan: self.scan, host: self.host },
+            server::AppState {
+                pool: server::Pool::new(self.scan.db_path.clone()),
+                status: self.status,
+                scan: self.scan,
+                host: self.host,
+            },
             names,
         );
         axum::serve(listener, app).await?;

@@ -112,56 +112,50 @@ pub fn open(path: &Path) -> Result<Connection> {
 
 /// Upgrades indexes created by older versions in place.
 fn migrate(conn: &Connection) -> Result<()> {
-    let has_column: bool = conn.query_row(
-        "SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'faces_scanned'",
-        [],
-        |r| r.get(0),
-    )?;
+    let has_column: bool =
+        conn.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'faces_scanned'", [], |r| {
+            r.get(0)
+        })?;
     if !has_column {
         conn.execute_batch("ALTER TABLE photos ADD COLUMN faces_scanned INTEGER NOT NULL DEFAULT 1")?;
     }
-    let has_grouped: bool = conn.query_row(
-        "SELECT COUNT(*) > 0 FROM pragma_table_info('faces') WHERE name = 'grouped'",
-        [],
-        |r| r.get(0),
-    )?;
+    let has_grouped: bool =
+        conn.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('faces') WHERE name = 'grouped'", [], |r| r.get(0))?;
     if !has_grouped {
         // Faces in an existing index were grouped by the full passes of older versions.
         conn.execute_batch("ALTER TABLE faces ADD COLUMN grouped INTEGER NOT NULL DEFAULT 1")?;
     }
-    let has_memory: bool = conn.query_row(
-        "SELECT COUNT(*) > 0 FROM pragma_table_info('persons') WHERE name = 'face_memory'",
-        [],
-        |r| r.get(0),
-    )?;
+    let has_memory: bool =
+        conn.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('persons') WHERE name = 'face_memory'", [], |r| {
+            r.get(0)
+        })?;
     if !has_memory {
         conn.execute_batch("ALTER TABLE persons ADD COLUMN face_memory BLOB")?;
     }
-    let has_cover: bool = conn.query_row(
-        "SELECT COUNT(*) > 0 FROM pragma_table_info('persons') WHERE name = 'cover_face'",
-        [],
-        |r| r.get(0),
-    )?;
+    let has_cover: bool =
+        conn.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('persons') WHERE name = 'cover_face'", [], |r| {
+            r.get(0)
+        })?;
     if !has_cover {
         conn.execute_batch("ALTER TABLE persons ADD COLUMN cover_face INTEGER")?;
     }
-    let has_version: bool = conn.query_row(
-        "SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'version'",
-        [],
-        |r| r.get(0),
-    )?;
+    let has_version: bool =
+        conn.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'version'", [], |r| {
+            r.get(0)
+        })?;
     if !has_version {
         conn.execute_batch("ALTER TABLE photos ADD COLUMN version INTEGER NOT NULL DEFAULT 0")?;
     }
-    let has_hash: bool = conn.query_row(
-        "SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'content_hash'",
-        [],
-        |r| r.get(0),
-    )?;
+    let has_hash: bool =
+        conn.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'content_hash'", [], |r| {
+            r.get(0)
+        })?;
     if !has_hash {
         conn.execute_batch("ALTER TABLE photos ADD COLUMN content_hash TEXT")?;
     }
-    conn.execute_batch("CREATE INDEX IF NOT EXISTS photos_hash ON photos(content_hash) WHERE content_hash IS NOT NULL")?;
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS photos_hash ON photos(content_hash) WHERE content_hash IS NOT NULL",
+    )?;
     Ok(())
 }
 
@@ -169,9 +163,8 @@ fn migrate(conn: &Connection) -> Result<()> {
 /// Returns the new person's id, or `None` if the face doesn't exist.
 pub fn move_face_to_new_person(conn: &mut Connection, face: i64) -> Result<Option<i64>> {
     let tx = conn.transaction()?;
-    let Some(old) = tx
-        .query_row("SELECT person_id FROM faces WHERE id = ?", [face], |r| r.get::<_, Option<i64>>(0))
-        .optional()?
+    let Some(old) =
+        tx.query_row("SELECT person_id FROM faces WHERE id = ?", [face], |r| r.get::<_, Option<i64>>(0)).optional()?
     else {
         return Ok(None);
     };
@@ -192,7 +185,8 @@ pub fn move_face_to_new_person(conn: &mut Connection, face: i64) -> Result<Optio
 /// Saves the average face of named people (all, or `only` these), so their photos rejoin the
 /// name when they come back even if, by then, none of their photos are left.
 pub fn remember_named_people(conn: &Connection, only: Option<&[i64]>) -> Result<()> {
-    let filter = only.map(|ids| format!(" AND p.id IN ({})", ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")));
+    let filter =
+        only.map(|ids| format!(" AND p.id IN ({})", ids.iter().map(i64::to_string).collect::<Vec<_>>().join(",")));
     if only.is_some_and(|ids| ids.is_empty()) {
         return Ok(());
     }
@@ -236,7 +230,8 @@ pub fn forget_photos_with_progress(conn: &mut Connection, ids: &[i64], mut progr
     }
     let mut people = Vec::new();
     {
-        let mut query = conn.prepare("SELECT DISTINCT person_id FROM faces WHERE photo_id = ? AND person_id IS NOT NULL")?;
+        let mut query =
+            conn.prepare("SELECT DISTINCT person_id FROM faces WHERE photo_id = ? AND person_id IS NOT NULL")?;
         for id in ids {
             for person in query.query_map([id], |r| r.get::<_, i64>(0))? {
                 people.push(person?);
@@ -274,9 +269,8 @@ pub fn forget_photos_with_progress(conn: &mut Connection, ids: &[i64], mut progr
 pub fn assign_face(conn: &mut Connection, face: i64, person: i64) -> Result<bool> {
     let tx = conn.transaction()?;
     let exists: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM persons WHERE id = ?)", [person], |r| r.get(0))?;
-    let Some(old) = tx
-        .query_row("SELECT person_id FROM faces WHERE id = ?", [face], |r| r.get::<_, Option<i64>>(0))
-        .optional()?
+    let Some(old) =
+        tx.query_row("SELECT person_id FROM faces WHERE id = ?", [face], |r| r.get::<_, Option<i64>>(0)).optional()?
     else {
         return Ok(false);
     };

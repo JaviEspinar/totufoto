@@ -46,11 +46,10 @@ impl Progress<'_> {
 /// most faces are new), places only the new faces otherwise, and does nothing else when no
 /// faces were added.
 pub fn update_groups(conn: &mut Connection, threshold: f32, full: bool, progress: &Progress) -> Result<()> {
-    let (new, total): (i64, i64) = conn.query_row(
-        "SELECT COALESCE(SUM(grouped = 0), 0), COUNT(*) FROM faces WHERE rejected = 0",
-        [],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )?;
+    let (new, total): (i64, i64) =
+        conn.query_row("SELECT COALESCE(SUM(grouped = 0), 0), COUNT(*) FROM faces WHERE rejected = 0", [], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?;
     if full || (new > 0 && new as f64 > total as f64 * FULL_REGROUP_SHARE) {
         recluster(conn, threshold, progress)?;
     } else if new > 0 {
@@ -112,11 +111,7 @@ fn centroids(groups: &[Vec<usize>], faces: &[Face]) -> Vec<Vec<f32>> {
 }
 
 fn best(embedding: &[f32], centroids: &[Vec<f32>]) -> Option<(usize, f32)> {
-    centroids
-        .iter()
-        .enumerate()
-        .map(|(i, c)| (i, dot(embedding, c)))
-        .max_by(|a, b| a.1.total_cmp(&b.1))
+    centroids.iter().enumerate().map(|(i, c)| (i, dot(embedding, c))).max_by(|a, b| a.1.total_cmp(&b.1))
 }
 
 /// Regroups every face from scratch (named people and faces placed by the user are kept).
@@ -288,14 +283,20 @@ fn group_new_faces(conn: &mut Connection, threshold: f32, progress: &Progress) -
         let mut stmt = conn.prepare("SELECT id, person_id, embedding, rejected, grouped FROM faces")?;
         let mut rows = stmt.query([])?;
         while let Some(r) = rows.next()? {
-            let (id, person, moved_by_user, grouped): (i64, Option<i64>, bool, bool) = (r.get(0)?, r.get(1)?, r.get(3)?, r.get(4)?);
+            let (id, person, moved_by_user, grouped): (i64, Option<i64>, bool, bool) =
+                (r.get(0)?, r.get(1)?, r.get(3)?, r.get(4)?);
             // Placed by the user in an unnamed group: attracts nothing.
             if moved_by_user && !person.is_some_and(|p| named.contains(&p)) {
                 continue;
             }
             let embedding = embedding_from_bytes(&r.get::<_, Vec<u8>>(2)?);
             match person {
-                Some(p) => sums.entry(p).or_insert_with(|| vec![0f32; EMBEDDING_DIM]).iter_mut().zip(&embedding).for_each(|(a, b)| *a += b),
+                Some(p) => sums
+                    .entry(p)
+                    .or_insert_with(|| vec![0f32; EMBEDDING_DIM])
+                    .iter_mut()
+                    .zip(&embedding)
+                    .for_each(|(a, b)| *a += b),
                 None if !grouped => new_faces.push((id, embedding)),
                 None => loose.push((id, embedding)),
             }

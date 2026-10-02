@@ -117,7 +117,8 @@ fn hash_file(path: &Path) -> std::io::Result<String> {
 fn unchanged(path: &Path, mtime: i64, size: i64) -> bool {
     std::fs::metadata(path).is_ok_and(|m| {
         m.len() as i64 == size
-            && m.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64) == Some(mtime)
+            && m.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64)
+                == Some(mtime)
     })
 }
 
@@ -146,7 +147,9 @@ pub fn report(conn: &Connection) -> Result<Vec<DupGroup>> {
                                     GROUP BY content_hash HAVING COUNT(*) > 1)
              ORDER BY content_hash, mtime, path",
         )?
-        .query_map([], |r| Ok((r.get(0)?, DupFile { id: r.get(1)?, path: r.get(2)?, mtime: r.get(3)?, size: r.get(4)? })))?
+        .query_map([], |r| {
+            Ok((r.get(0)?, DupFile { id: r.get(1)?, path: r.get(2)?, mtime: r.get(3)?, size: r.get(4)? }))
+        })?
         .collect::<Result<_, _>>()?;
     let mut by_hash: Vec<(String, Vec<DupFile>)> = Vec::new();
     for (hash, file) in rows {
@@ -194,7 +197,15 @@ pub fn delete(
     let only: Option<std::collections::HashSet<i64>> = only.map(|ids| ids.iter().copied().collect());
     let groups: Vec<(DupFile, Vec<DupFile>)> = report(conn)?
         .into_iter()
-        .map(|g| (g.keep, g.remove.into_iter().filter(|f| only.as_ref().is_none_or(|ids| ids.contains(&f.id))).collect::<Vec<_>>()))
+        .map(|g| {
+            (
+                g.keep,
+                g.remove
+                    .into_iter()
+                    .filter(|f| only.as_ref().is_none_or(|ids| ids.contains(&f.id)))
+                    .collect::<Vec<_>>(),
+            )
+        })
         .filter(|(_, remove)| !remove.is_empty())
         .collect();
     status.delete_done.store(0, Ordering::Relaxed);
@@ -232,7 +243,12 @@ pub fn delete(
     }
     // Their faces are the same as the kept copy's, so the people only lose the duplicates.
     crate::db::forget_photos(conn, &gone)?;
-    tracing::info!("duplicates: {} to the bin, {} deleted, {} bytes freed", result.binned, result.deleted, result.freed);
+    tracing::info!(
+        "duplicates: {} to the bin, {} deleted, {} bytes freed",
+        result.binned,
+        result.deleted,
+        result.freed
+    );
     Ok(result)
 }
 

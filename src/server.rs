@@ -181,7 +181,9 @@ async fn folders(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
             let prefix = root.join("").to_string_lossy().into_owned();
             let photos: i64 = count.query_row(params![prefix.chars().count() as i64, prefix], |r| r.get(0))?;
             let fixed = scan_cfg.is_fixed(&root);
-            out.push(json!({ "path": root.to_string_lossy(), "available": root.is_dir(), "photos": photos, "fixed": fixed }));
+            out.push(
+                json!({ "path": root.to_string_lossy(), "available": root.is_dir(), "photos": photos, "fixed": fixed }),
+            );
         }
         Ok(out)
     })
@@ -210,7 +212,8 @@ async fn save_folder(s: &Shared, path: PathBuf) -> ApiResult<Response> {
             return Ok(Some(outer));
         }
         // Saved folders inside the new one aren't needed any more (their photos stay).
-        let saved: Vec<String> = conn.prepare("SELECT path FROM folders")?.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        let saved: Vec<String> =
+            conn.prepare("SELECT path FROM folders")?.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
         for inner in saved.iter().filter(|p| std::path::Path::new(p).starts_with(&candidate)) {
             conn.execute("DELETE FROM folders WHERE path = ?", [inner])?;
         }
@@ -470,7 +473,8 @@ fn people_filter(photo_id: &str, people: Option<&str>, match_mode: Option<&str>)
 /// `MM-DD` for today and the following days, and the current year.
 fn upcoming_days(days: u32) -> (Vec<String>, i32) {
     let today = Local::now().date_naive();
-    let list = (0..days.clamp(1, 366)).map(|d| (today + Duration::days(d as i64)).format("%m-%d").to_string()).collect();
+    let list =
+        (0..days.clamp(1, 366)).map(|d| (today + Duration::days(d as i64)).format("%m-%d").to_string()).collect();
     (list, today.year())
 }
 
@@ -516,7 +520,9 @@ async fn photos(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResu
         let (filters, args, days) = photo_filters(&q);
         let desc = q.sort.as_deref() != Some("asc");
         let order = if desc { "taken DESC, id DESC" } else { "taken ASC, id ASC" };
-        let sql = format!("SELECT id, width, height, taken, place_id, version FROM photos WHERE 1 = 1{filters} ORDER BY {order}");
+        let sql = format!(
+            "SELECT id, width, height, taken, place_id, version FROM photos WHERE 1 = 1{filters} ORDER BY {order}"
+        );
         let mut stmt = conn.prepare_cached(&sql)?;
         let rows: Vec<JsonValue> = stmt
             .query_map(params_from_iter(args), |r| {
@@ -582,7 +588,9 @@ async fn groups(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResu
 async fn check_photo(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Json<JsonValue>> {
     let scan_cfg = s.scan.clone();
     let result = db(&s, move |conn| {
-        let Some(path) = conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get::<_, String>(0)).optional()? else {
+        let Some(path) =
+            conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get::<_, String>(0)).optional()?
+        else {
             return Ok(json!({ "status": "removed" }));
         };
         let file = PathBuf::from(&path);
@@ -619,10 +627,16 @@ struct RemoveBody {
 /// From disk: the file is moved to the bin of the computer running the gallery; if that
 /// isn't possible the answer is "no-bin", and the file is only deleted for good when asked
 /// again with `permanently`. Only files inside the library folders can be deleted.
-async fn remove_photo(State(s): State<Shared>, Path(id): Path<i64>, Json(body): Json<RemoveBody>) -> ApiResult<Response> {
+async fn remove_photo(
+    State(s): State<Shared>,
+    Path(id): Path<i64>,
+    Json(body): Json<RemoveBody>,
+) -> ApiResult<Response> {
     let scan_cfg = s.scan.clone();
     let result = db(&s, move |conn| {
-        let Some(path) = conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get::<_, String>(0)).optional()? else {
+        let Some(path) =
+            conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get::<_, String>(0)).optional()?
+        else {
             return Ok((StatusCode::NOT_FOUND, json!({ "error": "no such photo" })));
         };
         match body.from.as_str() {
@@ -643,13 +657,19 @@ async fn remove_photo(State(s): State<Shared>, Path(id): Path<i64>, Json(body): 
                         tracing::info!("{path}: deleted permanently");
                     } else if let Err(e) = trash::delete(&file) {
                         tracing::warn!("{path}: can't move to the bin: {e}");
-                        return Ok((StatusCode::CONFLICT, json!({ "status": "no-bin", "error": e.to_string(), "path": path })));
+                        return Ok((
+                            StatusCode::CONFLICT,
+                            json!({ "status": "no-bin", "error": e.to_string(), "path": path }),
+                        ));
                     } else {
                         tracing::info!("{path}: moved to the bin");
                     }
                 }
                 crate::db::forget_photo(conn, id)?;
-                Ok((StatusCode::OK, json!({ "status": if body.permanently { "deleted" } else { "binned" }, "path": path })))
+                Ok((
+                    StatusCode::OK,
+                    json!({ "status": if body.permanently { "deleted" } else { "binned" }, "path": path }),
+                ))
             }
             _ => Ok((StatusCode::BAD_REQUEST, json!({ "error": "from must be gallery or disk" }))),
         }
@@ -937,7 +957,11 @@ struct AssignBody {
 }
 
 /// "Same as" in the photo viewer: moves this one face to another person.
-async fn assign_face(State(s): State<Shared>, Path(id): Path<i64>, Json(body): Json<AssignBody>) -> ApiResult<StatusCode> {
+async fn assign_face(
+    State(s): State<Shared>,
+    Path(id): Path<i64>,
+    Json(body): Json<AssignBody>,
+) -> ApiResult<StatusCode> {
     let done = db(&s, move |conn| crate::db::assign_face(conn, id, body.person)).await?;
     Ok(if done { StatusCode::NO_CONTENT } else { StatusCode::NOT_FOUND })
 }
@@ -971,7 +995,11 @@ struct RotateBody {
 
 /// Turns the photo in its file (JPEG: its EXIF orientation, so nothing is recompressed;
 /// PNG: rewritten turned) and in the gallery.
-async fn rotate_photo(State(s): State<Shared>, Path(id): Path<i64>, Json(body): Json<RotateBody>) -> ApiResult<Response> {
+async fn rotate_photo(
+    State(s): State<Shared>,
+    Path(id): Path<i64>,
+    Json(body): Json<RotateBody>,
+) -> ApiResult<Response> {
     if s.status.running.load(std::sync::atomic::Ordering::Relaxed) {
         return Ok((StatusCode::CONFLICT, "the photos are being scanned; try again when the scan ends").into_response());
     }
@@ -984,18 +1012,26 @@ async fn rotate_photo(State(s): State<Shared>, Path(id): Path<i64>, Json(body): 
     .await?;
     use crate::rotate::Outcome;
     Ok(match outcome {
-        Outcome::Rotated { width, height, version } => Json(json!({ "width": width, "height": height, "version": version })).into_response(),
+        Outcome::Rotated { width, height, version } => {
+            Json(json!({ "width": width, "height": height, "version": version })).into_response()
+        }
         Outcome::NotFound => StatusCode::NOT_FOUND.into_response(),
-        Outcome::Unsupported => (StatusCode::UNSUPPORTED_MEDIA_TYPE, "only JPEG and PNG photos can be rotated").into_response(),
+        Outcome::Unsupported => {
+            (StatusCode::UNSUPPORTED_MEDIA_TYPE, "only JPEG and PNG photos can be rotated").into_response()
+        }
         Outcome::Outside => (StatusCode::FORBIDDEN, "the file is not in the photo folders").into_response(),
-        Outcome::Changed => (StatusCode::CONFLICT, "the file changed since it was indexed; rescan first").into_response(),
+        Outcome::Changed => {
+            (StatusCode::CONFLICT, "the file changed since it was indexed; rescan first").into_response()
+        }
     })
 }
 
 /// Shows the photo's file in the file manager (desktop app only; 409 otherwise).
 async fn reveal_photo(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
-    let path: Option<String> =
-        db(&s, move |conn| Ok(conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get(0)).optional()?)).await?;
+    let path: Option<String> = db(&s, move |conn| {
+        Ok(conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get(0)).optional()?)
+    })
+    .await?;
     let Some(path) = path.map(PathBuf::from) else { return Ok(StatusCode::NOT_FOUND.into_response()) };
     let Some(host) = &s.host else {
         return Ok((StatusCode::CONFLICT, "only the desktop app can open folders").into_response());
@@ -1018,15 +1054,26 @@ impl OriginalQuery {
 
 /// `attachment; filename=...` with the file's own name (ASCII fallback plus UTF-8).
 fn attachment(name: &str) -> String {
-    let ascii: String = name.chars().map(|c| if c.is_ascii_graphic() && c != '"' && c != '\\' || c == ' ' { c } else { '_' }).collect();
-    let encoded: String = name.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-._~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect();
+    let ascii: String =
+        name.chars().map(|c| if c.is_ascii_graphic() && c != '"' && c != '\\' || c == ' ' { c } else { '_' }).collect();
+    let encoded: String = name
+        .bytes()
+        .map(|b| {
+            if b.is_ascii_alphanumeric() || b"-._~".contains(&b) {
+                (b as char).to_string()
+            } else {
+                format!("%{b:02X}")
+            }
+        })
+        .collect();
     format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}")
 }
 
 async fn original(State(s): State<Shared>, Path(id): Path<i64>, Query(q): Query<OriginalQuery>) -> ApiResult<Response> {
-    let path: Option<String> =
-        db(&s, move |conn| Ok(conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get(0)).optional()?))
-            .await?;
+    let path: Option<String> = db(&s, move |conn| {
+        Ok(conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get(0)).optional()?)
+    })
+    .await?;
     let Some(path) = path.map(PathBuf::from) else { return Ok(StatusCode::NOT_FOUND.into_response()) };
     let ext = imaging::extension(&path);
     if imaging::BROWSER_EXTENSIONS.contains(&ext.as_str()) {
@@ -1038,15 +1085,22 @@ async fn original(State(s): State<Shared>, Path(id): Path<i64>, Query(q): Query<
             _ => "image/jpeg",
         };
         let bytes = tokio::fs::read(&path).await?;
-        let mut response = ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "public, max-age=3600")], bytes).into_response();
+        let mut response =
+            ([(header::CONTENT_TYPE, mime), (header::CACHE_CONTROL, "public, max-age=3600")], bytes).into_response();
         if q.download() {
-            let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| format!("photo-{id}.{ext}"));
+            let name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_else(|| format!("photo-{id}.{ext}"));
             response.headers_mut().insert(header::CONTENT_DISPOSITION, attachment(&name).parse()?);
         }
         return Ok(response);
     }
     // HEIC, TIFF...: convert to a large JPEG on the fly, and save it as the JPEG it is now.
-    let jpeg_name = format!("{}.jpg", path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| format!("photo-{id}")));
+    let jpeg_name = format!(
+        "{}.jpg",
+        path.file_stem().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| format!("photo-{id}"))
+    );
     let bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
         let raw = std::fs::read(&path)?;
         let img = imaging::decode(&path, &raw)?.into_rgb8();
