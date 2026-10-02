@@ -22,7 +22,13 @@ const state = {
   people: new Set(), place: null, date: null, upcoming: 30,
   from: null, to: null, // capture date range, YYYY-MM-DD, both included
 };
-let people = [], places = [], placeById = new Map(), photos = [], viewerIndex = -1, renderToken = 0;
+let people = [], peopleById = new Map(), places = [], placeById = new Map(), photos = [], viewerIndex = -1, renderToken = 0;
+/** Replaces the people list, and the lookup by id that goes with it. */
+function setPeople(list) {
+  people = list;
+  peopleById = new Map(list.map(p => [p.id, p]));
+}
+const personById = id => peopleById.get(id);
 
 // ---- URL state -------------------------------------------------------------
 function saveHash() {
@@ -58,21 +64,32 @@ function loadHash() {
 }
 
 // ---- data ------------------------------------------------------------------
-/** The message of an error answer: `{"error": "..."}` from the API, else the plain text
- *  (axum's own rejections, the request guard). */
-async function errorText(r) {
-  const text = await r.text();
-  try { return JSON.parse(text).error || text || String(r.status); } catch { return text || String(r.status); }
+/** A failed request: its message (`{"error": "..."}` from the API, else the plain text of
+ *  axum's own rejections and the request guard), status code and parsed body. */
+class ApiError extends Error {
+  constructor(status, message, body) {
+    super(message);
+    this.status = status;
+    this.body = body;
+  }
 }
+/** Fetches JSON; null for answers without a body (202, 204). Throws an ApiError. */
 const api = async (url, opts) => {
   const r = await fetch(url, opts);
-  if (!r.ok) throw new Error(await errorText(r));
+  if (!r.ok) {
+    const text = await r.text();
+    let body = null;
+    try { body = JSON.parse(text); } catch {}
+    throw new ApiError(r.status, body?.error || text || String(r.status), body);
+  }
   return r.status === 204 || r.status === 202 ? null : r.json();
 };
 const post = (url, body) => api(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
 
 async function loadMeta() {
-  [people, places] = await Promise.all([api("/api/people"), api("/api/places")]);
+  let list;
+  [list, places] = await Promise.all([api("/api/people"), api("/api/places")]);
+  setPeople(list);
   placeById = new Map(places.map(p => [p.id, p]));
   const known = new Set(people.map(p => p.id));
   for (const id of state.people) if (!known.has(id)) state.people.delete(id);
@@ -263,7 +280,7 @@ $("#peopleList").addEventListener("click", e => {
 });
 /** Turns a sidebar name into a text field: Enter or leaving it saves, Esc cancels. */
 function startSidebarRename(row) {
-  const p = people.find(p => p.id === +row.dataset.person);
+  const p = personById(+row.dataset.person);
   if (!p || sidebarEditing) return;
   const label = row.querySelector(".n");
   const input = document.createElement("input");
@@ -452,7 +469,7 @@ function filterChips() {
   const chip = (label, key, person = "") =>
     `<span class="chip"${person ? ` data-person-chip="${person}"` : ""}><span class="label">${esc(label)}</span>` +
     `<button data-clear="${key}" title="Remove filter" aria-label="Remove ${esc(label)}">×</button></span>`;
-  const selected = [...state.people].map(id => people.find(p => p.id === id)).filter(Boolean);
+  const selected = [...state.people].map(id => personById(id)).filter(Boolean);
   const parts = [];
   // How the people combine, when it matters.
   if (selected.length > 1 || (selected.length && state.match === "only"))
@@ -645,7 +662,11 @@ async function renderOptimization(main, token, signal) {
       : `Checking ${report.done.toLocaleString()} of ${report.total.toLocaleString()} files that could be duplicates`;
     main.innerHTML = `<div class="opt">${intro}<div class="opt-progress"><div>${what}</div>
       <progress ${report.scanning || !report.total ? "" : `max="${report.total}" value="${report.done}"`}></progress></div></div>`;
-    setTimeout(() => { if (token === renderToken && state.view === "optimization") renderOptimization(main, token, signal).catch(() => {}); }, 1000);
+    // A failed refresh (the server busy for a moment) is tried again, not left on this screen.
+    const again = () => {
+      if (token === renderToken && state.view === "optimization") renderOptimization(main, token, signal).catch(() => setTimeout(again, 3000));
+    };
+    setTimeout(again, 1000);
     return;
   }
   const checked = report.finished ? `Last checked ${esc(report.finished)}.` : "Not checked yet.";
@@ -676,7 +697,11 @@ async function renderOptimization(main, token, signal) {
   list.addEventListener("click", e => { if (e.target.classList.contains("dup-more")) more(); });
   main.querySelector("[data-dup-search]")?.addEventListener("click", async e => {
     e.target.disabled = true;
-    await post("/api/duplicates/search").catch(() => {});
+    try { await post("/api/duplicates/search"); }
+    catch (err) {
+      e.target.disabled = false;
+      return toast(`Couldn't start the search: ${err.message}`, true);
+    }
     setTimeout(render, 300);
   });
   main.querySelector("[data-dup-delete]")?.addEventListener("click", () => deleteDuplicates(report));
@@ -689,13 +714,12 @@ function deleteProgressHtml(p) {
   return `<div>${what}</div><progress ${p?.total ? `max="${p.total}" value="${p.done}"` : ""}></progress>`;
 }
 async function deleteDuplicates(report) {
-  const choice = await askDelete(`<p>Move <b>${report.files.toLocaleString()} duplicate file${report.files === 1 ? "" : "s"}</b> (${fmtBytes(report.bytes)}) to the bin of the computer running Imadive?</p>
+  const choice = await askChoice(`<p>Move <b>${report.files.toLocaleString()} duplicate file${report.files === 1 ? "" : "s"}</b> (${fmtBytes(report.bytes)}) to the bin of the computer running Imadive?</p>
     <p>Of each set of identical files, the one with the oldest file date is kept. A file that changed since the search is left alone.</p>
     <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button><button class="btn danger" data-choice="bin">Move to the bin</button></div>`,
     "Delete duplicates?");
   if (choice !== "bin") return;
-  const run = body => fetch("/api/duplicates/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
-    .then(async r => { if (!r.ok) throw new Error(await errorText(r)); return r.json(); });
+  const run = body => post("/api/duplicates/delete", body);
   // The summary becomes a progress bar while the server works through the files.
   const summary = $(".opt-summary");
   const box = document.createElement("div");
@@ -719,7 +743,7 @@ async function deleteDuplicates(report) {
     let result = await runWithProgress({});
     let freed = result.freed, binned = result.binned, deleted = result.deleted;
     if (result.no_bin.length) {
-      const again = await askDelete(`<p>${result.no_bin.length.toLocaleString()} file${result.no_bin.length === 1 ? "" : "s"} can't be moved to a bin on ${result.no_bin.length === 1 ? "its drive" : "their drive"}, so they can't be recovered once deleted. Their oldest copy is kept either way.</p>
+      const again = await askChoice(`<p>${result.no_bin.length.toLocaleString()} file${result.no_bin.length === 1 ? "" : "s"} can't be moved to a bin on ${result.no_bin.length === 1 ? "its drive" : "their drive"}, so they can't be recovered once deleted. Their oldest copy is kept either way.</p>
         <div class="dlg-actions"><button class="btn" data-choice="cancel">Keep them</button><button class="btn danger" data-choice="permanently">Delete permanently</button></div>`,
         "Delete them permanently?");
       if (again === "permanently") {
@@ -1034,7 +1058,7 @@ function showMergeStep(into) {
       : `Pick who this is. Their photos are combined into one person.`;
     return;
   }
-  const a = people.find(p => p.id === mergeFrom), b = people.find(p => p.id === into);
+  const a = personById(mergeFrom), b = personById(into);
   const face = p => `<figure>
       <div class="avatar">${faceImg(p.face)}</div>
       <figcaption class="${p.name ? "" : "unnamed"}">${esc(personName(p))}</figcaption>
@@ -1101,13 +1125,13 @@ function toast(message, error = false) {
 const resync = () => loadMeta().then(refreshPeopleViews).catch(() => {});
 
 function mergePeople(from, into) {
-  const a = people.find(p => p.id === from), b = people.find(p => p.id === into);
+  const a = personById(from), b = personById(into);
   if (!a || !b) return;
   const label = `${personName(a)} into ${personName(b)}`;
   const orderBefore = peopleOrder; // so a failed merge puts the person back in their place
   b.count += a.count; // exact count (photos with both) comes with the resync
   if (!b.name) b.name = a.name;
-  people = people.filter(p => p.id !== from);
+  setPeople(people.filter(p => p.id !== from));
   if (state.people.delete(from)) state.people.add(into);
   refreshPeopleViews();
   toast(`Merged ${label}`);
@@ -1123,7 +1147,7 @@ function mergePeople(from, into) {
 
 /** "Same as" in the photo viewer: moves one face to `person`, then refreshes the viewer. */
 async function assignFaceTo(face, person) {
-  const p = people.find(p => p.id === person);
+  const p = personById(person);
   try {
     await post(`/api/faces/${face}/assign`, { person });
     toast(`Moved to ${p ? personName(p) : "that person"}`);
@@ -1136,7 +1160,7 @@ async function assignFaceTo(face, person) {
 }
 
 function toggleHidden(id) {
-  const p = people.find(p => p.id === id);
+  const p = personById(id);
   if (!p) return;
   p.hidden = !p.hidden;
   refreshPeopleViews();
@@ -1181,7 +1205,7 @@ function askSameName(p, other, name, keepName) {
 }
 
 async function renamePerson(id, value) {
-  const p = people.find(p => p.id === id);
+  const p = personById(id);
   let name = value.trim() || null;
   if (!p || p.name === name) return;
   const other = name && people.find(o => o.id !== id && o.name && sameName(o.name, name));
@@ -1336,10 +1360,18 @@ async function openViewer(i, { keepImage = false } = {}) {
   viewer.classList.add("open");
   if (!keepImage) await showViewerImage(i, id, w, h, v);
   if (viewerIndex !== i) return;
-  const d = await api(`/api/photos/${id}`);
+  let d;
+  try { d = await api(`/api/photos/${id}`); }
+  catch (err) {
+    if (viewerIndex !== i) return;
+    // Not the previous photo's details: say what happened.
+    $(".boxes", viewer).innerHTML = "";
+    $(".info-body", viewer).innerHTML = `<div class="s">Couldn't load this photo's details: ${esc(err.message)}</div>`;
+    return;
+  }
   if (viewerIndex !== i) return;
   $(".boxes", viewer).innerHTML = d.faces.map(f => {
-    const person = people.find(p => p.id === f.person);
+    const person = personById(f.person);
     const label = person ? personName(person) : "";
     return `<div class="box" style="left:${f.box[0] * 100}%;top:${f.box[1] * 100}%;width:${f.box[2] * 100}%;height:${f.box[3] * 100}%">${label ? `<span>${esc(label)}</span>` : ""}</div>`;
   }).join("");
@@ -1358,7 +1390,7 @@ async function openViewer(i, { keepImage = false } = {}) {
     ${place ? `<h5>Place</h5><div>${esc(place)}</div><div class="s"><a href="https://www.openstreetmap.org/?mlat=${d.lat}&mlon=${d.lon}#map=14/${d.lat}/${d.lon}" target="_blank" rel="noopener">Open map</a></div>` : ""}
     <h5>People (${d.faces.length})</h5>
     ${d.faces.length ? d.faces.map(f => {
-      const person = people.find(p => p.id === f.person);
+      const person = personById(f.person);
       return `<div class="vface"><img src="/face/${f.id}" alt="">
         <span class="who">${person?.name
           ? `<span class="n" data-person="${f.person}" title="Show ${esc(person.name)}'s photos">${esc(person.name)}</span>`
@@ -1427,8 +1459,8 @@ async function sharePhoto(id, button) {
   }
 }
 async function revealPhoto(id) {
-  const r = await fetch(`/api/photos/${id}/reveal`, { method: "POST" });
-  if (!r.ok) toast(`Couldn't open its folder: ${await errorText(r)}`, true);
+  try { await post(`/api/photos/${id}/reveal`); }
+  catch (err) { toast(`Couldn't open its folder: ${err.message}`, true); }
 }
 
 // ---- rotating a photo ------------------------------------------------------------------
@@ -1504,11 +1536,12 @@ async function flushRotation() {
   openViewer(viewerIndex, { keepImage: true });
 }
 
-// ---- deleting a photo -----------------------------------------------------------------
-/** Asks how to delete the viewer's photo; resolves to "gallery", "disk", "permanently" or "cancel". */
-function askDelete(body, title) {
-  const dlg = $("#deleteDlg");
-  $("#deleteTitle").textContent = title;
+/** Asks something in the app's own dialog (deleting a photo, removing a folder, leaving the
+ *  gallery...). `body` is HTML whose buttons carry `data-choice`; resolves to the chosen
+ *  value, or "cancel" when the dialog is closed. */
+function askChoice(body, title) {
+  const dlg = $("#choiceDlg");
+  $("#choiceTitle").textContent = title;
   $(".dlg-body", dlg).innerHTML = body;
   dlg.returnValue = "cancel";
   return new Promise(resolve => {
@@ -1522,27 +1555,27 @@ function askDelete(body, title) {
     dlg.addEventListener("close", () => { dlg.removeEventListener("click", onClick); resolve(dlg.returnValue || "cancel"); }, { once: true });
   });
 }
+// ---- deleting a photo -----------------------------------------------------------------
 async function deleteViewerPhoto() {
   if (viewerIndex < 0) return;
   const id = photos[viewerIndex][0];
   const detail = await api(`/api/photos/${id}`).catch(() => null);
   const path = detail?.path ?? "";
   const what = `<div class="delete-what"><img src="${thumbUrl(id, versionOf(id))}" alt=""><div class="p">${esc(path)}</div></div>`;
-  const choice = await askDelete(`${what}
+  const choice = await askChoice(`${what}
     <div class="delete-options">
       <button class="btn" data-choice="gallery">Remove from gallery<small>The file stays on disk. It won't come back with the next scan (Settings can show it again).</small></button>
       <button class="btn danger" data-choice="disk">Remove from disk<small>Moves the file to the bin of the computer running Imadive.</small></button>
     </div>
     <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button></div>`, "Delete this photo?");
   if (choice === "cancel") return;
-  const remove = async (from, permanently = false) => {
-    const r = await fetch(`/api/photos/${id}/remove`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ from, permanently }) });
-    return { ok: r.ok, status: r.status, body: await r.json().catch(() => ({})) };
-  };
+  const remove = (from, permanently = false) => post(`/api/photos/${id}/remove`, { from, permanently })
+    .then(body => ({ ok: true, status: 200, body }))
+    .catch(err => ({ ok: false, status: err.status, body: err.body ?? { error: err.message } }));
   let result = await remove(choice);
   if (result.status === 409 && result.body.status === "no-bin") {
     // No bin to move it to (some external or network drives): only delete for good if confirmed.
-    const again = await askDelete(`${what}<p>This file can't be moved to a bin on its drive, so it can't be recovered once deleted.</p>
+    const again = await askChoice(`${what}<p>This file can't be moved to a bin on its drive, so it can't be recovered once deleted.</p>
       <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button><button class="btn danger" data-choice="permanently">Delete permanently</button></div>`,
       "Delete it permanently?");
     if (again !== "permanently") return;
@@ -1743,7 +1776,10 @@ try { if (localStorage.getItem("imadive.infoCollapsed") === "1") setInfoCollapse
 $(".info", viewer).addEventListener("change", e => { if (e.target.id === "showBoxes") viewer.classList.toggle("boxes", e.target.checked); });
 $(".info", viewer).addEventListener("click", async e => {
   const link = e.target.closest("a[target=_blank]");
-  if (link && folderInfo.desktop) { e.preventDefault(); return post("/api/open", { url: link.href }); }
+  if (link && folderInfo.desktop) {
+    e.preventDefault();
+    return post("/api/open", { url: link.href }).catch(err => toast(`Couldn't open the map: ${err.message}`, true));
+  }
   const act = e.target.closest(".photo-acts button");
   if (act?.dataset.sharePhoto) return sharePhoto(+act.dataset.sharePhoto, act);
   if (act?.dataset.reveal) return revealPhoto(+act.dataset.reveal);
@@ -1756,7 +1792,7 @@ $(".info", viewer).addEventListener("click", async e => {
     e.target.disabled = true;
     try {
       const { person } = await post(`/api/faces/${e.target.dataset.cover}/cover`);
-      const p = people.find(x => x.id === person);
+      const p = personById(person);
       toast(p ? `This face is now on ${personName(p)}'s card` : "Card photo changed");
     } catch (err) {
       e.target.disabled = false;
@@ -1853,11 +1889,8 @@ function browseForFolder() {
   });
 }
 async function addFolder(path) {
-  const r = await fetch(path == null ? "/api/folders/pick" : "/api/folders", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(path == null ? {} : { path }),
-  });
-  if (r.status === 204) return false; // picker cancelled
-  if (!r.ok) throw new Error(await errorText(r));
+  const added = await post(path == null ? "/api/folders/pick" : "/api/folders", path == null ? {} : { path });
+  if (added === null) return false; // picker cancelled
   await loadFolders();
   setTimeout(pollStatus, 300);
   return true;
@@ -1940,7 +1973,18 @@ function renderSettings(error = "") {
     <div id="settingsExcluded">${excludedHtml(lastStatus)}</div>
     <h4>People</h4><div class="scan-state"><div class="what">Regroup all faces
       <small>New faces are placed into people after every scan. This groups every face again from scratch instead: named people and faces you placed stay where they are, unnamed groups may change. It can take a long time on large libraries.</small></div>
-      <button class="btn" data-regroup>Regroup</button></div>`;
+      <button class="btn" data-regroup>Regroup</button></div>
+    <div id="settingsAbout">${aboutHtml(lastStatus)}</div>`;
+}
+/** Version, license and the project's pages. */
+function aboutHtml(st) {
+  if (!st?.version) return "";
+  const link = (path, text) => `<a href="${esc(st.project)}/${path}" target="_blank" rel="noopener">${text}</a>`;
+  return `<h4>About</h4><div class="about">
+    <p><b>Imadive ${esc(st.version)}</b>. Free for personal and other non-commercial use under the
+      PolyForm Noncommercial License 1.0.0. The face recognition models are for non-commercial use only.</p>
+    <p>${link("blob/main/LICENSE", "License")} · ${link("blob/main/THIRD_PARTY.md", "Third-party components")} ·
+      ${link("releases", "Releases")}</p></div>`;
 }
 function openSettings() {
   renderSettings();
@@ -1949,6 +1993,7 @@ function openSettings() {
     lastStatus = st;
     if (!$("#settingsDlg").open) return;
     $("#settingsScan").innerHTML = scanStateHtml(st);
+    $("#settingsAbout").innerHTML = aboutHtml(st);
     $("#settingsExcluded").innerHTML = excludedHtml(st);
     if (st.failed !== failureCount) loadFailures();
   }).catch(() => {});
@@ -1960,6 +2005,12 @@ $("#settingsBtn").onclick = () => { openSettings(); loadFolders().then(() => { i
 $("#settingsDlg").addEventListener("click", async e => {
   const dlg = $("#settingsDlg");
   if (e.target === dlg || e.target.dataset.close != null) return dlg.close();
+  // The desktop app opens links in the system browser.
+  const link = e.target.closest("a[target=_blank]");
+  if (link && folderInfo.desktop) {
+    e.preventDefault();
+    return post("/api/open", { url: link.href }).catch(err => toast(`Couldn't open the link: ${err.message}`, true));
+  }
   const start = async (button, url) => {
     button.disabled = true;
     button.textContent = "Starting…";
@@ -1980,7 +2031,7 @@ $("#settingsDlg").addEventListener("click", async e => {
     else if (e.target.dataset.browse != null) { if (await browseForFolder()) { await loadFolders(); renderSettings(); } }
     else if (e.target.dataset.remove) {
       const path = e.target.dataset.remove;
-      const choice = await askDelete(`<p class="gone-path">${esc(path)}</p>
+      const choice = await askChoice(`<p class="gone-path">${esc(path)}</p>
         <p>Its photos leave the gallery, with their faces. The files stay on disk, and adding the folder again brings them back.</p>
         <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button><button class="btn danger" data-choice="remove">Remove folder</button></div>`,
         "Remove this folder from the gallery?");
@@ -2148,7 +2199,7 @@ addEventListener("popstate", async e => {
   const undone = await undoOneStep();
   // The desktop app has no page to go back to (a mouse's back button, say).
   if (undone || folderInfo.desktop) return pushAppEntry();
-  const choice = await askDelete(`<p>Close the gallery and go back to the previous page?</p>
+  const choice = await askChoice(`<p>Close the gallery and go back to the previous page?</p>
     <div class="dlg-actions"><button class="btn" data-choice="cancel">Stay</button><button class="btn primary" data-choice="leave">Leave</button></div>`,
     "Leave Imadive?");
   if (choice !== "leave") return pushAppEntry();
