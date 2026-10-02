@@ -768,9 +768,15 @@ function loadHash() {
 }
 
 // ---- data ------------------------------------------------------------------
+/** The message of an error answer: `{"error": "..."}` from the API, else the plain text
+ *  (axum's own rejections, the request guard). */
+async function errorText(r) {
+  const text = await r.text();
+  try { return JSON.parse(text).error || text || String(r.status); } catch { return text || String(r.status); }
+}
 const api = async (url, opts) => {
   const r = await fetch(url, opts);
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) throw new Error(await errorText(r));
   return r.status === 204 || r.status === 202 ? null : r.json();
 };
 const post = (url, body) => api(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
@@ -1399,7 +1405,7 @@ async function deleteDuplicates(report) {
     "Delete duplicates?");
   if (choice !== "bin") return;
   const run = body => fetch("/api/duplicates/delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
-    .then(async r => { if (!r.ok) throw new Error(await r.text()); return r.json(); });
+    .then(async r => { if (!r.ok) throw new Error(await errorText(r)); return r.json(); });
   // The summary becomes a progress bar while the server works through the files.
   const summary = $(".opt-summary");
   const box = document.createElement("div");
@@ -2132,7 +2138,7 @@ async function sharePhoto(id, button) {
 }
 async function revealPhoto(id) {
   const r = await fetch(`/api/photos/${id}/reveal`, { method: "POST" });
-  if (!r.ok) toast(`Couldn't open its folder: ${await r.text() || r.status}`, true);
+  if (!r.ok) toast(`Couldn't open its folder: ${await errorText(r)}`, true);
 }
 
 // ---- rotating a photo ------------------------------------------------------------------
@@ -2561,7 +2567,7 @@ async function addFolder(path) {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(path == null ? {} : { path }),
   });
   if (r.status === 204) return false; // picker cancelled
-  if (!r.ok) throw new Error(await r.text());
+  if (!r.ok) throw new Error(await errorText(r));
   await loadFolders();
   setTimeout(pollStatus, 300);
   return true;

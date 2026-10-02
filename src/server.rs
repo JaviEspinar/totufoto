@@ -56,18 +56,48 @@ pub struct AppState {
 
 type Shared = Arc<AppState>;
 
-struct ApiError(anyhow::Error);
+/// An error answer: a status code and a message for the person using the gallery, sent as
+/// `{"error": "..."}`. Anything that isn't one of the expected cases (a database or file
+/// error, say) becomes a 500 and is logged.
+#[derive(Debug)]
+struct ApiError {
+    status: StatusCode,
+    message: String,
+}
+
+impl ApiError {
+    fn new(status: StatusCode, message: impl Into<String>) -> Self {
+        Self { status, message: message.into() }
+    }
+    fn not_found(what: &str) -> Self {
+        Self::new(StatusCode::NOT_FOUND, format!("no such {what}"))
+    }
+    fn bad_request(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::BAD_REQUEST, message)
+    }
+    fn conflict(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::CONFLICT, message)
+    }
+    fn forbidden(message: impl Into<String>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, message)
+    }
+    /// Something only the desktop app can do.
+    fn desktop_only(what: &str) -> Self {
+        Self::new(StatusCode::NOT_IMPLEMENTED, format!("only the desktop app can {what}"))
+    }
+}
 
 impl<E: Into<anyhow::Error>> From<E> for ApiError {
     fn from(e: E) -> Self {
-        Self(e.into())
+        let e = e.into();
+        tracing::error!("{e:#}");
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, format!("{e:#}"))
     }
 }
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        tracing::error!("{:#}", self.0);
-        (StatusCode::INTERNAL_SERVER_ERROR, format!("{:#}", self.0)).into_response()
+        (self.status, Json(json!({ "error": self.message }))).into_response()
     }
 }
 
@@ -199,10 +229,10 @@ struct FolderBody {
 /// Saves a folder and indexes it.
 async fn save_folder(s: &Shared, path: PathBuf) -> ApiResult<Response> {
     let Ok(path) = dunce::canonicalize(&path) else {
-        return Ok((StatusCode::BAD_REQUEST, format!("{} does not exist", path.display())).into_response());
+        return Err(ApiError::bad_request(format!("{} does not exist", path.display())));
     };
     if !path.is_dir() {
-        return Ok((StatusCode::BAD_REQUEST, format!("{} is not a folder", path.display())).into_response());
+        return Err(ApiError::bad_request(format!("{} is not a folder", path.display())));
     }
     let stored = path.to_string_lossy().into_owned();
     let scan_cfg = s.scan.clone();
@@ -227,7 +257,7 @@ async fn save_folder(s: &Shared, path: PathBuf) -> ApiResult<Response> {
         } else {
             format!("{} is already included: it is inside {}", path.display(), outer.display())
         };
-        return Ok((StatusCode::CONFLICT, msg).into_response());
+        return Err(ApiError::conflict(msg));
     }
     scan::spawn(s.scan.clone(), s.status.clone());
     Ok(Json(json!({ "path": path.to_string_lossy() })).into_response())
@@ -239,7 +269,7 @@ async fn add_folder(State(s): State<Shared>, Json(body): Json<FolderBody>) -> Ap
 
 /// Opens the native folder picker (desktop app only).
 async fn pick_folder(State(s): State<Shared>) -> ApiResult<Response> {
-    let Some(host) = s.host.clone() else { return Ok(StatusCode::NOT_IMPLEMENTED.into_response()) };
+    let Some(host) = s.host.clone() else { return Err(ApiError::desktop_only("open a folder picker")) };
     match tokio::task::spawn_blocking(move || host.pick_folder()).await? {
         Some(path) => save_folder(&s, path).await,
         None => Ok(StatusCode::NO_CONTENT.into_response()),
@@ -263,12 +293,12 @@ impl Drop for RemovalGuard {
 async fn remove_folder(State(s): State<Shared>, Json(body): Json<FolderBody>) -> ApiResult<Response> {
     use std::sync::atomic::Ordering::{Relaxed, SeqCst};
     if s.scan.is_fixed(std::path::Path::new(&body.path)) {
-        return Ok((StatusCode::CONFLICT, "this folder is given on the command line; remove it there").into_response());
+        return Err(ApiError::conflict("this folder is given on the command line; remove it there"));
     }
     {
         let mut removing = s.status.removing.lock().unwrap();
         if removing.is_some() {
-            return Ok((StatusCode::CONFLICT, "a folder is being removed; wait for it to finish").into_response());
+            return Err(ApiError::conflict("a folder is being removed; wait for it to finish"));
         }
         *removing = Some(body.path.clone());
     }
@@ -336,10 +366,7 @@ async fn browse_folders(State(s): State<Shared>, Query(q): Query<BrowseQuery>) -
         }
     };
     let listing = tokio::task::spawn_blocking(move || list_dirs(start)).await?;
-    Ok(match listing {
-        Ok(v) => Json(v).into_response(),
-        Err(e) => (StatusCode::BAD_REQUEST, e.to_string()).into_response(),
-    })
+    listing.map(|v| Json(v).into_response()).map_err(|e| ApiError::bad_request(e.to_string()))
 }
 
 fn list_dirs(path: Option<PathBuf>) -> Result<JsonValue> {
@@ -379,14 +406,14 @@ struct OpenBody {
 
 /// Opens a map link in the system browser (desktop app only). Limited to the map site
 /// the UI links to, so the endpoint can't be used to launch arbitrary URLs.
-async fn open_url(State(s): State<Shared>, Json(body): Json<OpenBody>) -> StatusCode {
+async fn open_url(State(s): State<Shared>, Json(body): Json<OpenBody>) -> ApiResult<StatusCode> {
     match &s.host {
         Some(host) if body.url.starts_with("https://www.openstreetmap.org/") => {
             host.open_url(&body.url);
-            StatusCode::NO_CONTENT
+            Ok(StatusCode::NO_CONTENT)
         }
-        Some(_) => StatusCode::FORBIDDEN,
-        None => StatusCode::NOT_IMPLEMENTED,
+        Some(_) => Err(ApiError::forbidden("only map links can be opened")),
+        None => Err(ApiError::desktop_only("open links")),
     }
 }
 
@@ -552,7 +579,7 @@ async fn groups(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResu
         Some("month") => "substr(taken, 1, 7)",
         Some("day") => "substr(taken, 1, 10)",
         Some("place") => "COALESCE(place_id, 0)",
-        _ => return Ok((StatusCode::BAD_REQUEST, "by must be year, month, day or place").into_response()),
+        _ => return Err(ApiError::bad_request("by must be year, month, day or place")),
     };
     let by_place = q.by.as_deref() == Some("place");
     let result = db(&s, move |conn| {
@@ -637,19 +664,19 @@ async fn remove_photo(
         let Some(path) =
             conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get::<_, String>(0)).optional()?
         else {
-            return Ok((StatusCode::NOT_FOUND, json!({ "error": "no such photo" })));
+            return Ok(Err(ApiError::not_found("photo")));
         };
         match body.from.as_str() {
             "gallery" => {
                 conn.execute("INSERT OR IGNORE INTO excluded (path) VALUES (?)", [&path])?;
                 crate::db::forget_photo(conn, id)?;
                 tracing::info!("{path}: removed from the gallery (file kept)");
-                Ok((StatusCode::OK, json!({ "status": "removed", "path": path })))
+                Ok(Ok((StatusCode::OK, json!({ "status": "removed", "path": path }))))
             }
             "disk" => {
                 let file = PathBuf::from(&path);
                 if !scan_cfg.roots(conn)?.iter().any(|r| file.starts_with(r)) {
-                    return Ok((StatusCode::FORBIDDEN, json!({ "error": "the file is outside the photo folders" })));
+                    return Ok(Err(ApiError::forbidden("the file is outside the photo folders")));
                 }
                 if file.exists() {
                     if body.permanently {
@@ -657,25 +684,27 @@ async fn remove_photo(
                         tracing::info!("{path}: deleted permanently");
                     } else if let Err(e) = trash::delete(&file) {
                         tracing::warn!("{path}: can't move to the bin: {e}");
-                        return Ok((
+                        // Not an error: the page asks whether to delete it for good instead.
+                        return Ok(Ok((
                             StatusCode::CONFLICT,
                             json!({ "status": "no-bin", "error": e.to_string(), "path": path }),
-                        ));
+                        )));
                     } else {
                         tracing::info!("{path}: moved to the bin");
                     }
                 }
                 crate::db::forget_photo(conn, id)?;
-                Ok((
+                Ok(Ok((
                     StatusCode::OK,
                     json!({ "status": if body.permanently { "deleted" } else { "binned" }, "path": path }),
-                ))
+                )))
             }
-            _ => Ok((StatusCode::BAD_REQUEST, json!({ "error": "from must be gallery or disk" }))),
+            _ => Ok(Err(ApiError::bad_request("from must be gallery or disk"))),
         }
     })
     .await?;
-    Ok((result.0, Json(result.1)).into_response())
+    let (status, body) = result?;
+    Ok((status, Json(body)).into_response())
 }
 
 /// Identical files and the search progress. While the scan or the search runs, the report
@@ -717,7 +746,7 @@ struct DupDelete {
 async fn duplicates_delete(State(s): State<Shared>, Json(body): Json<DupDelete>) -> ApiResult<Response> {
     let dups = s.status.dups.clone();
     if dups.deleting.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return Ok((StatusCode::CONFLICT, "the duplicates are already being deleted").into_response());
+        return Err(ApiError::conflict("the duplicates are already being deleted"));
     }
     let scan_cfg = s.scan.clone();
     let progress = dups.clone();
@@ -796,7 +825,7 @@ async fn photo_detail(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult
     })
     .await?;
     if result.is_null() {
-        return Err(anyhow::anyhow!("photo {id} not found").into());
+        return Err(ApiError::not_found("photo"));
     }
     Ok(Json(result))
 }
@@ -928,10 +957,10 @@ async fn merge_person(State(s): State<Shared>, Path(id): Path<i64>, Json(body): 
 /// "Not them": moves the face into a new unnamed person, which can be renamed, hidden or
 /// merged later. Clustering never moves it back.
 async fn reject_face(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
-    Ok(match db(&s, move |conn| crate::db::move_face_to_new_person(conn, id)).await? {
-        Some(person) => Json(json!({ "person": person })).into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
-    })
+    match db(&s, move |conn| crate::db::move_face_to_new_person(conn, id)).await? {
+        Some(person) => Ok(Json(json!({ "person": person })).into_response()),
+        None => Err(ApiError::not_found("face")),
+    }
 }
 
 /// Shows this face on its person's card. It stays the card's face while it belongs to them.
@@ -945,10 +974,10 @@ async fn cover_face(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<R
         Ok(person)
     })
     .await?;
-    Ok(match person {
-        Some(person) => Json(json!({ "person": person })).into_response(),
-        None => StatusCode::NOT_FOUND.into_response(),
-    })
+    match person {
+        Some(person) => Ok(Json(json!({ "person": person })).into_response()),
+        None => Err(ApiError::not_found("face in a group")),
+    }
 }
 
 #[derive(Deserialize)]
@@ -963,7 +992,7 @@ async fn assign_face(
     Json(body): Json<AssignBody>,
 ) -> ApiResult<StatusCode> {
     let done = db(&s, move |conn| crate::db::assign_face(conn, id, body.person)).await?;
-    Ok(if done { StatusCode::NO_CONTENT } else { StatusCode::NOT_FOUND })
+    if done { Ok(StatusCode::NO_CONTENT) } else { Err(ApiError::not_found("face or person")) }
 }
 
 fn jpeg(bytes: Vec<u8>, cache: &'static str) -> Response {
@@ -973,10 +1002,7 @@ fn jpeg(bytes: Vec<u8>, cache: &'static str) -> Response {
 async fn blob(s: &Shared, sql: &'static str, id: i64) -> ApiResult<Response> {
     let data: Option<Vec<u8>> =
         db(s, move |conn| Ok(conn.prepare_cached(sql)?.query_row([id], |r| r.get(0)).optional()?)).await?;
-    Ok(match data {
-        Some(d) => jpeg(d, IMMUTABLE),
-        None => StatusCode::NOT_FOUND.into_response(),
-    })
+    data.map(|d| jpeg(d, IMMUTABLE)).ok_or_else(|| ApiError::not_found("picture"))
 }
 
 async fn thumb(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
@@ -1001,7 +1027,7 @@ async fn rotate_photo(
     Json(body): Json<RotateBody>,
 ) -> ApiResult<Response> {
     if s.status.running.load(std::sync::atomic::Ordering::Relaxed) {
-        return Ok((StatusCode::CONFLICT, "the photos are being scanned; try again when the scan ends").into_response());
+        return Err(ApiError::conflict("the photos are being scanned; try again when the scan ends"));
     }
     let turns = body.turns.rem_euclid(4) as u8;
     let scan_cfg = s.scan.clone();
@@ -1011,19 +1037,17 @@ async fn rotate_photo(
     })
     .await?;
     use crate::rotate::Outcome;
-    Ok(match outcome {
+    match outcome {
         Outcome::Rotated { width, height, version } => {
-            Json(json!({ "width": width, "height": height, "version": version })).into_response()
+            Ok(Json(json!({ "width": width, "height": height, "version": version })).into_response())
         }
-        Outcome::NotFound => StatusCode::NOT_FOUND.into_response(),
+        Outcome::NotFound => Err(ApiError::not_found("photo")),
         Outcome::Unsupported => {
-            (StatusCode::UNSUPPORTED_MEDIA_TYPE, "only JPEG and PNG photos can be rotated").into_response()
+            Err(ApiError::new(StatusCode::UNSUPPORTED_MEDIA_TYPE, "only JPEG and PNG photos can be rotated"))
         }
-        Outcome::Outside => (StatusCode::FORBIDDEN, "the file is not in the photo folders").into_response(),
-        Outcome::Changed => {
-            (StatusCode::CONFLICT, "the file changed since it was indexed; rescan first").into_response()
-        }
-    })
+        Outcome::Outside => Err(ApiError::forbidden("the file is not in the photo folders")),
+        Outcome::Changed => Err(ApiError::conflict("the file changed since it was indexed; rescan first")),
+    }
 }
 
 /// Shows the photo's file in the file manager (desktop app only; 409 otherwise).
@@ -1032,9 +1056,9 @@ async fn reveal_photo(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult
         Ok(conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get(0)).optional()?)
     })
     .await?;
-    let Some(path) = path.map(PathBuf::from) else { return Ok(StatusCode::NOT_FOUND.into_response()) };
+    let Some(path) = path.map(PathBuf::from) else { return Err(ApiError::not_found("photo")) };
     let Some(host) = &s.host else {
-        return Ok((StatusCode::CONFLICT, "only the desktop app can open folders").into_response());
+        return Err(ApiError::desktop_only("open folders"));
     };
     host.reveal(&path);
     Ok(StatusCode::NO_CONTENT.into_response())
@@ -1074,7 +1098,11 @@ async fn original(State(s): State<Shared>, Path(id): Path<i64>, Query(q): Query<
         Ok(conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get(0)).optional()?)
     })
     .await?;
-    let Some(path) = path.map(PathBuf::from) else { return Ok(StatusCode::NOT_FOUND.into_response()) };
+    let Some(path) = path.map(PathBuf::from) else { return Err(ApiError::not_found("photo")) };
+    if !path.is_file() {
+        // Deleted outside the gallery (or its drive is unplugged): the page asks /check.
+        return Err(ApiError::not_found("file in its folder"));
+    }
     let ext = imaging::extension(&path);
     if imaging::BROWSER_EXTENSIONS.contains(&ext.as_str()) {
         let mime = match ext.as_str() {
@@ -1153,6 +1181,142 @@ mod tests {
             .unwrap()
             .map(Result::unwrap)
             .collect()
+    }
+
+    /// The gallery's router on a test library (a.jpg indexed), without the desktop app.
+    fn app(lib: &crate::testutil::Library) -> Router {
+        let state = AppState {
+            pool: Pool::new(lib.cfg.db_path.clone()),
+            status: Arc::new(ScanStatus::default()),
+            scan: Arc::new(ScanConfig {
+                fixed_roots: lib.cfg.fixed_roots.clone(),
+                db_path: lib.cfg.db_path.clone(),
+                models: None,
+                cluster_threshold: 0.42,
+            }),
+            host: None,
+        };
+        router(state, crate::guard::HostNames::default())
+    }
+
+    /// Sends a request as the gallery's own page would, and returns the status and the body.
+    async fn call(app: &Router, method: &str, uri: &str, body: Option<JsonValue>) -> (StatusCode, JsonValue) {
+        use tower::ServiceExt;
+        let mut req = axum::http::Request::builder().method(method).uri(uri).header("host", "127.0.0.1:7878");
+        if method != "GET" {
+            req = req.header("sec-fetch-site", "same-origin");
+        }
+        let req = match body {
+            Some(b) => req.header("content-type", "application/json").body(axum::body::Body::from(b.to_string())),
+            None => req.body(axum::body::Body::empty()),
+        }
+        .unwrap();
+        let res = app.clone().oneshot(req).await.unwrap();
+        let status = res.status();
+        let bytes = axum::body::to_bytes(res.into_body(), 1 << 20).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap_or(JsonValue::Null))
+    }
+
+    fn library_with_a_photo() -> (crate::testutil::Library, i64) {
+        let lib = crate::testutil::Library::new();
+        lib.add("a.jpg", crate::testutil::Photo::default());
+        lib.scan();
+        let id = lib.id("a.jpg");
+        (lib, id)
+    }
+
+    #[tokio::test]
+    async fn errors_have_the_right_status_and_a_message() {
+        let (lib, id) = library_with_a_photo();
+        let app = app(&lib);
+        let error =
+            |(status, body): (StatusCode, JsonValue)| (status, body["error"].as_str().unwrap_or("").to_string());
+
+        let (status, body) = call(&app, "GET", &format!("/api/photos/{id}"), None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["width"], 64);
+        assert_eq!(
+            error(call(&app, "GET", "/api/photos/9999", None).await),
+            (StatusCode::NOT_FOUND, "no such photo".into())
+        );
+        assert_eq!(call(&app, "GET", "/thumb/9999", None).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(call(&app, "GET", "/api/groups", None).await.0, StatusCode::BAD_REQUEST);
+        let (status, msg) =
+            error(call(&app, "POST", &format!("/api/photos/{id}/rotate"), Some(json!({ "turns": 1 }))).await);
+        assert_eq!(status, StatusCode::OK, "{msg}");
+        let (status, msg) = error(call(&app, "POST", "/api/folders/pick", None).await);
+        assert_eq!(
+            (status, msg.as_str()),
+            (StatusCode::NOT_IMPLEMENTED, "only the desktop app can open a folder picker")
+        );
+        let (status, _) = call(&app, "POST", "/api/folders", Some(json!({ "path": "/nonexistent/photos" }))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let (status, msg) = error(call(&app, "POST", "/api/folders", Some(json!({ "path": lib.root() }))).await);
+        assert_eq!((status, msg.contains("already in the gallery")), (StatusCode::CONFLICT, true), "{msg}");
+    }
+
+    #[tokio::test]
+    async fn a_photo_whose_file_is_gone_is_404_then_removed_by_check() {
+        let (lib, id) = library_with_a_photo();
+        let app = app(&lib);
+        std::fs::remove_file(lib.root().join("a.jpg")).unwrap();
+        assert_eq!(call(&app, "GET", &format!("/original/{id}"), None).await.0, StatusCode::NOT_FOUND);
+        let (_, body) = call(&app, "POST", &format!("/api/photos/{id}/check"), None).await;
+        assert_eq!(body["status"], "removed");
+        assert_eq!(call(&app, "GET", &format!("/api/photos/{id}"), None).await.0, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn removing_from_the_gallery_keeps_the_file_and_disk_stays_inside_the_folders() {
+        let (lib, id) = library_with_a_photo();
+        let app = app(&lib);
+        let (status, body) =
+            call(&app, "POST", &format!("/api/photos/{id}/remove"), Some(json!({ "from": "nowhere" }))).await;
+        assert_eq!((status, body["error"].as_str()), (StatusCode::BAD_REQUEST, Some("from must be gallery or disk")));
+        let (status, body) =
+            call(&app, "POST", &format!("/api/photos/{id}/remove"), Some(json!({ "from": "gallery" }))).await;
+        assert_eq!((status, body["status"].as_str()), (StatusCode::OK, Some("removed")));
+        assert!(lib.root().join("a.jpg").exists());
+        assert_eq!(lib.scan().total, 0, "it stays out of the gallery");
+
+        // A photo outside the folders can't be deleted from disk.
+        let outside = lib.dir.file("elsewhere/b.jpg");
+        crate::testutil::Photo::default().write(&outside);
+        let conn = lib.conn();
+        conn.execute(
+            "INSERT INTO photos (path, mtime, size, width, height, taken, date_from_exif) VALUES (?, 0, 1, 1, 1, '2020-01-01 00:00:00', 0)",
+            [outside.to_string_lossy()],
+        )
+        .unwrap();
+        let b = conn.last_insert_rowid();
+        let (status, _) = call(
+            &app,
+            "POST",
+            &format!("/api/photos/{b}/remove"),
+            Some(json!({ "from": "disk", "permanently": true })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert!(outside.exists());
+    }
+
+    #[tokio::test]
+    async fn the_guard_applies_to_every_route() {
+        use tower::ServiceExt;
+        let (lib, _) = library_with_a_photo();
+        let app = app(&lib);
+        let req = |host: &str, site: Option<&str>| {
+            let mut b = axum::http::Request::builder().method("POST").uri("/api/scan").header("host", host);
+            if let Some(site) = site {
+                b = b.header("sec-fetch-site", site);
+            }
+            b.body(axum::body::Body::empty()).unwrap()
+        };
+        let status =
+            |r: axum::http::Request<axum::body::Body>| async { app.clone().oneshot(r).await.unwrap().status() };
+        assert_eq!(status(req("evil.example:7878", Some("same-origin"))).await, StatusCode::FORBIDDEN);
+        assert_eq!(status(req("127.0.0.1:7878", Some("cross-site"))).await, StatusCode::FORBIDDEN);
+        assert_eq!(status(req("127.0.0.1:7878", Some("same-origin"))).await, StatusCode::ACCEPTED);
     }
 
     #[test]
