@@ -17,6 +17,7 @@ use serde::Serialize;
 use walkdir::WalkDir;
 
 use crate::faces::{FaceModels, MIN_FACE_PX, ModelPaths};
+use crate::library::root_of;
 use crate::{cluster, geo, imaging};
 
 const WORK_MAX_SIDE: u32 = 1600;
@@ -106,21 +107,7 @@ impl ScanConfig {
     /// The command-line folders, then the saved ones. A folder inside another one is left
     /// out: the outer one already includes it.
     pub fn roots(&self, conn: &Connection) -> Result<Vec<PathBuf>> {
-        let saved: Vec<PathBuf> = conn
-            .prepare("SELECT path FROM folders ORDER BY path")?
-            .query_map([], |r| r.get::<_, String>(0))?
-            .map(|r| r.map(PathBuf::from))
-            .collect::<Result<_, _>>()?;
-        let all: Vec<PathBuf> = self.fixed_roots.iter().cloned().chain(saved).collect();
-        let mut roots: Vec<PathBuf> = Vec::new();
-        for (i, root) in all.iter().enumerate() {
-            let covered =
-                all.iter().enumerate().any(|(j, other)| j != i && root.starts_with(other) && (root != other || j < i));
-            if !covered {
-                roots.push(root.clone());
-            }
-        }
-        Ok(roots)
+        crate::library::roots(conn, &self.fixed_roots)
     }
 
     pub fn is_fixed(&self, path: &Path) -> bool {
@@ -250,9 +237,7 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     let present: HashSet<String> = files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
     {
         let mut forget = conn.prepare("DELETE FROM failures WHERE path = ?")?;
-        for path in
-            failed.keys().filter(|p| !present.contains(*p) && !offline.iter().any(|r| Path::new(p).starts_with(r)))
-        {
+        for path in failed.keys().filter(|p| !present.contains(*p) && root_of(&offline, Path::new(p)).is_none()) {
             forget.execute([path])?;
         }
     }
@@ -266,8 +251,8 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
         .filter(|(p, _)| {
             let path = Path::new(p);
             !present.contains(*p)
-                && !offline.iter().any(|r| path.starts_with(r))
-                && (whole_library || roots.iter().any(|r| path.starts_with(r)))
+                && root_of(&offline, path).is_none()
+                && (whole_library || root_of(&roots, path).is_some())
         })
         .map(|(_, v)| v.0)
         .collect();

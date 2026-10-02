@@ -9,6 +9,7 @@ pub mod faces;
 mod geo;
 mod guard;
 mod imaging;
+mod library;
 mod rotate;
 pub mod scan;
 mod server;

@@ -42,7 +42,7 @@ pub fn rotate_photo(conn: &mut Connection, roots: &[PathBuf], id: i64, turns: u8
         .optional()?;
     let Some((path, mtime, size, version)) = row else { return Ok(Outcome::NotFound) };
     let path = PathBuf::from(path);
-    if !roots.iter().any(|r| path.starts_with(r)) {
+    if crate::library::root_of(roots, &path).is_none() {
         return Ok(Outcome::Outside);
     }
     if !can_rotate(&path) {

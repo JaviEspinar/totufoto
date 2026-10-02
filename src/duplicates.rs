@@ -216,7 +216,7 @@ pub fn delete(
         for file in remove {
             status.delete_done.fetch_add(1, Ordering::Relaxed);
             let path = PathBuf::from(&file.path);
-            if !keep_ok || !unchanged(&path, file.mtime, file.size) || !roots.iter().any(|r| path.starts_with(r)) {
+            if !keep_ok || !unchanged(&path, file.mtime, file.size) || crate::library::root_of(roots, &path).is_none() {
                 result.skipped.push(file.path.clone());
                 continue;
             }
