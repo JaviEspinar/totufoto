@@ -380,3 +380,34 @@ Effort: S under half a day, M one to two days, L a week or more. Dependencies ar
 - Embedding the models and ONNX Runtime in the desktop binary: offline first start and the self-test depend on it. Document the trade-off instead.
 - The hand-written release notes as the source of truth for the changelog; generate the Downloads section and validate the file in CI rather than replacing it with commit logs.
 - The virtualised people grid, the stable sidebar ordering, the `beginViewLoad` choreography and the rotate tests: these are the parts other code should be brought up to, not rewritten.
+
+## 10. Progress
+
+Updated as the roadmap is worked through.
+
+### Phase 1: done
+
+| # | Result | Commit |
+|---|---|---|
+| 1-2 | PolyForm Noncommercial `LICENSE`, `THIRD_PARTY.md`, License section; workspace version and metadata; published as waiting4timeout | `d78434b`, `c640959` |
+| 3 | Guard on every address. Correction to 3.3: `Sec-Fetch-Site`/`Origin` stop cross-site requests but not DNS rebinding (a rebinding page is same-origin), so the Host check now applies everywhere, accepting IP addresses, `localhost`, the machine's names and `--allow-host` names | `94106c0` |
+| 4 | Decided against restricting folder management; documented in README and `SECURITY.md` | `1274110` |
+| 5 | Busy flags cleared by guards; a crashing file is a failed file | `bb9c8d1` |
+| 6 | `ci.yml` (fmt, clippy with annotations, tests on three systems, MSRV). Found on the way: the real MSRV was 1.93, not 1.88 | `557fb89`, `dd99581` |
+| 7 | `rustfmt.toml`, `.editorconfig`, one reformat commit | `31d7b15`, `a261357` |
+| 8 | Privacy and security section, `--host` warning, `SECURITY.md` | `94106c0` |
+| 9 | SHA-256 pins in the fetch scripts. Found on the way: ONNX Runtime 1.28.2 has no Intel Mac build | `d8d3a8c` |
+
+Still open from phase 1: the donation platform (`FUNDING.yml`, About entry) and the GitHub settings only the owner can change.
+
+### Phase 2: done
+
+| # | Result | Commit |
+|---|---|---|
+| 10 | `db::init`, `open_in_memory`, table-driven migrations, `src/testutil.rs` (temporary libraries, generated JPEGs with real EXIF) | `da9cfea` |
+| 11 | Typed `ApiError` with JSON bodies; missing photo and deleted file are 404s | `040cac7` |
+| 12 | `src/library.rs` (roots, `root_of`, folder add/remove, check and remove photo). Its tests found a regression from 0.1.8: removing a saved folder that contained a command-line one also removed that folder's photos | `2db578e` |
+| 13 | Tests for every destructive path: 48 in total, passing on Linux, macOS and Windows | `da9cfea`, `e3cec9e`, `9c90ffb` |
+| 14 | Empty photo folders count as unplugged; changed photos keep their id | `95f1ccf` |
+| 15 | Bounded pool, one scan thread at a time, scans survive panics, stop on save failure | `cb7f9b3` |
+| 16 | `fixtures/photos` (public-domain portrait with date and GPS) used by the CI self-test | `7edb6e9` |
