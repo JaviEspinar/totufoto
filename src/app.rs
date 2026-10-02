@@ -149,11 +149,8 @@ pub fn init_logging() {
 /// [`log_to_file`] once the app knows where its data folder is. Windows release builds
 /// have no terminal, so the file is the only place their log can be read.
 pub fn init_desktop_logging() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(log_filter())
-        .with_ansi(false)
-        .with_writer(|| DesktopLog)
-        .try_init();
+    let _ =
+        tracing_subscriber::fmt().with_env_filter(log_filter()).with_ansi(false).with_writer(|| DesktopLog).try_init();
 }
 
 static LOG_FILE: OnceLock<Mutex<std::fs::File>> = OnceLock::new();
