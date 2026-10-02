@@ -254,12 +254,52 @@ async fn pick_folder(State(s): State<Shared>) -> ApiResult<Response> {
     }
 }
 
+/// Ends a folder removal however it goes: scans may run again (and one picks up the
+/// remaining folders).
+struct RemovalGuard {
+    s: Shared,
+}
+
+impl Drop for RemovalGuard {
+    fn drop(&mut self) {
+        *self.s.status.removing.lock().unwrap() = None;
+        self.s.status.hold.store(false, std::sync::atomic::Ordering::SeqCst);
+        scan::spawn(self.s.scan.clone(), self.s.status.clone());
+    }
+}
+
 async fn remove_folder(State(s): State<Shared>, Json(body): Json<FolderBody>) -> ApiResult<Response> {
+    use std::sync::atomic::Ordering::{Relaxed, SeqCst};
     if s.scan.is_fixed(std::path::Path::new(&body.path)) {
         return Ok((StatusCode::CONFLICT, "this folder is given on the command line; remove it there").into_response());
     }
+    {
+        let mut removing = s.status.removing.lock().unwrap();
+        if removing.is_some() {
+            return Ok((StatusCode::CONFLICT, "a folder is being removed; wait for it to finish").into_response());
+        }
+        *removing = Some(body.path.clone());
+    }
+    s.status.remove_done.store(0, Relaxed);
+    s.status.remove_total.store(0, Relaxed);
+    // A scan still running (the folder was just added, say) would put its photos back.
+    s.status.hold.store(true, SeqCst);
+    // Its own task: it finishes (and lets scans run again) even if the page is closed.
+    let task = tokio::spawn(remove_folder_now(s.clone(), body.path));
+    let (removed, kept) = task.await??;
+    Ok(Json(json!({ "removed": removed, "kept": kept })).into_response())
+}
+
+async fn remove_folder_now(s: Shared, path: String) -> ApiResult<(usize, usize)> {
+    use std::sync::atomic::Ordering::{Relaxed, SeqCst};
+    let _guard = RemovalGuard { s: s.clone() };
+    while s.status.running.load(SeqCst) {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let body = FolderBody { path };
     let scan_cfg = s.scan.clone();
-    let (removed, kept) = db(&s, move |conn| {
+    let status = s.status.clone();
+    db(&s, move |conn| {
         let folder = PathBuf::from(&body.path);
         // Its photos leave, except those another folder still includes (one given on the
         // command line, say). Match "<folder><separator>" so removing /photos doesn't also
@@ -273,15 +313,15 @@ async fn remove_folder(State(s): State<Shared>, Json(body): Json<FolderBody>) ->
         let (kept, gone): (Vec<_>, Vec<_>) =
             rows.into_iter().partition(|(_, path)| remaining.iter().any(|r| std::path::Path::new(path).starts_with(r)));
         let gone: Vec<i64> = gone.into_iter().map(|(id, _)| id).collect();
-        crate::db::forget_photos(conn, &gone)?;
+        status.remove_total.store(gone.len() as u64, Relaxed);
+        crate::db::forget_photos_with_progress(conn, &gone, |done| status.remove_done.store(done as u64, Relaxed))?;
         // Only once its photos are gone: if that fails, the folder stays listed and can be
         // removed again (a folder no longer listed would keep its photos for good).
         conn.execute("DELETE FROM folders WHERE path = ?", [&body.path])?;
         tracing::info!("removed folder {} ({} photos, {} kept: in another folder)", body.path, gone.len(), kept.len());
         Ok((gone.len(), kept.len()))
     })
-    .await?;
-    Ok(Json(json!({ "removed": removed, "kept": kept })).into_response())
+    .await
 }
 
 #[derive(Deserialize)]
