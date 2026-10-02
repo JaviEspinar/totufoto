@@ -17,8 +17,16 @@ struct Args {
     /// Folder with det_500m.onnx and w600k_mbf.onnx
     #[arg(long, default_value = "models")]
     models: PathBuf,
+    /// Address to listen on. The default only accepts this computer; 0.0.0.0 shares the
+    /// gallery with your network. There is no login: anyone who can reach it can see,
+    /// rotate and delete photos, so only share it on a network you trust.
     #[arg(long, default_value = "127.0.0.1")]
     host: String,
+    /// A host name to accept in the address bar (repeatable), when the server is reached
+    /// through a name other than an IP address or this computer's name, for example
+    /// photos.home. Other names are refused, which protects against DNS rebinding.
+    #[arg(long = "allow-host", value_name = "NAME")]
+    allow_host: Vec<String>,
     #[arg(long, default_value_t = 7878)]
     port: u16,
     /// Cosine similarity needed to consider two faces the same person (higher = stricter)
@@ -47,6 +55,7 @@ async fn main() -> Result<()> {
         models,
         face_threshold: args.face_threshold,
         host: None,
+        allowed_names: args.allow_host,
     })?;
 
     if args.scan_only {

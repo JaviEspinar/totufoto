@@ -1,6 +1,5 @@
 //! Startup shared by the command-line and desktop apps.
 
-use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -8,7 +7,7 @@ use anyhow::{Context, Result};
 
 use crate::faces::{self, ModelPaths};
 use crate::scan::{self, ScanConfig, ScanStatus};
-use crate::{db, server};
+use crate::{db, guard, server};
 
 /// Native services offered by the program embedding the gallery.
 pub trait Host: Send + Sync + 'static {
@@ -29,13 +28,18 @@ pub struct Config {
     pub models: Option<ModelPaths>,
     /// Cosine similarity needed to consider two faces the same person.
     pub face_threshold: f32,
+    /// The desktop app's window services; `None` for the command-line app.
     pub host: Option<Arc<dyn Host>>,
+    /// Host names the server answers to besides IP addresses, `localhost` and this
+    /// computer's own names (`--allow-host`; see `guard`).
+    pub allowed_names: Vec<String>,
 }
 
 pub struct Gallery {
     scan: Arc<ScanConfig>,
     status: Arc<ScanStatus>,
     host: Option<Arc<dyn Host>>,
+    allowed_names: Vec<String>,
 }
 
 impl Gallery {
@@ -61,6 +65,7 @@ impl Gallery {
             }),
             status: Arc::new(ScanStatus::default()),
             host: cfg.host,
+            allowed_names: cfg.allowed_names,
         })
     }
 
@@ -81,23 +86,17 @@ impl Gallery {
 
     /// Serves the UI and API until the listener fails.
     pub async fn serve(self, listener: tokio::net::TcpListener) -> Result<()> {
-        let addr = listener.local_addr()?;
+        let names = guard::HostNames::with_own_names(&self.allowed_names);
+        if !listener.local_addr()?.ip().is_loopback() {
+            tracing::info!("answering to IP addresses, localhost and {:?}", names.names());
+        }
         let app = server::router(
             server::AppState { pool: server::Pool::new(self.scan.db_path.clone()), status: self.status, scan: self.scan, host: self.host },
-            allowed_hosts(addr),
+            names,
         );
         axum::serve(listener, app).await?;
         Ok(())
     }
-}
-
-/// On loopback, only accept requests addressed to this server, so web pages can't reach
-/// the API through DNS rebinding. Other interfaces are an explicit choice to share it.
-fn allowed_hosts(addr: SocketAddr) -> Option<Vec<String>> {
-    addr.ip().is_loopback().then(|| {
-        let port = addr.port();
-        vec![format!("127.0.0.1:{port}"), format!("localhost:{port}"), format!("[::1]:{port}")]
-    })
 }
 
 /// Loads ONNX Runtime and checks the face models. Face recognition is optional: when

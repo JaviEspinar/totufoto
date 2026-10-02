@@ -7,6 +7,7 @@ mod db;
 mod duplicates;
 pub mod faces;
 mod geo;
+mod guard;
 mod imaging;
 mod rotate;
 pub mod scan;
