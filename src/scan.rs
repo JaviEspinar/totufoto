@@ -1,5 +1,24 @@
 //! Library indexing: walks the photo folders and, in parallel, extracts metadata,
 //! builds thumbnails and detects + embeds faces for new or modified files.
+//!
+//! # What runs at the same time
+//!
+//! All background work reports through [`ScanStatus`], which the HTTP handlers read and set:
+//!
+//! - **Scans**: one scan thread at most (`spawned`, taken atomically in [`spawn`]). A scan
+//!   asked for while one runs sets `rerun`, and the same thread scans again afterwards.
+//!   `running` is set for the length of one pass, and cleared by a guard even on a panic.
+//! - **Identical files**: searched on the scan thread after each scan, or on a thread of
+//!   their own when asked (`dups.running`); deleted by one request at a time
+//!   (`dups.deleting`, refused with 409 while set).
+//! - **Removing a folder**: one at a time (`removing`). It sets `hold`, which makes a
+//!   running scan stop between photos and new scans end at once, waits for `running` to
+//!   clear, removes the photos, then clears both and starts a scan for the other folders.
+//! - **Rotating** is refused while `running` is set, so a scan never reads a file that is
+//!   being rewritten.
+//!
+//! Database access is safe throughout: SQLite in WAL mode lets the request handlers read
+//! while the scan's single writer thread commits its batches.
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -227,7 +246,7 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     if roots.is_empty() {
         // Nothing to compare against: never treat "no folders" as "every photo was deleted".
         // Removing a folder from the UI removes its photos itself.
-        tracing::info!("no photo folders yet; add one from the Folders button");
+        tracing::info!("no photo folders yet; add one in Settings");
         return Ok(());
     }
     let files = list_files(&roots);
