@@ -12,5 +12,7 @@ mod imaging;
 mod rotate;
 pub mod scan;
 mod server;
+#[cfg(test)]
+mod testutil;
 
 pub use app::{Config, Gallery, Host, enable_faces, init_logging};

@@ -1,3 +1,19 @@
+//! The index: one SQLite database with the photos, their thumbnails, faces, people and the
+//! user's corrections.
+//!
+//! Who owns what:
+//! - `photos` rows (with their `thumbs` and `faces`, which cascade) are written by the scan;
+//!   handlers only delete them through [`forget_photos`], which remembers named people first.
+//! - `persons` are created by face grouping (`cluster`) and by the user ("Not them",
+//!   naming). An unnamed person with no faces left is deleted; a named one is kept with its
+//!   `face_memory` (average face), so the name returns when matching photos come back.
+//! - `faces.rejected` marks faces the user placed ("Not them", "Same as"): grouping never
+//!   moves them. `faces.grouped` is 0 until a grouping pass has seen the face.
+//! - `persons.cover_face` is the face the user chose for the person's card, used while it
+//!   still belongs to them.
+//! - `folders` are the photo folders added in Settings; `excluded` are photos removed from
+//!   the gallery (their files stay); `failures` are files that could not be read.
+
 use std::path::Path;
 
 use anyhow::Result;
@@ -105,53 +121,48 @@ pub fn open(path: &Path) -> Result<Connection> {
          PRAGMA cache_size = -65536;
          PRAGMA mmap_size = 1073741824;",
     )?;
-    conn.execute_batch(SCHEMA)?;
-    migrate(&conn)?;
+    init(&conn)?;
     Ok(conn)
 }
 
+/// Creates the tables, or brings an index made by an older version up to date.
+pub(crate) fn init(conn: &Connection) -> Result<()> {
+    conn.execute_batch(SCHEMA)?;
+    migrate(conn)
+}
+
+/// A fresh index in memory, for tests.
+#[cfg(test)]
+pub(crate) fn open_in_memory() -> Connection {
+    let conn = Connection::open_in_memory().expect("in-memory database");
+    conn.execute_batch("PRAGMA foreign_keys = ON;").expect("pragmas");
+    init(&conn).expect("schema");
+    conn
+}
+
+/// Columns added after the first version, with their definitions: `migrate` adds the
+/// missing ones to an existing index. New columns go at the end of this list.
+const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
+    ("photos", "faces_scanned", "INTEGER NOT NULL DEFAULT 1"),
+    // Faces in an existing index were grouped by the full passes of older versions.
+    ("faces", "grouped", "INTEGER NOT NULL DEFAULT 1"),
+    ("persons", "face_memory", "BLOB"),
+    ("persons", "cover_face", "INTEGER"),
+    ("photos", "version", "INTEGER NOT NULL DEFAULT 0"),
+    ("photos", "content_hash", "TEXT"),
+];
+
 /// Upgrades indexes created by older versions in place.
 fn migrate(conn: &Connection) -> Result<()> {
-    let has_column: bool =
-        conn.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'faces_scanned'", [], |r| {
-            r.get(0)
-        })?;
-    if !has_column {
-        conn.execute_batch("ALTER TABLE photos ADD COLUMN faces_scanned INTEGER NOT NULL DEFAULT 1")?;
-    }
-    let has_grouped: bool =
-        conn.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('faces') WHERE name = 'grouped'", [], |r| r.get(0))?;
-    if !has_grouped {
-        // Faces in an existing index were grouped by the full passes of older versions.
-        conn.execute_batch("ALTER TABLE faces ADD COLUMN grouped INTEGER NOT NULL DEFAULT 1")?;
-    }
-    let has_memory: bool =
-        conn.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('persons') WHERE name = 'face_memory'", [], |r| {
-            r.get(0)
-        })?;
-    if !has_memory {
-        conn.execute_batch("ALTER TABLE persons ADD COLUMN face_memory BLOB")?;
-    }
-    let has_cover: bool =
-        conn.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('persons') WHERE name = 'cover_face'", [], |r| {
-            r.get(0)
-        })?;
-    if !has_cover {
-        conn.execute_batch("ALTER TABLE persons ADD COLUMN cover_face INTEGER")?;
-    }
-    let has_version: bool =
-        conn.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'version'", [], |r| {
-            r.get(0)
-        })?;
-    if !has_version {
-        conn.execute_batch("ALTER TABLE photos ADD COLUMN version INTEGER NOT NULL DEFAULT 0")?;
-    }
-    let has_hash: bool =
-        conn.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('photos') WHERE name = 'content_hash'", [], |r| {
-            r.get(0)
-        })?;
-    if !has_hash {
-        conn.execute_batch("ALTER TABLE photos ADD COLUMN content_hash TEXT")?;
+    for (table, column, definition) in ADDED_COLUMNS {
+        let exists: bool = conn.query_row(
+            &format!("SELECT COUNT(*) > 0 FROM pragma_table_info('{table}') WHERE name = ?"),
+            [column],
+            |r| r.get(0),
+        )?;
+        if !exists {
+            conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"))?;
+        }
     }
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS photos_hash ON photos(content_hash) WHERE content_hash IS NOT NULL",
@@ -354,7 +365,48 @@ fn unique_name(wanted: &str, taken: impl Fn(&str) -> bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::unique_name;
+    use super::*;
+
+    #[test]
+    fn an_old_index_is_brought_up_to_date() {
+        // The tables as the first versions created them, with a photo and a face in them.
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE photos (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL UNIQUE,
+                 mtime INTEGER NOT NULL, size INTEGER NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL,
+                 taken TEXT NOT NULL, date_from_exif INTEGER NOT NULL, lat REAL, lon REAL, place_id INTEGER);
+             CREATE TABLE persons (id INTEGER PRIMARY KEY, name TEXT, hidden INTEGER NOT NULL DEFAULT 0);
+             CREATE TABLE faces (id INTEGER PRIMARY KEY AUTOINCREMENT, photo_id INTEGER NOT NULL,
+                 x REAL NOT NULL, y REAL NOT NULL, w REAL NOT NULL, h REAL NOT NULL, score REAL NOT NULL,
+                 embedding BLOB NOT NULL, thumb BLOB NOT NULL, person_id INTEGER, rejected INTEGER NOT NULL DEFAULT 0);
+             INSERT INTO photos VALUES (1, '/p/a.jpg', 1, 2, 3, 4, '2020-01-01 00:00:00', 1, NULL, NULL, NULL);
+             INSERT INTO faces (photo_id, x, y, w, h, score, embedding, thumb) VALUES (1, 0, 0, 1, 1, 0.9, x'', x'');",
+        )
+        .unwrap();
+        init(&conn).unwrap();
+        init(&conn).unwrap(); // and again: nothing to do the second time
+
+        let columns = |table: &str| -> Vec<String> {
+            conn.prepare(&format!("SELECT name FROM pragma_table_info('{table}')"))
+                .unwrap()
+                .query_map([], |r| r.get(0))
+                .unwrap()
+                .map(Result::unwrap)
+                .collect()
+        };
+        for (table, column, _) in ADDED_COLUMNS {
+            assert!(columns(table).iter().any(|c| c == column), "{table}.{column}");
+        }
+        // Existing rows get the defaults that keep them as they were.
+        let (scanned, version): (bool, i64) =
+            conn.query_row("SELECT faces_scanned, version FROM photos", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!((scanned, version), (true, 0));
+        let grouped: bool = conn.query_row("SELECT grouped FROM faces", [], |r| r.get(0)).unwrap();
+        assert!(grouped, "faces of an old index were already grouped");
+        let index: i64 =
+            conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name = 'photos_hash'", [], |r| r.get(0)).unwrap();
+        assert_eq!(index, 1);
+    }
 
     #[test]
     fn unique_names() {
