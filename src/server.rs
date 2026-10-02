@@ -1113,3 +1113,94 @@ async fn original(State(s): State<Shared>, Path(id): Path<i64>, Query(q): Query<
     }
     Ok(response)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Six photos and four people (Carl hidden):
+    /// 1 Ana + Ben, 2 Ana, 3 Ben, 4 Ana + Carl, 5 nobody, 6 Ana + Dan.
+    fn library() -> Connection {
+        let conn = crate::db::open_in_memory();
+        conn.execute_batch(
+            "INSERT INTO persons (id, name, hidden) VALUES (1, 'Ana', 0), (2, 'Ben', 0), (3, 'Carl', 1), (4, NULL, 0);
+             INSERT INTO photos (id, path, mtime, size, width, height, taken, date_from_exif) VALUES
+                 (1, '/p/1.jpg', 0, 1, 1, 1, '2020-03-10 12:00:00', 1),
+                 (2, '/p/2.jpg', 0, 1, 1, 1, '2020-03-11 00:00:00', 1),
+                 (3, '/p/3.jpg', 0, 1, 1, 1, '2021-05-01 08:00:00', 1),
+                 (4, '/p/4.jpg', 0, 1, 1, 1, '2021-05-02 23:59:59', 1),
+                 (5, '/p/5.jpg', 0, 1, 1, 1, '2022-01-01 10:00:00', 1),
+                 (6, '/p/6.jpg', 0, 1, 1, 1, '2022-06-01 10:00:00', 1);",
+        )
+        .unwrap();
+        for (photo, person) in [(1, 1), (1, 2), (2, 1), (3, 2), (4, 1), (4, 3), (6, 1), (6, 4)] {
+            conn.execute(
+                "INSERT INTO faces (photo_id, x, y, w, h, score, embedding, thumb, person_id) VALUES (?, 0, 0, 1, 1, 1, x'', x'', ?)",
+                [photo, person],
+            )
+            .unwrap();
+        }
+        conn
+    }
+
+    /// The photos a query (as the UI sends it) keeps.
+    fn ids(conn: &Connection, query: JsonValue) -> Vec<i64> {
+        let q: PhotoQuery = serde_json::from_value(query).unwrap();
+        let (filters, args, _) = photo_filters(&q);
+        conn.prepare(&format!("SELECT id FROM photos WHERE 1 = 1{filters} ORDER BY id"))
+            .unwrap()
+            .query_map(params_from_iter(args), |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+
+    #[test]
+    fn people_together_any_or_only() {
+        let conn = library();
+        assert_eq!(ids(&conn, json!({ "people": "1,2" })), [1], "together is the default");
+        assert_eq!(ids(&conn, json!({ "people": "1,2", "match": "all" })), [1]);
+        assert_eq!(ids(&conn, json!({ "people": "1,2", "match": "any" })), [1, 2, 3, 4, 6]);
+        // Only Ana: hidden Carl doesn't count, unnamed person 4 does.
+        assert_eq!(ids(&conn, json!({ "people": "1", "match": "only" })), [2, 4]);
+        assert_eq!(ids(&conn, json!({ "people": "1,2", "match": "only" })), [1]);
+        assert_eq!(ids(&conn, json!({ "people": "1, x,,2" })), [1], "junk in the list is ignored");
+        assert_eq!(ids(&conn, json!({ "people": "" })), [1, 2, 3, 4, 5, 6], "no people, no filter");
+    }
+
+    #[test]
+    fn date_ranges_include_both_days() {
+        let conn = library();
+        assert_eq!(ids(&conn, json!({ "from": "2020-03-11", "to": "2021-05-02" })), [2, 3, 4]);
+        assert_eq!(ids(&conn, json!({ "from": "2021-05-02", "to": "2020-03-11" })), [2, 3, 4], "reversed");
+        assert_eq!(ids(&conn, json!({ "from": "2021-05-01" })), [3, 4, 5, 6]);
+        assert_eq!(ids(&conn, json!({ "to": "2020-03-10" })), [1]);
+        assert_eq!(ids(&conn, json!({ "from": "2021-13-40", "to": "2020-03-10" })), [1], "an invalid day is ignored");
+        assert_eq!(ids(&conn, json!({ "date": "2021" })), [3, 4], "a year");
+        assert_eq!(ids(&conn, json!({ "date": "2020-03-10" })), [1], "a day");
+        assert_eq!(ids(&conn, json!({ "people": "1", "date": "2021" })), [4], "filters combine");
+    }
+
+    #[test]
+    fn upcoming_is_past_years_only() {
+        let conn = library();
+        let today = Local::now().date_naive();
+        let on = |years_ago: i32, days_ahead: i64| {
+            let day = today + Duration::days(days_ahead);
+            format!("{}-{} 12:00:00", today.year() - years_ago, day.format("%m-%d"))
+        };
+        conn.execute_batch("DELETE FROM photos").unwrap();
+        for (id, taken) in [(10, on(3, 0)), (11, on(1, 5)), (12, on(0, 0)), (13, on(2, 40))] {
+            conn.execute(
+                "INSERT INTO photos (id, path, mtime, size, width, height, taken, date_from_exif) VALUES (?, ?, 0, 1, 1, 1, ?, 1)",
+                params![id, format!("/p/{id}.jpg"), taken],
+            )
+            .unwrap();
+        }
+        // Today three years ago and in five days a year ago; not this year's, not in 40 days.
+        assert_eq!(ids(&conn, json!({ "upcoming": 30 })), [10, 11]);
+        assert_eq!(ids(&conn, json!({ "upcoming": 1 })), [10]);
+        assert_eq!(upcoming_days(0).0.len(), 1, "at least today");
+        assert_eq!(upcoming_days(10_000).0.len(), 366, "at most a year");
+    }
+}

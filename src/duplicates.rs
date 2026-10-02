@@ -258,3 +258,75 @@ pub fn totals(groups: &[DupGroup]) -> (usize, i64) {
     let bytes = groups.iter().flat_map(|g| &g.remove).map(|f| f.size).sum();
     (files, bytes)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testutil::{Library, Photo, set_mtime};
+
+    /// Three copies of one photo (b the oldest file), a different photo, and the search run.
+    fn library() -> Library {
+        let lib = Library::new();
+        let copy = Photo::default();
+        for (rel, age) in [("a.jpg", 300), ("b.jpg", 100), ("sub/c.jpg", 200)] {
+            set_mtime(&lib.add(rel, copy), age);
+        }
+        lib.add("other.jpg", Photo { color: [9, 9, 9], ..Photo::default() });
+        lib.scan();
+        run(&lib.cfg.db_path, &DupStatus::default()).unwrap();
+        lib
+    }
+
+    fn names(files: &[DupFile]) -> Vec<String> {
+        files.iter().map(|f| Path::new(&f.path).file_name().unwrap().to_string_lossy().into_owned()).collect()
+    }
+
+    #[test]
+    fn the_oldest_copy_is_kept() {
+        let lib = library();
+        let groups = report(&lib.conn()).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(names(std::slice::from_ref(&groups[0].keep)), ["b.jpg"]);
+        assert_eq!(names(&groups[0].remove), ["c.jpg", "a.jpg"], "then by age");
+        assert_eq!(totals(&groups), (2, 2 * groups[0].keep.size));
+    }
+
+    #[test]
+    fn deleting_removes_the_copies_and_their_rows() {
+        let lib = library();
+        let result = delete(&mut lib.conn(), &[lib.root()], None, true, &DupStatus::default()).unwrap();
+        assert_eq!((result.deleted, result.binned, result.skipped.len()), (2, 0, 0));
+        assert!(lib.root().join("b.jpg").exists());
+        assert!(!lib.root().join("a.jpg").exists() && !lib.root().join("sub/c.jpg").exists());
+        assert!(lib.root().join("other.jpg").exists());
+        let rows: i64 = lib.conn().query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 2);
+        assert!(report(&lib.conn()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn only_the_chosen_copies_are_deleted() {
+        let lib = library();
+        let a = lib.id("a.jpg");
+        let result = delete(&mut lib.conn(), &[lib.root()], Some(&[a]), true, &DupStatus::default()).unwrap();
+        assert_eq!(result.deleted, 1);
+        assert!(!lib.root().join("a.jpg").exists() && lib.root().join("sub/c.jpg").exists());
+    }
+
+    #[test]
+    fn changed_or_outside_files_are_left_alone() {
+        let lib = library();
+        // c changed since the search; a is outside the folders the deletion may touch.
+        std::fs::write(lib.root().join("sub/c.jpg"), Photo { color: [1, 1, 1], ..Photo::default() }.jpeg()).unwrap();
+        let result = delete(&mut lib.conn(), &[lib.root().join("sub")], None, true, &DupStatus::default()).unwrap();
+        assert_eq!(result.deleted, 0);
+        assert_eq!(result.skipped.len(), 2);
+        assert!(lib.root().join("a.jpg").exists() && lib.root().join("sub/c.jpg").exists());
+
+        // If the copy that would be kept changed, nothing is deleted.
+        let lib = library();
+        std::fs::write(lib.root().join("b.jpg"), b"changed").unwrap();
+        let result = delete(&mut lib.conn(), &[lib.root()], None, true, &DupStatus::default()).unwrap();
+        assert_eq!((result.deleted, result.skipped.len()), (0, 2));
+    }
+}

@@ -371,4 +371,75 @@ mod tests {
     fn not_a_jpeg() {
         assert!(rotate_jpeg(b"hello", 1).is_err());
     }
+
+    use crate::testutil::{Library, Photo};
+
+    fn face_box(conn: &Connection) -> (f64, f64, f64, f64) {
+        conn.query_row("SELECT x, y, w, h FROM faces", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .unwrap()
+    }
+
+    #[test]
+    fn rotating_updates_the_gallery_too() {
+        let lib = Library::new();
+        lib.add("a.jpg", Photo { width: 64, height: 48, ..Photo::default() });
+        lib.scan();
+        let id = lib.id("a.jpg");
+        let mut conn = lib.conn();
+        conn.execute(
+            "INSERT INTO faces (photo_id, x, y, w, h, score, embedding, thumb) VALUES (?, 0.1, 0.2, 0.3, 0.4, 1, x'', x'')",
+            [id],
+        )
+        .unwrap();
+
+        let Outcome::Rotated { width, height, version } = rotate_photo(&mut conn, &[lib.root()], id, 1).unwrap() else {
+            panic!("not rotated")
+        };
+        assert_eq!((width, height, version), (48, 64, 1));
+        let (x, y, w, h) = face_box(&conn);
+        // A quarter turn clockwise: the left edge becomes the top one.
+        for (got, want) in [(x, 0.4), (y, 0.1), (w, 0.4), (h, 0.3)] {
+            assert!((got - want).abs() < 1e-9, "{:?}", face_box(&conn));
+        }
+        let img = crate::imaging::decode(&lib.root().join("a.jpg"), &std::fs::read(lib.root().join("a.jpg")).unwrap())
+            .unwrap();
+        assert_eq!((img.width(), img.height()), (48, 64), "the file itself is turned");
+
+        // The next scan sees an unchanged file: same photo, same face.
+        let status = lib.scan();
+        assert_eq!(status.total, 0);
+        assert_eq!(lib.id("a.jpg"), id);
+        assert!((face_box(&lib.conn()).0 - 0.4).abs() < 1e-9);
+
+        // Three more quarter turns bring the box back.
+        rotate_photo(&mut conn, &[lib.root()], id, 3).unwrap();
+        let (x, y, w, h) = face_box(&conn);
+        for (got, want) in [(x, 0.1), (y, 0.2), (w, 0.3), (h, 0.4)] {
+            assert!((got - want).abs() < 1e-9, "{:?}", face_box(&conn));
+        }
+    }
+
+    #[test]
+    fn rotating_is_refused_when_it_would_be_unsafe() {
+        let lib = Library::new();
+        lib.add("a.jpg", Photo::default());
+        std::fs::write(lib.dir.file("photos/b.gif"), b"GIF89a").unwrap();
+        lib.scan();
+        let mut conn = lib.conn();
+        let id = lib.id("a.jpg");
+        let elsewhere = lib.dir.path().join("elsewhere");
+        assert!(matches!(rotate_photo(&mut conn, &[elsewhere], id, 1).unwrap(), Outcome::Outside));
+        assert!(matches!(rotate_photo(&mut conn, &[lib.root()], 9999, 1).unwrap(), Outcome::NotFound));
+        // Changed since it was indexed: a scan should look at it first.
+        lib.add("a.jpg", Photo { width: 10, height: 10, ..Photo::default() });
+        assert!(matches!(rotate_photo(&mut conn, &[lib.root()], id, 1).unwrap(), Outcome::Changed));
+        // A GIF in the index (inserted directly; the broken test file doesn't index).
+        conn.execute(
+            "INSERT INTO photos (path, mtime, size, width, height, taken, date_from_exif) VALUES (?, 0, 6, 1, 1, '2020-01-01 00:00:00', 0)",
+            [lib.root().join("b.gif").to_string_lossy()],
+        )
+        .unwrap();
+        let gif = conn.last_insert_rowid();
+        assert!(matches!(rotate_photo(&mut conn, &[lib.root()], gif, 1).unwrap(), Outcome::Unsupported));
+    }
 }

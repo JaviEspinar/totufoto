@@ -38,6 +38,63 @@ impl Drop for TempDir {
     }
 }
 
+/// A photo library in a temporary folder: photos under `photos/` (given as a command-line
+/// folder) and the index under `data/`, scanned without face recognition.
+pub struct Library {
+    pub dir: TempDir,
+    pub cfg: crate::scan::ScanConfig,
+}
+
+impl Library {
+    pub fn new() -> Self {
+        let dir = TempDir::new();
+        let photos = dir.file("photos/.keep").parent().unwrap().to_path_buf();
+        let cfg = crate::scan::ScanConfig {
+            fixed_roots: vec![photos],
+            db_path: dir.file("data/index.sqlite"),
+            models: None,
+            cluster_threshold: 0.42,
+        };
+        Self { dir, cfg }
+    }
+
+    /// The photos folder.
+    pub fn root(&self) -> PathBuf {
+        self.cfg.fixed_roots[0].clone()
+    }
+
+    /// Writes `photo` at `rel` inside the photos folder and returns its path.
+    pub fn add(&self, rel: &str, photo: Photo) -> PathBuf {
+        let path = self.dir.file(&format!("photos/{rel}"));
+        photo.write(&path);
+        path
+    }
+
+    pub fn scan(&self) -> crate::scan::StatusView {
+        let status = crate::scan::ScanStatus::default();
+        crate::scan::run(&self.cfg, &status).expect("scan");
+        status.view()
+    }
+
+    pub fn conn(&self) -> rusqlite::Connection {
+        crate::db::open(&self.cfg.db_path).expect("index")
+    }
+
+    /// The id of the photo at `rel` inside the photos folder.
+    pub fn id(&self, rel: &str) -> i64 {
+        let path = self.root().join(rel);
+        self.conn()
+            .query_row("SELECT id FROM photos WHERE path = ?", [path.to_string_lossy()], |r| r.get(0))
+            .expect(rel)
+    }
+}
+
+/// Sets a file's modification time, `secs` after 2000-01-01.
+pub fn set_mtime(path: &Path, secs: u64) {
+    let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(946_684_800 + secs);
+    std::fs::File::options().write(true).open(path).unwrap().set_modified(t).unwrap();
+}
+
 /// What to put in a generated photo.
 #[derive(Clone, Copy)]
 pub struct Photo {
