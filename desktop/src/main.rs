@@ -12,10 +12,9 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 use tauri_plugin_opener::OpenerExt;
 
-const FACE_THRESHOLD: f32 = 0.42;
-
 struct DesktopHost {
     app: AppHandle,
+    log: Option<PathBuf>,
 }
 
 impl Host for DesktopHost {
@@ -38,10 +37,14 @@ impl Host for DesktopHost {
             tracing::warn!("showing {}: {e}", path.display());
         }
     }
+
+    fn log_file(&self) -> Option<PathBuf> {
+        self.log.clone()
+    }
 }
 
 fn main() {
-    imadive::init_logging();
+    imadive::init_desktop_logging();
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--self-test") {
         std::process::exit(self_test(&args[2..]));
@@ -103,6 +106,16 @@ fn start(app: &mut tauri::App) -> Result<()> {
     if let Ok(local) = app.path().app_local_data_dir() {
         adopt_old_folder(&local);
     }
+    // In the data folder, which only exists from here on; earlier lines only reach the terminal.
+    let log = data_dir.join("logs").join("imadive.log");
+    let log = match imadive::log_to_file(&log) {
+        Ok(()) => Some(log),
+        Err(e) => {
+            tracing::warn!("no log file: {e:#}");
+            None
+        }
+    };
+    tracing::info!("Imadive {} on {}", env!("CARGO_PKG_VERSION"), std::env::consts::OS);
     tracing::info!("data folder: {}", data_dir.display());
     let models = match runtime::install(&data_dir.join("runtime")) {
         Ok(rt) => imadive::enable_faces(&rt.models, Some(&rt.onnxruntime)),
@@ -115,8 +128,8 @@ fn start(app: &mut tauri::App) -> Result<()> {
         data_dir,
         folders: Vec::new(),
         models,
-        face_threshold: FACE_THRESHOLD,
-        host: Some(Arc::new(DesktopHost { app: app.handle().clone() })),
+        face_threshold: imadive::DEFAULT_FACE_THRESHOLD,
+        host: Some(Arc::new(DesktopHost { app: app.handle().clone(), log })),
         allowed_names: Vec::new(),
     })?;
     gallery.start_scan();
@@ -153,8 +166,12 @@ fn self_test(args: &[String]) -> i32 {
     };
     let report = format!("{report}\nresult: {}\n", if ok { "PASS" } else { "FAIL" });
     print!("{report}");
-    if let Some(path) = report_path {
-        let _ = std::fs::write(path, &report);
+    if let Some(path) = report_path
+        && let Err(e) = std::fs::write(&path, &report)
+    {
+        // The report is also printed, but a Windows GUI app has nowhere to print to.
+        eprintln!("couldn't write {}: {e}", path.display());
+        return 2;
     }
     if ok { 0 } else { 1 }
 }
@@ -198,7 +215,7 @@ fn run_self_test(photos: Option<PathBuf>) -> Result<(bool, String)> {
             data_dir: dir.join("data"),
             folders: vec![photos],
             models: Some(models),
-            face_threshold: FACE_THRESHOLD,
+            face_threshold: imadive::DEFAULT_FACE_THRESHOLD,
             host: None,
             allowed_names: Vec::new(),
         })?;

@@ -48,7 +48,7 @@ Where the index is kept (delete it to start over):
 | Linux | `~/.local/share/com.waiting4timeout.imadive` |
 | macOS | `~/Library/Application Support/com.waiting4timeout.imadive` |
 
-It holds the index (`index.sqlite`, with the thumbnails and people) and, in `runtime/`, the face models and ONNX Runtime the app unpacks on first start.
+It holds the index (`index.sqlite`, with the thumbnails and people), the log (`logs/`) and, in `runtime/`, the face models and ONNX Runtime the app unpacks on first start (older versions' copies are deleted).
 
 Imadive was called Totufoto until version 0.1.10. On its first start, the app moves the library of a Totufoto installation (`com.javiespinar.totufoto`) to the folder above, so names, people and the index carry over.
 
@@ -187,7 +187,7 @@ Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP, and HEIC/HEIF on macOS (deco
 - **Windows says "Windows protected your PC"**: the app isn't signed yet. Click **More info**, then **Run anyway**. You can check the file against `SHA256SUMS` on the release page first ([how](docs/releasing.md#checking-a-download)).
 - **The desktop app opens an empty window on Windows**: it needs the Microsoft Edge WebView2 runtime, which comes with Windows 10 and 11. If it was removed, install it from Microsoft's WebView2 page.
 - **People stay empty, or something else looks wrong in the desktop app**: run its self-test and include the report in an issue. Close the app, then on Windows run `.\Imadive-<version>-windows-x64.exe --self-test C:\path\to\photos report.txt` in PowerShell and open `report.txt`; on Linux run `./Imadive-<version>-linux-x86_64.AppImage --self-test ~/Pictures/some-folder`.
-- **Logs**: the command-line app logs to the terminal (or to `journalctl -u imadive` as a service); the Linux desktop app too, when started from a terminal. Set `RUST_LOG=imadive=debug` for more detail.
+- **Logs**: the desktop app writes its log to `logs/imadive.log` in its data folder (the previous run's is `imadive.old`); **Settings → About → Open log folder** shows it. The command-line app logs to the terminal, or to `journalctl -u imadive` as a service. Set `RUST_LOG=imadive=debug` for more detail.
 - **"unexpected Host header"**: you opened the gallery through a host name it doesn't know (for example a name set up on your router). Start it with `--allow-host that-name`, or use the computer's IP address.
 - **"face recognition disabled: ... not found"**: run `scripts/fetch-onnxruntime.sh` (or the `.ps1` on Windows) from the project folder, or point `--onnxruntime` at the library.
 - **A service that stopped after the rename to Imadive** (`status=203/EXEC`): see [Coming from Totufoto](docs/server.md#3-updating).

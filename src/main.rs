@@ -31,7 +31,7 @@ struct Args {
     #[arg(long, default_value_t = 7878)]
     port: u16,
     /// Cosine similarity needed to consider two faces the same person (higher = stricter)
-    #[arg(long, default_value_t = 0.42)]
+    #[arg(long, default_value_t = imadive::DEFAULT_FACE_THRESHOLD)]
     face_threshold: f32,
     /// ONNX Runtime library (file or folder); by default looked up next to the
     /// executable and in ./onnxruntime (see scripts/fetch-onnxruntime.sh)

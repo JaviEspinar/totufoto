@@ -121,7 +121,7 @@ Settings is the gear at the top right.
 - Files that could not be read, with the reason. They are skipped until the file changes, or until you click *Try again*.
 - Photos removed from the gallery, with *Show again*.
 - *Regroup all faces* groups every face from scratch (named people are kept).
-- *About*: the version, the license and the project's page.
+- *About*: the version, the license and the project's page. In the desktop app, *Open log folder* shows the log, to attach when reporting a problem.
 
 While indexing, the first time, the Photos tab shows the progress until the first photos are in. After that a small card at the bottom right shows it on every tab: *Show N new* brings in the photos indexed since, *Details* opens Settings, *Hide* hides it until the next scan.
 

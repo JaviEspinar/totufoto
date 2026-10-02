@@ -21,6 +21,8 @@ pub(super) async fn status(State(s): State<Shared>) -> ApiResult<Json<JsonValue>
     value["excluded"] = excluded.into();
     value["version"] = env!("CARGO_PKG_VERSION").into();
     value["project"] = super::PROJECT_URL.into();
+    // The desktop app keeps a log file, which Settings can show (see /api/logs/reveal).
+    value["logs"] = s.host.as_ref().is_some_and(|h| h.log_file().is_some()).into();
     Ok(Json(value))
 }
 
@@ -68,6 +70,14 @@ pub(super) async fn open_url(State(s): State<Shared>, Json(body): Json<OpenBody>
         Some(_) => Err(ApiError::forbidden("only map links can be opened")),
         None => Err(ApiError::desktop_only("open links")),
     }
+}
+
+/// Shows the log file in the file manager (desktop app only).
+pub(super) async fn reveal_logs(State(s): State<Shared>) -> ApiResult<StatusCode> {
+    let Some(host) = &s.host else { return Err(ApiError::desktop_only("open the log folder")) };
+    let Some(file) = host.log_file() else { return Err(ApiError::not_found("log file")) };
+    host.reveal(&file);
+    Ok(StatusCode::NO_CONTENT)
 }
 
 /// Identical files and the search progress. While the scan or the search runs, the report
