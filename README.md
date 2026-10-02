@@ -99,7 +99,8 @@ powershell -ExecutionPolicy Bypass -File scripts\fetch-onnxruntime.ps1
 ```
 
 - `fetch-models` downloads the face detection and recognition models (about 16 MB) into `./models`. They are not stored in the repository because of their license (see below).
-- `fetch-onnxruntime` downloads Microsoft's official [ONNX Runtime](https://github.com/microsoft/onnxruntime) library, which runs the face models, into `./onnxruntime`.
+- `fetch-onnxruntime` downloads Microsoft's official [ONNX Runtime](https://github.com/microsoft/onnxruntime) library, which runs the face models, into `./onnxruntime`. Microsoft no longer publishes it for Intel Macs, so there the gallery runs without face recognition.
+- Both scripts check each download against its known SHA-256 checksum and stop if it doesn't match.
 
 Without either of them the gallery still works, just without people. When you add them later, the next start finds the faces in photos that were indexed without them.
 
