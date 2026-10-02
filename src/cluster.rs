@@ -395,3 +395,95 @@ fn group_new_faces(conn: &mut Connection, threshold: f32, progress: &Progress) -
     );
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::faces::embedding_to_bytes;
+
+    /// A face embedding close to axis `k`; `j` makes each one slightly different.
+    fn near(k: usize, j: usize) -> Vec<f32> {
+        let mut v = vec![0f32; EMBEDDING_DIM];
+        v[k] = 1.0;
+        v[200 + j] = 0.15;
+        normalize(&mut v);
+        v
+    }
+
+    fn index() -> Connection {
+        let conn = crate::db::open_in_memory();
+        conn.execute(
+            "INSERT INTO photos (id, path, mtime, size, width, height, taken, date_from_exif)
+             VALUES (1, '/p/1.jpg', 0, 1, 1, 1, '2020-01-01 00:00:00', 1)",
+            [],
+        )
+        .unwrap();
+        conn
+    }
+
+    fn add_face(conn: &Connection, id: i64, embedding: &[f32]) {
+        conn.execute(
+            "INSERT INTO faces (id, photo_id, x, y, w, h, score, embedding, thumb) VALUES (?, 1, 0, 0, 1, 1, 0.9, ?, x'')",
+            params![id, embedding_to_bytes(embedding)],
+        )
+        .unwrap();
+    }
+
+    fn person(conn: &Connection, face: i64) -> Option<i64> {
+        conn.query_row("SELECT person_id FROM faces WHERE id = ?", [face], |r| r.get(0)).unwrap()
+    }
+
+    fn group(conn: &mut Connection, full: bool) {
+        let (done, total) = (AtomicU64::new(0), AtomicU64::new(0));
+        update_groups(conn, 0.42, full, &Progress { done: &done, total: &total }).unwrap();
+    }
+
+    /// Faces 1-3 look alike, 4-5 look alike, 6 like nobody else.
+    fn two_people_and_a_stranger() -> Connection {
+        let mut conn = index();
+        for (id, k, j) in [(1, 0, 0), (2, 0, 1), (3, 0, 2), (4, 1, 3), (5, 1, 4), (6, 2, 5)] {
+            add_face(&conn, id, &near(k, j));
+        }
+        group(&mut conn, true);
+        conn
+    }
+
+    #[test]
+    fn similar_faces_become_one_person_and_a_single_face_none() {
+        let conn = two_people_and_a_stranger();
+        let a = person(&conn, 1).expect("faces 1-3 grouped");
+        let b = person(&conn, 4).expect("faces 4-5 grouped");
+        assert_ne!(a, b);
+        assert_eq!((person(&conn, 2), person(&conn, 3)), (Some(a), Some(a)));
+        assert_eq!(person(&conn, 5), Some(b));
+        assert_eq!(person(&conn, 6), None, "one face alone is no one yet");
+    }
+
+    #[test]
+    fn new_faces_join_their_person_or_pair_up() {
+        let mut conn = two_people_and_a_stranger();
+        let a = person(&conn, 1).unwrap();
+        // Few new faces, so only they are placed: one like the first person, and one like
+        // the stranger, which together make a new person.
+        add_face(&conn, 7, &near(0, 6));
+        add_face(&conn, 8, &near(2, 7));
+        group(&mut conn, false);
+        assert_eq!(person(&conn, 7), Some(a));
+        let c = person(&conn, 8).expect("a new person");
+        assert_eq!(person(&conn, 6), Some(c));
+        assert_ne!(c, a);
+    }
+
+    #[test]
+    fn regrouping_keeps_names_ids_and_faces_placed_by_hand() {
+        let mut conn = two_people_and_a_stranger();
+        let (a, b) = (person(&conn, 1).unwrap(), person(&conn, 4).unwrap());
+        conn.execute("UPDATE persons SET name = 'Ana' WHERE id = ?", [a]).unwrap();
+        // "Not them" on face 3: it gets a person of its own, which grouping must not undo.
+        let alone = crate::db::move_face_to_new_person(&mut conn, 3).unwrap().unwrap();
+        group(&mut conn, true);
+        assert_eq!((person(&conn, 1), person(&conn, 2)), (Some(a), Some(a)), "Ana keeps her faces");
+        assert_eq!(person(&conn, 4), Some(b), "an unnamed person keeps its id");
+        assert_eq!(person(&conn, 3), Some(alone), "a face placed by hand stays");
+    }
+}

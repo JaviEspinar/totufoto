@@ -11,6 +11,7 @@ mod guard;
 mod http;
 mod imaging;
 mod library;
+mod metadata;
 mod rotate;
 pub mod scan;
 #[cfg(test)]
