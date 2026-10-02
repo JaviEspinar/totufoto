@@ -609,4 +609,199 @@ mod tests {
         assert!(!status.running.load(Ordering::SeqCst));
         assert_eq!(status.view().phase, "failed");
     }
+
+    use crate::testutil::{Photo, TempDir};
+
+    /// A library in `dir/photos` (given on the command line when `fixed`) with its index in
+    /// `dir/data`.
+    fn library(dir: &TempDir, fixed: bool) -> ScanConfig {
+        let photos = dir.file("photos/.keep").parent().unwrap().to_path_buf();
+        ScanConfig {
+            fixed_roots: if fixed { vec![photos] } else { Vec::new() },
+            db_path: dir.file("data/index.sqlite"),
+            models: None,
+            cluster_threshold: 0.42,
+        }
+    }
+
+    fn scan_now(cfg: &ScanConfig) {
+        run(cfg, &ScanStatus::default()).expect("scan");
+    }
+
+    /// Indexed paths relative to `dir`, sorted.
+    fn indexed(cfg: &ScanConfig, dir: &TempDir) -> Vec<String> {
+        let conn = crate::db::open(&cfg.db_path).unwrap();
+        let mut paths: Vec<String> = conn
+            .prepare("SELECT path FROM photos")
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(0))
+            .unwrap()
+            .map(|p| p.unwrap().strip_prefix(&*dir.path().to_string_lossy()).unwrap().replace('\\', "/"))
+            .collect();
+        paths.sort();
+        paths
+    }
+
+    #[test]
+    fn roots_leave_out_folders_inside_others() {
+        let conn = crate::db::open_in_memory();
+        let cfg = |fixed: &[&str]| ScanConfig {
+            fixed_roots: fixed.iter().map(PathBuf::from).collect(),
+            db_path: PathBuf::new(),
+            models: None,
+            cluster_threshold: 0.42,
+        };
+        let save = |paths: &[&str]| {
+            conn.execute("DELETE FROM folders", []).unwrap();
+            for p in paths {
+                conn.execute("INSERT INTO folders (path) VALUES (?)", [p]).unwrap();
+            }
+        };
+        let roots = |c: &ScanConfig| {
+            c.roots(&conn).unwrap().into_iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>()
+        };
+
+        save(&["/a/b"]);
+        assert_eq!(roots(&cfg(&["/a"])), ["/a"], "a saved folder inside a command-line one");
+        save(&["/a/b", "/a"]);
+        assert_eq!(roots(&cfg(&[])), ["/a"], "a saved folder inside another saved one");
+        save(&["/a"]);
+        assert_eq!(roots(&cfg(&["/a"])), ["/a"], "the same folder twice");
+        save(&["/ab"]);
+        assert_eq!(roots(&cfg(&["/a"])), ["/a", "/ab"], "/ab is not inside /a");
+        save(&[]);
+        assert!(roots(&cfg(&[])).is_empty());
+    }
+
+    #[test]
+    fn indexes_dates_and_places() {
+        let dir = TempDir::new();
+        let cfg = library(&dir, true);
+        Photo { taken: Some("2019:07:04 18:30:00"), gps: Some((40.4168, -3.7038)), ..Photo::default() }
+            .write(&dir.file("photos/madrid.jpg"));
+        Photo { color: [10, 20, 30], ..Photo::default() }.write(&dir.file("photos/sub/no-exif.jpg"));
+        std::fs::write(dir.file("photos/notes.txt"), "not a photo").unwrap();
+        scan_now(&cfg);
+
+        assert_eq!(indexed(&cfg, &dir), ["/photos/madrid.jpg", "/photos/sub/no-exif.jpg"]);
+        let conn = crate::db::open(&cfg.db_path).unwrap();
+        let (taken, from_exif, city, w, h): (String, bool, String, u32, u32) = conn
+            .query_row(
+                "SELECT taken, date_from_exif, city, width, height FROM photos JOIN places ON places.id = place_id
+                 WHERE path LIKE '%madrid.jpg'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+        assert_eq!((taken.as_str(), from_exif, city.as_str(), w, h), ("2019-07-04 18:30:00", true, "Madrid", 64, 48));
+        let (from_exif, place): (bool, Option<i64>) = conn
+            .query_row("SELECT date_from_exif, place_id FROM photos WHERE path LIKE '%no-exif.jpg'", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        assert_eq!((from_exif, place), (false, None), "file date, no place");
+        let thumbs: i64 = conn.query_row("SELECT COUNT(*) FROM thumbs", [], |r| r.get(0)).unwrap();
+        assert_eq!(thumbs, 2);
+    }
+
+    #[test]
+    fn a_rescan_prunes_deleted_files_and_adds_new_ones() {
+        let dir = TempDir::new();
+        let cfg = library(&dir, true);
+        Photo::default().write(&dir.file("photos/a.jpg"));
+        Photo { color: [1, 2, 3], ..Photo::default() }.write(&dir.file("photos/b.jpg"));
+        scan_now(&cfg);
+        std::fs::remove_file(dir.file("photos/a.jpg")).unwrap();
+        Photo { color: [4, 5, 6], ..Photo::default() }.write(&dir.file("photos/c.jpg"));
+        scan_now(&cfg);
+        assert_eq!(indexed(&cfg, &dir), ["/photos/b.jpg", "/photos/c.jpg"]);
+    }
+
+    #[test]
+    fn photos_on_a_missing_folder_are_kept() {
+        // An unplugged drive: its folder is gone, but its photos stay in the gallery.
+        let dir = TempDir::new();
+        let cfg = library(&dir, true);
+        Photo::default().write(&dir.file("photos/a.jpg"));
+        scan_now(&cfg);
+        std::fs::remove_dir_all(dir.path().join("photos")).unwrap();
+        scan_now(&cfg);
+        assert_eq!(indexed(&cfg, &dir), ["/photos/a.jpg"]);
+    }
+
+    #[test]
+    fn folders_from_settings_only_prune_inside_themselves() {
+        // With command-line folders, they are the whole library: photos outside them go.
+        let dir = TempDir::new();
+        let mut cfg = library(&dir, true);
+        Photo::default().write(&dir.file("photos/a.jpg"));
+        Photo { color: [1, 2, 3], ..Photo::default() }.write(&dir.file("other/b.jpg"));
+        cfg.fixed_roots.push(dir.path().join("other"));
+        scan_now(&cfg);
+        cfg.fixed_roots.pop();
+        scan_now(&cfg);
+        assert_eq!(indexed(&cfg, &dir), ["/photos/a.jpg"]);
+
+        // With folders from Settings only, removing a folder removes its own photos, so a
+        // scan never drops photos outside the current folders.
+        let dir = TempDir::new();
+        let cfg = library(&dir, false);
+        Photo::default().write(&dir.file("photos/a.jpg"));
+        Photo { color: [1, 2, 3], ..Photo::default() }.write(&dir.file("other/b.jpg"));
+        let conn = crate::db::open(&cfg.db_path).unwrap();
+        for f in ["photos", "other"] {
+            conn.execute("INSERT INTO folders (path) VALUES (?)", [dir.path().join(f).to_string_lossy()]).unwrap();
+        }
+        scan_now(&cfg);
+        conn.execute("DELETE FROM folders WHERE path LIKE '%other'", []).unwrap();
+        scan_now(&cfg);
+        assert_eq!(indexed(&cfg, &dir), ["/other/b.jpg", "/photos/a.jpg"]);
+    }
+
+    #[test]
+    fn no_folders_never_empties_the_index() {
+        let dir = TempDir::new();
+        let cfg = library(&dir, false);
+        Photo::default().write(&dir.file("photos/a.jpg"));
+        let conn = crate::db::open(&cfg.db_path).unwrap();
+        conn.execute("INSERT INTO folders (path) VALUES (?)", [dir.path().join("photos").to_string_lossy()]).unwrap();
+        scan_now(&cfg);
+        conn.execute("DELETE FROM folders", []).unwrap();
+        scan_now(&cfg);
+        assert_eq!(indexed(&cfg, &dir), ["/photos/a.jpg"]);
+    }
+
+    #[test]
+    fn removed_photos_stay_out_and_unreadable_files_wait_for_a_change() {
+        let dir = TempDir::new();
+        let cfg = library(&dir, true);
+        Photo::default().write(&dir.file("photos/keep.jpg"));
+        Photo { color: [1, 2, 3], ..Photo::default() }.write(&dir.file("photos/removed.jpg"));
+        std::fs::write(dir.file("photos/broken.jpg"), b"not really a JPEG").unwrap();
+        let conn = crate::db::open(&cfg.db_path).unwrap();
+        conn.execute(
+            "INSERT INTO excluded (path) VALUES (?)",
+            [dir.path().join("photos/removed.jpg").to_string_lossy()],
+        )
+        .unwrap();
+
+        let status = ScanStatus::default();
+        run(&cfg, &status).unwrap();
+        assert_eq!(indexed(&cfg, &dir), ["/photos/keep.jpg"]);
+        assert_eq!(status.view().errors, 1);
+        let failures: i64 = conn.query_row("SELECT COUNT(*) FROM failures", [], |r| r.get(0)).unwrap();
+        assert_eq!(failures, 1);
+
+        // Unchanged, the broken file is not read again.
+        let status = ScanStatus::default();
+        run(&cfg, &status).unwrap();
+        assert_eq!((status.view().total, status.view().errors), (0, 0));
+
+        // Fixed (a new size), it is read and indexed, and its failure is forgotten.
+        Photo { color: [7, 8, 9], ..Photo::default() }.write(&dir.file("photos/broken.jpg"));
+        scan_now(&cfg);
+        assert_eq!(indexed(&cfg, &dir), ["/photos/broken.jpg", "/photos/keep.jpg"]);
+        let failures: i64 = conn.query_row("SELECT COUNT(*) FROM failures", [], |r| r.get(0)).unwrap();
+        assert_eq!(failures, 0);
+    }
 }
