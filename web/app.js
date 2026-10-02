@@ -346,13 +346,16 @@ $("#match").addEventListener("click", e => {
 });
 
 // ---- photo grid ------------------------------------------------------------
+/** A photo as /api/photos sends it (an array, to keep large libraries small), with names. */
+const photoRow = ([id, width, height, taken, place, version]) => ({ id, width, height, taken, place, version });
+
 function groupKey(p, mode = state.groupBy) {
-  const t = p[3];
+  const t = p.taken;
   switch (mode) {
     case "day": return t.slice(0, 10);
     case "month": return t.slice(0, 7);
     case "year": return t.slice(0, 4);
-    case "place": return "p" + (p[4] ?? "");
+    case "place": return "p" + (p.place ?? "");
     default: return "";
   }
 }
@@ -361,7 +364,7 @@ function groupTitle(key, sample, mode = state.groupBy) {
     case "day": return fmtDay(key);
     case "month": return `${MONTHS[+key.slice(5, 7) - 1]} ${key.slice(0, 4)}`;
     case "year": return key;
-    case "place": return sample[4] == null ? "No location" : placeLabel(sample[4]);
+    case "place": return sample.place == null ? "No location" : placeLabel(sample.place);
     default: return "";
   }
 }
@@ -382,11 +385,11 @@ function thumbLoaded(img) { loadedThumbs.add(img.dataset.thumb); img.classList.a
  *  show the old (cached) picture. */
 const thumbUrl = (id, v) => v ? `/thumb/${id}?v=${v}` : `/thumb/${id}`;
 const originalUrl = (id, v) => v ? `/original/${id}?v=${v}` : `/original/${id}`;
-const versionOf = id => photos.find(p => p[0] === id)?.[5] ?? 0;
-const tile = p => `<a class="tile" data-id="${p[0]}" style="--r:${(p[1] / p[2]).toFixed(3)}" href="${originalUrl(p[0], p[5])}">` +
-  (loadedThumbs.has(String(p[0]))
-    ? `<img src="${thumbUrl(p[0], p[5])}" loading="lazy" alt="" data-thumb="${p[0]}" class="ok"></a>`
-    : `<img src="${thumbUrl(p[0], p[5])}" loading="lazy" decoding="async" alt="" data-thumb="${p[0]}" onload="thumbLoaded(this)" onerror="thumbLoaded(this)"></a>`);
+const versionOf = id => photos.find(p => p.id === id)?.version ?? 0;
+const tile = p => `<a class="tile" data-id="${p.id}" style="--r:${(p.width / p.height).toFixed(3)}" href="${originalUrl(p.id, p.version)}">` +
+  (loadedThumbs.has(String(p.id))
+    ? `<img src="${thumbUrl(p.id, p.version)}" loading="lazy" alt="" data-thumb="${p.id}" class="ok"></a>`
+    : `<img src="${thumbUrl(p.id, p.version)}" loading="lazy" decoding="async" alt="" data-thumb="${p.id}" onload="thumbLoaded(this)" onerror="thumbLoaded(this)"></a>`);
 
 // ---- loading views: filters change at once, results follow --------------------------
 const LOADING_DELAY = 150;
@@ -532,7 +535,7 @@ async function renderPhotos(main, job) {
     ? await api(photoQuery().replace("/api/photos?", `/api/groups?by=${shape.cards}&`), { signal: job.signal })
     : await api(photoQuery(), { signal: job.signal });
   if (!job.alive()) return;
-  photos = data.photos ?? [];
+  photos = (data.photos ?? []).map(photoRow);
   shownPhotoCount = data.total ?? photos.length;
   load.finish();
   load.head.querySelector(".count").textContent = `${shownPhotoCount.toLocaleString()} photos`;
@@ -639,11 +642,11 @@ async function renderUpcoming(main, job) {
   load.finish();
   const order = new Map(data.days.map((d, i) => [d, i]));
   // Upcoming days first (today, tomorrow...), and within a day the most recent year first.
-  photos = data.photos.slice().sort((a, b) =>
-    order.get(a[3].slice(5, 10)) - order.get(b[3].slice(5, 10)) || b[3].localeCompare(a[3]));
+  photos = data.photos.map(photoRow).sort((a, b) =>
+    order.get(a.taken.slice(5, 10)) - order.get(b.taken.slice(5, 10)) || b.taken.localeCompare(a.taken));
   if (!photos.length) { load.area.innerHTML = `<div class="blank">No photos were taken on these dates in previous years.</div>`; return; }
   const thisYear = new Date().getFullYear();
-  const groups = groupPhotos(photos, p => p[3].slice(5, 10));
+  const groups = groupPhotos(photos, p => p.taken.slice(5, 10));
   const header = g => {
     const idx = order.get(g.key);
     const [m, d] = g.key.split("-").map(Number);
@@ -652,8 +655,8 @@ async function renderUpcoming(main, job) {
     return `<h2>${when} · ${esc(label)}<small>${g.items.length}</small></h2>`;
   };
   const sub = (p, prev) => {
-    if (prev && prev[3].slice(0, 4) === p[3].slice(0, 4)) return null;
-    const y = +p[3].slice(0, 4), ago = thisYear - y;
+    if (prev && prev.taken.slice(0, 4) === p.taken.slice(0, 4)) return null;
+    const y = +p.taken.slice(0, 4), ago = thisYear - y;
     return `${plural(ago, "year")} ago · ${y}`;
   };
   renderGroups(load.area, groups, header, sub);
@@ -1302,7 +1305,7 @@ async function render() {
 $("#main").addEventListener("click", e => {
   if (e.target.dataset.clear) return onChipClick(e);
   const t = e.target.closest(".tile");
-  if (t) { e.preventDefault(); return openViewer(photos.findIndex(p => p[0] === +t.dataset.id)); }
+  if (t) { e.preventDefault(); return openViewer(photos.findIndex(p => p.id === +t.dataset.id)); }
   const group = e.target.closest("[data-group]");
   if (group) {
     cardsReturn = { key: cardsViewKey(), scroll: $("#main").scrollTop };
@@ -1362,7 +1365,7 @@ window.addEventListener("resize", () => {
   if (viewerIndex < 0) return;
   resetZoom();
   if (rotation) previewRotation();
-  else fitViewerImage(photos[viewerIndex][1], photos[viewerIndex][2]);
+  else fitViewerImage(photos[viewerIndex].width, photos[viewerIndex].height);
 });
 
 /** Shows photo `i`: its thumbnail at the final size at once, then the full photo. */
@@ -1385,19 +1388,19 @@ async function showViewerImage(i, id, w, h, v) {
     .then(() => { if (viewerIndex === i) img.src = full.src; })
     .catch(() => { if (viewerIndex === i) photoMissing(id); });
   // Ready for the arrows: neighbours' thumbnails, and the next photo in full size.
-  for (const j of [i - 1, i + 1]) if (photos[j]) new Image().src = thumbUrl(photos[j][0], photos[j][5]);
-  if (photos[i + 1]) new Image().src = originalUrl(photos[i + 1][0], photos[i + 1][5]);
+  for (const j of [i - 1, i + 1]) if (photos[j]) new Image().src = thumbUrl(photos[j].id, photos[j].version);
+  if (photos[i + 1]) new Image().src = originalUrl(photos[i + 1].id, photos[i + 1].version);
 }
 /** `keepImage`: only refresh the details and face boxes (the photo shown is already right). */
 async function openViewer(i, { keepImage = false } = {}) {
   if (i < 0 || i >= photos.length) return;
-  if (rotation && rotation.id !== photos[i][0]) flushRotation();
+  if (rotation && rotation.id !== photos[i].id) flushRotation();
   viewerIndex = i;
   resetZoom();
   // No arrow where there is no photo to go to.
   $(".prev", viewer).hidden = i === 0;
   $(".next", viewer).hidden = i === photos.length - 1;
-  const [id, w, h, , , v] = photos[i];
+  const { id, width: w, height: h, version: v } = photos[i];
   viewer.classList.add("open");
   setViewerModal(true);
   if (!keepImage) await showViewerImage(i, id, w, h, v);
@@ -1470,7 +1473,7 @@ async function photoMissing(id) {
 }
 /** A photo left the gallery: take it off the screen, update counts, move the viewer on. */
 function dropPhotoFromView(id) {
-  const index = photos.findIndex(p => p[0] === id);
+  const index = photos.findIndex(p => p.id === id);
   if (index >= 0) photos.splice(index, 1);
   $(`.tile[data-id="${id}"]`)?.remove();
   const count = $(".view-head .count");
@@ -1511,7 +1514,7 @@ async function revealPhoto(id) {
 let rotation = null; // { id, turns, timer } while turns wait to be saved
 function rotateViewer(dir) {
   if (viewerIndex < 0) return;
-  const id = photos[viewerIndex][0];
+  const id = photos[viewerIndex].id;
   if (rotation?.id !== id) { flushRotation(); rotation = { id, turns: 0, timer: 0 }; }
   rotation.turns += dir;
   resetZoom();
@@ -1520,7 +1523,7 @@ function rotateViewer(dir) {
   rotation.timer = setTimeout(flushRotation, 800);
 }
 function previewRotation() {
-  const [, w, h] = photos[viewerIndex];
+  const { width: w, height: h } = photos[viewerIndex];
   const img = $(".frame img", viewer);
   img.classList.add("turning");
   viewer.classList.add("rotating"); // face boxes hide until the turned photo is back
@@ -1533,7 +1536,7 @@ async function flushRotation() {
   clearTimeout(r.timer);
   rotation = null;
   const turns = ((r.turns % 4) + 4) % 4;
-  const here = () => viewerIndex >= 0 && photos[viewerIndex]?.[0] === r.id;
+  const here = () => viewerIndex >= 0 && photos[viewerIndex]?.id === r.id;
   const unturn = (w, h) => {
     const img = $(".frame img", viewer);
     img.classList.remove("turning");
@@ -1542,18 +1545,18 @@ async function flushRotation() {
     fitViewerImage(w, h);
   };
   if (!turns) {
-    if (here() && !rotation) unturn(photos[viewerIndex][1], photos[viewerIndex][2]);
+    if (here() && !rotation) unturn(photos[viewerIndex].width, photos[viewerIndex].height);
     return;
   }
   let res;
   try {
     res = await post(`/api/photos/${r.id}/rotate`, { turns });
   } catch (err) {
-    if (here() && !rotation) unturn(photos[viewerIndex][1], photos[viewerIndex][2]);
+    if (here() && !rotation) unturn(photos[viewerIndex].width, photos[viewerIndex].height);
     return toast(`Couldn't rotate the photo: ${err.message}`, true);
   }
-  const p = photos.find(p => p[0] === r.id);
-  if (p) { p[1] = res.width; p[2] = res.height; p[5] = res.version; }
+  const p = photos.find(p => p.id === r.id);
+  if (p) Object.assign(p, { width: res.width, height: res.height, version: res.version });
   // The new pictures are ready before they replace the turned one, so nothing flickers.
   const full = new Image(), thumb = new Image();
   full.src = originalUrl(r.id, res.version);
@@ -1600,7 +1603,7 @@ function askChoice(body, title) {
 // ---- deleting a photo -----------------------------------------------------------------
 async function deleteViewerPhoto() {
   if (viewerIndex < 0) return;
-  const id = photos[viewerIndex][0];
+  const id = photos[viewerIndex].id;
   const detail = await api(`/api/photos/${id}`).catch(() => null);
   const path = detail?.path ?? "";
   const what = `<div class="delete-what"><img src="${thumbUrl(id, versionOf(id))}" alt=""><div class="p">${esc(path)}</div></div>`;
@@ -1805,7 +1808,7 @@ function zoomAt(clientX, clientY, scale, animate = false) {
     if (moved || e.type === "pointercancel") return;
     if (zoom.s > 1) return resetZoom(true);
     // Zoom to the photo's real pixels (between 2x and 4x) where it was tapped.
-    const width = photos[viewerIndex]?.[1] ?? 0;
+    const width = photos[viewerIndex]?.width ?? 0;
     zoomAt(e.clientX, e.clientY, Math.min(4, Math.max(2, width / frame.offsetWidth)), true);
   };
   frame.addEventListener("pointerup", release);
@@ -1832,7 +1835,7 @@ function setInfoCollapsed(collapsed) {
   if (viewerIndex >= 0) {
     resetZoom();
     if (rotation) previewRotation();
-    else fitViewerImage(photos[viewerIndex][1], photos[viewerIndex][2]);
+    else fitViewerImage(photos[viewerIndex].width, photos[viewerIndex].height);
   }
 }
 $("#infoToggle").addEventListener("click", e => { e.stopPropagation(); setInfoCollapsed(!viewer.classList.contains("info-collapsed")); });
@@ -2208,9 +2211,16 @@ $("#indexPill").addEventListener("click", e => {
   else if (b.dataset.pillDetails != null) { openSettings(); loadFolders().then(() => { if ($("#settingsDlg").open) renderSettings(); }); }
 });
 
+let pollFailures = 0;
 async function pollStatus() {
   let s;
-  try { s = await api("/api/status"); } catch { return setTimeout(pollStatus, 5000); }
+  try { s = await api("/api/status"); } catch {
+    // Otherwise the page just stops changing when the program is closed or the network drops.
+    if (++pollFailures === 3) toast("Can't reach Imadive. Is it still running?", true);
+    return setTimeout(pollStatus, 5000);
+  }
+  if (pollFailures >= 3) toast("Connected to Imadive again");
+  pollFailures = 0;
   const wasRemoving = lastStatus?.removing ?? null;
   lastStatus = s;
   // A folder removal (from this page or another device): its row in Settings follows it.
