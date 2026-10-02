@@ -166,6 +166,7 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
         .route("/api/folders/remove", post(folders::remove_folder))
         .route("/api/folders/browse", get(folders::browse_folders))
         .route("/api/open", post(system::open_url))
+        .route("/api/logs/reveal", post(system::reveal_logs))
         .route("/api/photos", get(photos::photos))
         .route("/api/photos/{id}", get(photos::photo_detail))
         .route("/api/photos/{id}/check", post(photos::check_photo))
@@ -328,7 +329,7 @@ mod tests {
         assert_eq!((&v[0]["name"], &v[1]["name"]), (&json!("Ana"), &JsonValue::Null), "named first");
 
         let (_, v) = get("/api/status".into()).await;
-        for k in ["excluded", "failed", "phase", "running", "total", "done", "faces", "removing"] {
+        for k in ["excluded", "failed", "phase", "running", "total", "done", "faces", "removing", "version", "logs"] {
             assert!(v.get(k).is_some(), "status.{k}");
         }
         assert_eq!(v["failed"], 1);

@@ -127,7 +127,7 @@ Progress of the current or last scan, cheap enough to poll. `phase` is `listing 
   "running": true, "phase": "indexing photos", "total": 1200, "done": 300, "errors": 0, "faces": 410,
   "group_done": 0, "group_total": 0,
   "removing": null, "remove_done": 0, "remove_total": 0,
-  "failed": 2, "excluded": 1, "version": "0.1.11", "project": "https://github.com/..."
+  "failed": 2, "excluded": 1, "version": "0.1.11", "project": "https://github.com/...", "logs": false
 }
 ```
 
@@ -160,4 +160,5 @@ Progress of the current or last scan, cheap enough to poll. `phase` is `listing 
 
 ### Desktop
 
-`POST /api/open` with `{"url": ...}` opens a link in the system browser: desktop app only, and only for the map and project links the page uses.
+- `POST /api/open` with `{"url": ...}` opens a link in the system browser: desktop app only, and only for the map and project links the page uses.
+- `POST /api/logs/reveal` shows the log file in the file manager: desktop app only. `logs` in `/api/status` says whether there is one.

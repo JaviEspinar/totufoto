@@ -16,4 +16,6 @@ pub mod scan;
 #[cfg(test)]
 mod testutil;
 
-pub use app::{Config, Gallery, Host, enable_faces, init_logging};
+pub use app::{
+    Config, DEFAULT_FACE_THRESHOLD, Gallery, Host, enable_faces, init_desktop_logging, init_logging, log_to_file,
+};

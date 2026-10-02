@@ -103,6 +103,7 @@ Small helpers at the top of `app.js` (`api()` with typed errors, `icon()` for th
 
 - **Embedded models and runtime**: the face models (about 16 MB) and ONNX Runtime (and on Windows the Visual C++ runtime it needs) are in the executable, written to `runtime/<version>/` in the app data folder on first start. This makes the first start work offline with nothing to install, at the cost of a bigger download; it also means the executable isn't signed by anyone Windows knows, so SmartScreen warns about it.
 - **One window**: a second launch brings the open window to the front.
+- **Log**: Windows release builds have no console, so the app logs to `logs/imadive.log` in its data folder as well as to the terminal (`init_desktop_logging`, `log_to_file`), keeping the previous run's log as `imadive.old`.
 - **Self-test**: `imadive-desktop --self-test [photos] [report]` loads face recognition and indexes the photos without opening a window. CI runs it on every build, on `fixtures/photos`.
 - **Old installations**: the library of a Totufoto installation (`com.javiespinar.totufoto`) is moved to the new folder on first start.
 

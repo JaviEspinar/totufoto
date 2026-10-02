@@ -2050,7 +2050,8 @@ function aboutHtml(st) {
     <p><b>Imadive ${esc(st.version)}</b>. Free for personal and other non-commercial use under the
       PolyForm Noncommercial License 1.0.0. The face recognition models are for non-commercial use only.</p>
     <p>${link("blob/main/LICENSE", "License")} · ${link("blob/main/THIRD_PARTY.md", "Third-party components")} ·
-      ${link("releases", "Releases")}</p></div>`;
+      ${link("releases", "Releases")}</p>
+    ${st.logs ? `<p><button class="btn" data-logs>Open log folder</button> <small>For reporting a problem: the log of this run, and of the one before.</small></p>` : ""}</div>`;
 }
 function openSettings() {
   renderSettings();
@@ -2076,6 +2077,9 @@ $("#settingsDlg").addEventListener("click", async e => {
   if (link && folderInfo.desktop) {
     e.preventDefault();
     return post("/api/open", { url: link.href }).catch(err => toast(`Couldn't open the link: ${err.message}`, true));
+  }
+  if (e.target.closest("[data-logs]")) {
+    return post("/api/logs/reveal").catch(err => toast(`Couldn't open the log folder: ${err.message}`, true));
   }
   const start = async (button, url) => {
     button.disabled = true;
