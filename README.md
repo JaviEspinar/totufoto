@@ -146,6 +146,7 @@ The gallery adapts to small screens; nothing needs installing, just open the ser
 
 - **Tablets and narrow windows**: dates, grouping and order are behind the sliders button in the top bar (a dot shows when a date range is active).
 - **Phones**: the tabs get their own row, and *People in the photo* slides in from the people button (its badge shows how many are selected); tap outside to close it.
+- **Back button**: it undoes one step at a time: it closes an open dialog, the open photo (back to where its thumbnail is) or a panel, then clears the filter chips, then goes back to Photos from another tab. With nothing left to undo it asks before leaving the gallery.
 - **Viewer**: the photo uses the full width with the details below it. Swipe left or right for the next or previous photo, tap to zoom, drag with one finger and pinch to zoom in and out.
 
 ## The index
