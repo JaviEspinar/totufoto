@@ -7,7 +7,7 @@ use anyhow::{Context, Result};
 
 use crate::faces::{self, ModelPaths};
 use crate::scan::{self, ScanConfig, ScanStatus};
-use crate::{db, guard, server};
+use crate::{db, guard, http};
 
 /// Native services offered by the program embedding the gallery.
 pub trait Host: Send + Sync + 'static {
@@ -90,9 +90,9 @@ impl Gallery {
         if !listener.local_addr()?.ip().is_loopback() {
             tracing::info!("answering to IP addresses, localhost and {:?}", names.names());
         }
-        let app = server::router(
-            server::AppState {
-                pool: server::Pool::new(self.scan.db_path.clone()),
+        let app = http::router(
+            http::AppState {
+                pool: http::Pool::new(self.scan.db_path.clone()),
                 status: self.status,
                 scan: self.scan,
                 host: self.host,
