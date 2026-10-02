@@ -578,3 +578,6 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
   /* Except the spinner: stopped, it would look stuck. */
   .spinner { animation-iteration-count: infinite !important; }
 }
+
+/* Icons from the sprite in index.html: drawn with lines in the text colour. */
+.icon { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
