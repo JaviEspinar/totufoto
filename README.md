@@ -221,7 +221,7 @@ desktop/           Tauri desktop app: window, folder picker, embedded models and
 
 ## License
 
-Totufoto is **source-available**: you may use, copy, change and share it for personal and other non-commercial purposes under the [PolyForm Noncommercial License 1.0.0](LICENSE). Non-profits, schools, public institutions and evaluation are covered too. For commercial use, ask the author for a commercial license.
+Totufoto is **source-available**: you may use, copy, change and share it for personal and other non-commercial purposes under the [PolyForm Noncommercial License 1.0.0](LICENSE). Non-profits, schools, public institutions and evaluation are covered too. For commercial use, ask [waiting4timeout](https://github.com/waiting4timeout) for a commercial license.
 
 This is not an open-source license in the OSI sense, because it does not allow commercial use.
 

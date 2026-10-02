@@ -28,7 +28,7 @@ The plan has five phases (section 8). Phase 1 (license, metadata, security fixes
 | Third-party notices | missing | Release binaries embed InsightFace buffalo_s models (non-commercial research only), ONNX Runtime (MIT, its LICENSE is fetched to `onnxruntime/LICENSE` but not shipped), the Visual C++ redistributables, and `reverse_geocoder` bundles GeoNames data (CC BY 4.0, attribution required). `README.md:10` names GeoNames but not its license. |
 | `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` | missing | |
 | Issue and PR templates, Dependabot | missing | `.github/` only holds `workflows/desktop.yml`. |
-| Personal data in the tree | clean | No IPs, personal paths or emails in tracked files. `.claude/` is untracked. The bundle id `com.javiespinar.totufoto` and the commit email are public by choice. |
+| Personal data in the tree | clean | No IPs, personal paths or emails in tracked files. `.claude/` is untracked. The project is published under the **waiting4timeout** account (licensor in `LICENSE`, `authors` in `Cargo.toml`); the repository still lives at `JaviEspinar/totufoto` until it is moved (see 2.3). |
 | Formatting config | missing | No `rustfmt.toml`, `.editorconfig`; code uses lines up to about 150 characters, so any contributor's `cargo fmt` rewrites the tree. |
 
 ### 2.2 Planned changes
@@ -42,6 +42,17 @@ The plan has five phases (section 8). Phase 1 (license, metadata, security fixes
 7. **Add `CONTRIBUTING.md`** (build steps, `just` targets, test and lint commands, how releases work, the contribution licensing note from item 4), a short `CODE_OF_CONDUCT.md`, and issue templates that ask for the version, the OS and the `--self-test` report.
 8. **Commit `rustfmt.toml`** (`max_width = 120`, `use_small_heuristics = "Max"`) and run `cargo fmt` once in its own commit; add `.editorconfig`.
 9. **GitHub settings:** branch protection on `main` requiring CI, tag protection for `v*`, Dependabot for cargo and GitHub Actions (weekly), secret scanning, Discussions for support questions.
+
+### 2.3 Moving the repository to waiting4timeout
+
+The project is presented under the [waiting4timeout](https://github.com/waiting4timeout) account (decided). The repository itself stays at `github.com/JaviEspinar/totufoto` for now; when it moves:
+
+1. Transfer it in GitHub (Settings, General, Transfer ownership) rather than creating a new one: issues, releases, stars and the download history move with it, and GitHub redirects the old URLs, including `git clone` and release downloads, as long as no new repository takes the name `JaviEspinar/totufoto`.
+2. Update the links in one commit: `Cargo.toml` (`repository`, `homepage`), `README.md` (latest release link, both `git clone` commands), `.github/workflows/desktop.yml` (the test-photo download's User-Agent; it goes away when the fixtures land), `SECURITY.md` if a contact is added, and `.github/FUNDING.yml` once it exists. Old release notes (`release-notes/v0.1.6.md` links to v0.1.5) can keep their URLs, which redirect.
+3. **Keep the desktop identifier `com.javiespinar.totufoto`** (`desktop/tauri.conf.json:4`). It names the data folder (`%APPDATA%\com.javiespinar.totufoto`, `~/.local/share/com.javiespinar.totufoto`), so changing it makes the app open with an empty library for every existing user. Change it only together with code that moves the old folder on first start, and then update the data-folder table in the README.
+4. Repository settings do not all transfer: enable private vulnerability reporting, branch protection, Dependabot and Discussions again on the new repository, and check that the Actions workflows can still create releases.
+5. Local clones: `git remote set-url origin git@github.com:waiting4timeout/totufoto.git`.
+6. Commits so far are authored with a personal e-mail address. To publish new commits under the professional identity only, set `git config user.email` in this repository to the waiting4timeout account's address (or its GitHub no-reply address); history stays as it is.
 
 ## 3. Rust service
 
