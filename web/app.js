@@ -32,8 +32,12 @@ const regionName = (() => {
   catch { return cc => cc; }
 })();
 const MONTHS = Array.from({ length: 12 }, (_, i) => new Date(2000, i, 1).toLocaleString(undefined, { month: "long" }));
-const fmtDay = t => new Date(+t.slice(0, 4), +t.slice(5, 7) - 1, +t.slice(8, 10))
-  .toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "long", day: "numeric" });
+/** The local day of "YYYY-MM-DD..." (capture times are local, without a time zone). */
+const parseDay = t => new Date(+t.slice(0, 4), +t.slice(5, 7) - 1, +t.slice(8, 10));
+/** "Thu, December 26, 2024" */
+const fmtDay = t => parseDay(t).toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "long", day: "numeric" });
+/** "Dec 26, 2024" */
+const fmtDate = t => parseDay(t).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 const fmtFull = t => fmtDay(t) + " · " + t.slice(11, 16);
 
 const state = {
@@ -479,8 +483,6 @@ function renderGroups(container, groups, headerFn, subFn) {
   observer.observe(sentinel);
 }
 
-const fmtDate = d => new Date(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10))
-  .toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
 function rangeLabel() {
   if (state.from && state.to) return `${fmtDate(state.from)} to ${fmtDate(state.to)}`;
   return state.from ? `Since ${fmtDate(state.from)}` : `Until ${fmtDate(state.to)}`;
@@ -832,15 +834,27 @@ try {
   for (const [k, r] of Object.entries(PEOPLE_ZOOM))
     if (typeof saved[k] === "number") peopleZoom[k] = Math.min(r.max, Math.max(r.min, saved[k]));
 } catch {} // a corrupted saved value: the default sizes
-/** Grid geometry for a layout at its current size; must match the CSS above. */
+/** Grid geometry for a layout at its current size. The one place these sizes are set:
+ *  `applyPeopleSize` hands them to the CSS, which draws cards and rows with them. */
 function peopleLayoutFor(name) {
   const z = peopleZoom[name];
-  return name === "list"
+  if (name === "list") {
     // Rows get taller faster than wider, so bigger sizes still show several columns.
-    ? { minW: Math.round(250 + 100 * (z - 1)), h: Math.round(44 * z), gap: 6, item: faceRow,
-        skeleton: () => `<div class="people-list">${skeletonRow().repeat(24)}</div>` }
-    : { minW: Math.round(CARD_MIN_W * z), h: Math.round(110 * z) + 112, gap: GRID_GAP, item: faceCard,
-        skeleton: () => `<div class="cards people-grid">${skeletonCard().repeat(18)}</div>` };
+    return { minW: Math.round(250 + 100 * (z - 1)), h: Math.round(44 * z), gap: 6, item: faceRow,
+      skeleton: () => `<div class="people-list">${skeletonRow().repeat(24)}</div>` };
+  }
+  const face = Math.round(110 * z); // the round picture; name, count and buttons below it
+  return { minW: Math.round(CARD_MIN_W * z), h: face + 112, face, gap: GRID_GAP, item: faceCard,
+    skeleton: () => `<div class="cards people-grid">${skeletonCard().repeat(18)}</div>` };
+}
+/** Sizes of cards and rows for the CSS (`--card-h`, `--card-face`, `--row-h`), and the size
+ *  slider's value (`--z`), which scales the text and the small pictures. */
+function applyPeopleSize(host) {
+  const cards = peopleLayoutFor("cards"), list = peopleLayoutFor("list");
+  host.style.setProperty("--z", peopleZoom[peopleLayout]);
+  host.style.setProperty("--card-h", `${cards.h}px`);
+  host.style.setProperty("--card-face", `${cards.face}px`);
+  host.style.setProperty("--row-h", `${list.h}px`);
 }
 
 function mountPeopleGrid(host, { fadeIn = false, layout: L = peopleLayoutFor("cards") } = {}) {
@@ -970,7 +984,7 @@ async function renderPeople(main, token) {
   const syncZoom = () => {
     Object.assign(zoom, PEOPLE_ZOOM[peopleLayout]);
     zoom.value = peopleZoom[peopleLayout];
-    host.style.setProperty("--z", peopleZoom[peopleLayout]);
+    applyPeopleSize(host);
   };
   // Rebuilds the grid for the current layout and size, keeping the same people on screen.
   const remount = () => {
@@ -985,7 +999,7 @@ async function renderPeople(main, token) {
   let zoomFrame = 0;
   zoom.addEventListener("input", () => {
     peopleZoom[peopleLayout] = +zoom.value;
-    host.style.setProperty("--z", zoom.value);
+    applyPeopleSize(host);
     pref.set("peopleZoom", JSON.stringify(peopleZoom));
     cancelAnimationFrame(zoomFrame);
     zoomFrame = requestAnimationFrame(remount);

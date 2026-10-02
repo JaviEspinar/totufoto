@@ -263,9 +263,10 @@ button.candidate { background: none; border: 0; padding: 6px; }
   .vgrid.animate .vcard { transition: none; }
   .vcard.enter, .vgrid.fade-in, .vcard.leave { animation-duration: 1ms; }
 }
-/* People sizes follow --z, the size slider (set on #peopleHost; see peopleLayoutFor) */
-.face-card { text-align: center; padding: 14px 10px 10px; cursor: default; height: calc(110px * var(--z, 1) + 112px); }
-.face-card .avatar { width: calc(110px * var(--z, 1)); height: calc(110px * var(--z, 1)); }
+/* People sizes come from the script (set on #peopleHost by applyPeopleSize): the grid places
+   cards and rows by them. --z, the size slider, scales the text and small pictures. */
+.face-card { text-align: center; padding: 14px 10px 10px; cursor: default; height: var(--card-h); }
+.face-card .avatar { width: var(--card-face); height: var(--card-face); }
 .avatar {
   width: 110px; height: 110px; border-radius: 50%; margin: 0 auto 8px; overflow: hidden; cursor: pointer;
   background: var(--chip);
@@ -284,7 +285,7 @@ button.candidate { background: none; border: 0; padding: 6px; }
 
 /* List layout: compact rows, several columns on wide screens */
 .face-row {
-  display: flex; align-items: center; gap: calc(8px * var(--z, 1)); height: calc(44px * var(--z, 1)); padding: 0 8px;
+  display: flex; align-items: center; gap: calc(8px * var(--z, 1)); height: var(--row-h); padding: 0 8px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
 }
 .face-row .avatar { width: calc(32px * var(--z, 1)); height: calc(32px * var(--z, 1)); margin: 0; flex: none; }
