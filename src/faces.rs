@@ -224,7 +224,9 @@ impl FaceModels {
         let outputs = self.embedder.run(ort::inputs![tensor])?;
         let (_, data) = outputs[0].try_extract_tensor::<f32>()?;
         Ok(data
-            .chunks_exact(EMBEDDING_DIM)
+            .as_chunks::<EMBEDDING_DIM>()
+            .0
+            .iter()
             .map(|v| {
                 let norm = v.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-12);
                 v.iter().map(|x| x / norm).collect()
@@ -312,9 +314,24 @@ pub fn embedding_to_bytes(v: &[f32]) -> Vec<u8> {
 }
 
 pub fn embedding_from_bytes(b: &[u8]) -> Vec<f32> {
-    b.chunks_exact(4).map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]])).collect()
+    b.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect()
 }
 
 pub fn dot(a: &[f32], b: &[f32]) -> f32 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn embeddings_round_trip_through_bytes() {
+        let v: Vec<f32> = (0..EMBEDDING_DIM).map(|i| (i as f32 - 256.0) / 300.0).collect();
+        let bytes = embedding_to_bytes(&v);
+        assert_eq!(bytes.len(), EMBEDDING_DIM * 4);
+        assert_eq!(embedding_from_bytes(&bytes), v);
+        // A truncated blob yields only the whole numbers in it.
+        assert_eq!(embedding_from_bytes(&bytes[..9]), v[..2]);
+    }
 }
