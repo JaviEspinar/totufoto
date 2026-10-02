@@ -18,8 +18,8 @@ use serde_json::{Value as JsonValue, json};
 use tower_http::compression::CompressionLayer;
 
 use crate::app::Host;
-use crate::imaging;
 use crate::scan::{self, ScanConfig, ScanStatus};
+use crate::{imaging, library};
 
 const INDEX_HTML: &str = include_str!("../web/index.html");
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
@@ -204,12 +204,9 @@ async fn folders(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
     let scan_cfg = s.scan.clone();
     let desktop = s.host.is_some();
     let list = db(&s, move |conn| {
-        let mut count = conn.prepare_cached("SELECT COUNT(*) FROM photos WHERE substr(path, 1, ?1) = ?2")?;
         let mut out = Vec::new();
         for root in scan_cfg.roots(conn)? {
-            // Match "<root><separator>" so /photos doesn't also count /photos2.
-            let prefix = root.join("").to_string_lossy().into_owned();
-            let photos: i64 = count.query_row(params![prefix.chars().count() as i64, prefix], |r| r.get(0))?;
+            let photos = library::count_under(conn, &root)?;
             let fixed = scan_cfg.is_fixed(&root);
             out.push(
                 json!({ "path": root.to_string_lossy(), "available": root.is_dir(), "photos": photos, "fixed": fixed }),
@@ -228,39 +225,23 @@ struct FolderBody {
 
 /// Saves a folder and indexes it.
 async fn save_folder(s: &Shared, path: PathBuf) -> ApiResult<Response> {
-    let Ok(path) = dunce::canonicalize(&path) else {
-        return Err(ApiError::bad_request(format!("{} does not exist", path.display())));
-    };
-    if !path.is_dir() {
-        return Err(ApiError::bad_request(format!("{} is not a folder", path.display())));
-    }
-    let stored = path.to_string_lossy().into_owned();
     let scan_cfg = s.scan.clone();
-    let candidate = path.clone();
-    let inside: Option<PathBuf> = db(s, move |conn| {
-        if let Some(outer) = scan_cfg.roots(conn)?.into_iter().find(|r| candidate.starts_with(r)) {
-            return Ok(Some(outer));
+    let wanted = path.clone();
+    let added = db(s, move |conn| library::add_folder(conn, &scan_cfg.fixed_roots, &wanted)).await?;
+    match added {
+        library::AddFolder::Added(path) => {
+            scan::spawn(s.scan.clone(), s.status.clone());
+            Ok(Json(json!({ "path": path.to_string_lossy() })).into_response())
         }
-        // Saved folders inside the new one aren't needed any more (their photos stay).
-        let saved: Vec<String> =
-            conn.prepare("SELECT path FROM folders")?.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
-        for inner in saved.iter().filter(|p| std::path::Path::new(p).starts_with(&candidate)) {
-            conn.execute("DELETE FROM folders WHERE path = ?", [inner])?;
+        library::AddFolder::Missing => Err(ApiError::bad_request(format!("{} does not exist", path.display()))),
+        library::AddFolder::NotAFolder => Err(ApiError::bad_request(format!("{} is not a folder", path.display()))),
+        library::AddFolder::AlreadyIn(outer) if dunce::canonicalize(&path).is_ok_and(|p| p == outer) => {
+            Err(ApiError::conflict(format!("{} is already in the gallery", path.display())))
         }
-        conn.execute("INSERT OR IGNORE INTO folders (path) VALUES (?)", [stored])?;
-        Ok(None)
-    })
-    .await?;
-    if let Some(outer) = inside {
-        let msg = if outer == path {
-            format!("{} is already in the gallery", path.display())
-        } else {
-            format!("{} is already included: it is inside {}", path.display(), outer.display())
-        };
-        return Err(ApiError::conflict(msg));
+        library::AddFolder::AlreadyIn(outer) => {
+            Err(ApiError::conflict(format!("{} is already included: it is inside {}", path.display(), outer.display())))
+        }
     }
-    scan::spawn(s.scan.clone(), s.status.clone());
-    Ok(Json(json!({ "path": path.to_string_lossy() })).into_response())
 }
 
 async fn add_folder(State(s): State<Shared>, Json(body): Json<FolderBody>) -> ApiResult<Response> {
@@ -318,30 +299,18 @@ async fn remove_folder_now(s: Shared, path: String) -> ApiResult<(usize, usize)>
     while s.status.running.load(SeqCst) {
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-    let body = FolderBody { path };
     let scan_cfg = s.scan.clone();
     let status = s.status.clone();
     db(&s, move |conn| {
-        let folder = PathBuf::from(&body.path);
-        // Its photos leave, except those another folder still includes (one given on the
-        // command line, say). Match "<folder><separator>" so removing /photos doesn't also
-        // remove /photos2.
-        let prefix = folder.join("").to_string_lossy().into_owned();
-        let remaining: Vec<PathBuf> = scan_cfg.roots(conn)?.into_iter().filter(|r| *r != folder).collect();
-        let rows: Vec<(i64, String)> = conn
-            .prepare("SELECT id, path FROM photos WHERE substr(path, 1, ?1) = ?2")?
-            .query_map(params![prefix.chars().count() as i64, prefix], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<Result<_, _>>()?;
-        let (kept, gone): (Vec<_>, Vec<_>) =
-            rows.into_iter().partition(|(_, path)| remaining.iter().any(|r| std::path::Path::new(path).starts_with(r)));
-        let gone: Vec<i64> = gone.into_iter().map(|(id, _)| id).collect();
-        status.remove_total.store(gone.len() as u64, Relaxed);
-        crate::db::forget_photos_with_progress(conn, &gone, |done| status.remove_done.store(done as u64, Relaxed))?;
-        // Only once its photos are gone: if that fails, the folder stays listed and can be
-        // removed again (a folder no longer listed would keep its photos for good).
-        conn.execute("DELETE FROM folders WHERE path = ?", [&body.path])?;
-        tracing::info!("removed folder {} ({} photos, {} kept: in another folder)", body.path, gone.len(), kept.len());
-        Ok((gone.len(), kept.len()))
+        let r = library::remove_folder(
+            conn,
+            &scan_cfg.fixed_roots,
+            std::path::Path::new(&path),
+            |total| status.remove_total.store(total as u64, Relaxed),
+            |done| status.remove_done.store(done as u64, Relaxed),
+        )?;
+        tracing::info!("removed folder {path} ({} photos, {} kept: in another folder)", r.removed, r.kept);
+        Ok((r.removed, r.kept))
     })
     .await
 }
@@ -614,31 +583,18 @@ async fn groups(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResu
 /// unplugged drive, say) nothing is removed ("unavailable"); "present" if the file is there.
 async fn check_photo(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Json<JsonValue>> {
     let scan_cfg = s.scan.clone();
-    let result = db(&s, move |conn| {
-        let Some(path) =
-            conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get::<_, String>(0)).optional()?
-        else {
-            return Ok(json!({ "status": "removed" }));
-        };
-        let file = PathBuf::from(&path);
-        if file.is_file() {
-            return Ok(json!({ "status": "present", "path": path }));
-        }
-        let root = scan_cfg.roots(conn)?.into_iter().find(|r| file.starts_with(r));
-        let folder_there = match &root {
-            Some(r) => r.is_dir(),
-            None => file.parent().is_some_and(|p| p.is_dir()),
-        };
-        if !folder_there {
-            let folder = root.unwrap_or_else(|| file.parent().map(PathBuf::from).unwrap_or_default());
-            return Ok(json!({ "status": "unavailable", "path": path, "folder": folder.to_string_lossy() }));
-        }
-        crate::db::forget_photo(conn, id)?;
-        tracing::info!("{path} is gone: removed from the gallery");
-        Ok(json!({ "status": "removed", "path": path }))
+    let checked = db(&s, move |conn| {
+        let roots = scan_cfg.roots(conn)?;
+        library::check_photo(conn, &roots, id)
     })
     .await?;
-    Ok(Json(result))
+    Ok(Json(match checked {
+        library::CheckPhoto::Present(path) => json!({ "status": "present", "path": path }),
+        library::CheckPhoto::Removed(path) => json!({ "status": "removed", "path": path }),
+        library::CheckPhoto::Unavailable { path, folder } => {
+            json!({ "status": "unavailable", "path": path, "folder": folder.to_string_lossy() })
+        }
+    }))
 }
 
 #[derive(Deserialize)]
@@ -659,52 +615,31 @@ async fn remove_photo(
     Path(id): Path<i64>,
     Json(body): Json<RemoveBody>,
 ) -> ApiResult<Response> {
+    use library::RemovePhoto;
+    let from = match body.from.as_str() {
+        "gallery" => library::RemoveFrom::Gallery,
+        "disk" => library::RemoveFrom::Disk { permanently: body.permanently },
+        _ => return Err(ApiError::bad_request("from must be gallery or disk")),
+    };
     let scan_cfg = s.scan.clone();
-    let result = db(&s, move |conn| {
-        let Some(path) =
-            conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get::<_, String>(0)).optional()?
-        else {
-            return Ok(Err(ApiError::not_found("photo")));
-        };
-        match body.from.as_str() {
-            "gallery" => {
-                conn.execute("INSERT OR IGNORE INTO excluded (path) VALUES (?)", [&path])?;
-                crate::db::forget_photo(conn, id)?;
-                tracing::info!("{path}: removed from the gallery (file kept)");
-                Ok(Ok((StatusCode::OK, json!({ "status": "removed", "path": path }))))
-            }
-            "disk" => {
-                let file = PathBuf::from(&path);
-                if !scan_cfg.roots(conn)?.iter().any(|r| file.starts_with(r)) {
-                    return Ok(Err(ApiError::forbidden("the file is outside the photo folders")));
-                }
-                if file.exists() {
-                    if body.permanently {
-                        std::fs::remove_file(&file)?;
-                        tracing::info!("{path}: deleted permanently");
-                    } else if let Err(e) = trash::delete(&file) {
-                        tracing::warn!("{path}: can't move to the bin: {e}");
-                        // Not an error: the page asks whether to delete it for good instead.
-                        return Ok(Ok((
-                            StatusCode::CONFLICT,
-                            json!({ "status": "no-bin", "error": e.to_string(), "path": path }),
-                        )));
-                    } else {
-                        tracing::info!("{path}: moved to the bin");
-                    }
-                }
-                crate::db::forget_photo(conn, id)?;
-                Ok(Ok((
-                    StatusCode::OK,
-                    json!({ "status": if body.permanently { "deleted" } else { "binned" }, "path": path }),
-                )))
-            }
-            _ => Ok(Err(ApiError::bad_request("from must be gallery or disk"))),
-        }
+    let removed = db(&s, move |conn| {
+        let roots = scan_cfg.roots(conn)?;
+        library::remove_photo(conn, &roots, id, from)
     })
     .await?;
-    let (status, body) = result?;
-    Ok((status, Json(body)).into_response())
+    let ok = |status: &str, path: String| Ok(Json(json!({ "status": status, "path": path })).into_response());
+    match removed {
+        RemovePhoto::Removed(path) => ok("removed", path),
+        RemovePhoto::Binned(path) => ok("binned", path),
+        RemovePhoto::Deleted(path) => ok("deleted", path),
+        // Not an error: the page asks whether to delete it for good instead.
+        RemovePhoto::NoBin { path, error } => {
+            Ok((StatusCode::CONFLICT, Json(json!({ "status": "no-bin", "error": error, "path": path })))
+                .into_response())
+        }
+        RemovePhoto::NotFound => Err(ApiError::not_found("photo")),
+        RemovePhoto::Outside => Err(ApiError::forbidden("the file is outside the photo folders")),
+    }
 }
 
 /// Identical files and the search progress. While the scan or the search runs, the report
