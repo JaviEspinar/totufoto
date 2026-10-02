@@ -178,13 +178,25 @@ thread_local! {
     static MODELS: RefCell<Option<FaceModels>> = const { RefCell::new(None) };
 }
 
+/// Clears a busy flag when dropped, also when the work panics or its request is dropped,
+/// so a failure never leaves the gallery stuck as busy until a restart.
+pub(crate) struct ClearOnDrop<'a>(pub &'a AtomicBool);
+
+impl Drop for ClearOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::SeqCst);
+    }
+}
+
 pub fn run(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     if status.running.swap(true, Ordering::SeqCst) {
         status.rerun.store(true, Ordering::SeqCst);
         return Ok(());
     }
+    let _running = ClearOnDrop(&status.running);
+    // Until the scan says otherwise: what a panic leaves behind.
+    status.set_phase("failed");
     let result = scan(cfg, status);
-    status.running.store(false, Ordering::SeqCst);
     status.set_phase(match &result {
         Ok(()) => "idle",
         Err(_) => "failed",
@@ -297,11 +309,21 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
                 if status.hold.load(Ordering::Relaxed) {
                     return; // stopped: what is done so far is kept, the rest waits for the next scan
                 }
-                let outcome = match process(file, models.as_ref()) {
-                    Ok(p) => Outcome::Indexed(p),
-                    Err((file, e)) => {
+                let copy = FileEntry { path: file.path.clone(), mtime: file.mtime, size: file.size };
+                // A file that crashes a decoder (or the face models) is a failed file, not a failed scan.
+                let processed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| process(file, models.as_ref())));
+                let outcome = match processed {
+                    Ok(Ok(p)) => Outcome::Indexed(p),
+                    Ok(Err((file, e))) => {
                         tracing::warn!("{}: {e:#}", file.path.display());
                         Outcome::Failed(file, format!("{e:#}"))
+                    }
+                    Err(panic) => {
+                        let why = panic.downcast_ref::<&str>().map(|s| s.to_string())
+                            .or_else(|| panic.downcast_ref::<String>().cloned())
+                            .unwrap_or_else(|| "unknown error".into());
+                        tracing::error!("{}: crashed while reading it: {why}", copy.path.display());
+                        Outcome::Failed(copy, format!("crashed while reading it: {why}"))
                     }
                 };
                 let _ = sender.send(outcome);
@@ -550,4 +572,35 @@ fn exif_gps(exif: &exif::Exif) -> Option<(f64, f64)> {
     // 0,0 is what many cameras write when they have no fix.
     let valid = lat.abs() <= 90.0 && lon.abs() <= 180.0 && (lat.abs() > 1e-6 || lon.abs() > 1e-6);
     valid.then_some((lat, lon))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn busy_flag_clears_when_the_work_panics() {
+        let busy = AtomicBool::new(true);
+        let result = std::panic::catch_unwind(|| {
+            let _busy = ClearOnDrop(&busy);
+            panic!("a decoder crashed");
+        });
+        assert!(result.is_err());
+        assert!(!busy.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_failed_scan_is_not_left_running() {
+        // A database that can't be opened: the scan fails at once.
+        let cfg = ScanConfig {
+            fixed_roots: vec![PathBuf::from("/nonexistent/photos")],
+            db_path: PathBuf::from("/nonexistent/totufoto-test/index.sqlite"),
+            models: None,
+            cluster_threshold: 0.42,
+        };
+        let status = ScanStatus::default();
+        assert!(run(&cfg, &status).is_err());
+        assert!(!status.running.load(Ordering::SeqCst));
+        assert_eq!(status.view().phase, "failed");
+    }
 }

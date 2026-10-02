@@ -59,8 +59,8 @@ pub fn run(db_path: &Path, status: &DupStatus) -> Result<()> {
         status.rerun.store(true, Ordering::SeqCst);
         return Ok(());
     }
+    let _running = crate::scan::ClearOnDrop(&status.running);
     let result = fingerprint(db_path, status);
-    status.running.store(false, Ordering::SeqCst);
     *status.finished.lock().unwrap() = Some(chrono::Local::now().format("%Y-%m-%d %H:%M").to_string());
     result
 }
