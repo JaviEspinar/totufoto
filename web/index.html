@@ -457,6 +457,9 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 .folder .c { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .folder .off { color: #c2410c; font-size: 12px; white-space: nowrap; }
 .add-row { display: flex; gap: 8px; margin-top: 14px; }
+.folder.removing { flex-wrap: wrap; }
+.folder .remove-progress { flex: 1 1 180px; font-size: 12px; color: var(--muted); }
+.folder .remove-progress progress { width: 100%; height: 8px; margin-top: 4px; accent-color: var(--accent); }
 .folder .fixed { color: var(--muted); font-size: 12px; white-space: nowrap; border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; }
 #browseDlg { width: min(560px, calc(100vw - 32px)); }
 .browse-path { display: flex; gap: 8px; margin-bottom: 10px; }
@@ -2572,18 +2575,31 @@ function failuresHtml() {
       `<li><span class="p" title="${esc(f.path)}"><bdi>${esc(f.path)}</bdi></span><span class="why">${esc(f.error)}</span></li>`).join("")}${more}</ul></details>
   </div>`;
 }
+/** "Removing 1,200 of 40,000 photos", or waiting for a scan to stop first. */
+function removeProgressHtml(st) {
+  if (!st?.remove_total) {
+    return `<div>${st?.running ? "Stopping the scan first…" : "Removing its photos…"}</div><progress></progress>`;
+  }
+  return `<div>Removing ${st.remove_done.toLocaleString()} of ${st.remove_total.toLocaleString()} photos</div>
+    <progress max="${st.remove_total}" value="${st.remove_done}"></progress>`;
+}
 function renderSettings(error = "") {
   const dlg = $("#settingsDlg"), body = $(".dlg-body", dlg);
   const { folders, desktop } = folderInfo;
-  const list = folders.length ? folders.map(f => `
-    <div class="folder">
+  const removing = lastStatus?.removing ?? null;
+  const list = folders.length ? folders.map(f => f.path === removing
+    ? `<div class="folder removing">
+        <span class="p" title="${esc(f.path)}"><bdi>${esc(f.path)}</bdi></span>
+        <div class="remove-progress" id="removeProgress">${removeProgressHtml(lastStatus)}</div>
+      </div>`
+    : `<div class="folder">
       <span class="p" title="${esc(f.path)}"><bdi>${esc(f.path)}</bdi></span>
       ${f.available ? `<span class="c">${f.photos.toLocaleString()} photos</span>` : `<span class="off" title="The folder can't be found right now. Its photos are kept until it's back or you remove it.">not available</span>`}
       ${f.fixed
         ? `<span class="fixed" title="Given on the command line when Totufoto was started; remove it there">command line</span>`
-        : `<button class="btn" data-remove="${esc(f.path)}">Remove</button>`}
+        : `<button class="btn" data-remove="${esc(f.path)}" ${removing ? `disabled title="Wait for the folder being removed"` : ""}>Remove</button>`}
     </div>`).join("") : `<p>No folders yet.</p>`;
-  const add = `<div class="add-row"><button class="btn primary" ${desktop ? "data-pick" : "data-browse"}>Add folder…</button></div>`;
+  const add = `<div class="add-row"><button class="btn primary" ${desktop ? "data-pick" : "data-browse"} ${removing ? "disabled" : ""}>Add folder…</button></div>`;
   body.innerHTML = `<h4>Photo folders</h4><p>Subfolders are included. Photos are only changed when you rotate or delete them.</p>${list}${add}<div class="err">${esc(error)}</div>
     <h4>Library</h4><div class="scan-state" id="settingsScan">${scanStateHtml(lastStatus)}</div>
     <div id="settingsFailures">${failuresHtml()}</div>
@@ -2635,7 +2651,23 @@ $("#settingsDlg").addEventListener("click", async e => {
         <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button><button class="btn danger" data-choice="remove">Remove folder</button></div>`,
         "Remove this folder from the gallery?");
       if (choice !== "remove") return;
-      const r = await post("/api/folders/remove", { path });
+      // Progress in the folder's row at once; the status polling keeps it current.
+      lastStatus = { ...lastStatus, removing: path, remove_done: 0, remove_total: 0 };
+      renderSettings();
+      const watch = setInterval(async () => {
+        const st = await api("/api/status").catch(() => null);
+        if (!st?.removing) return;
+        lastStatus = st;
+        const el = $("#removeProgress");
+        if (el) el.innerHTML = removeProgressHtml(st);
+        updateIndexPill(st);
+      }, 500);
+      let r;
+      try { r = await post("/api/folders/remove", { path }); }
+      finally {
+        clearInterval(watch);
+        lastStatus = { ...lastStatus, removing: null };
+      }
       toast(`${r.removed.toLocaleString()} photo${r.removed === 1 ? "" : "s"} removed from the gallery`
         + (r.kept ? `; ${r.kept.toLocaleString()} stay, as another folder includes them` : ""));
       await Promise.all([loadFolders(), loadMeta()]);
@@ -2656,6 +2688,12 @@ let pillHiddenUntilIdle = false, pillDoneTimer = 0, pillWasBusy = false;
 /** What the library is doing, for the card and the first-index screen; null when idle or
  *  only checking for changes (that is quick and needs no attention). */
 function indexWork(s) {
+  if (s?.removing) {
+    const name = s.removing.split(/[\\/]/).filter(Boolean).pop() || s.removing;
+    return s.remove_total
+      ? { title: `Removing ${s.remove_done.toLocaleString()} of ${s.remove_total.toLocaleString()} photos`, detail: `Folder ${name}`, done: s.remove_done, total: s.remove_total }
+      : { title: "Removing a folder…", detail: `Folder ${name}` };
+  }
   if (!s?.running) return null;
   if (s.phase === "indexing photos" && s.total > 0) {
     return { title: `Indexing ${s.done.toLocaleString()} of ${s.total.toLocaleString()} photos`,
@@ -2695,7 +2733,7 @@ function updateIndexPill(s) {
     const more = $("[data-pill-new]", pill);
     more.hidden = !(fresh > 0 && shownPhotoCount > 0 && state.view === "photos");
     more.textContent = `Show ${fresh.toLocaleString()} new`;
-  } else if (pillWasBusy && !s.running) {
+  } else if (pillWasBusy && !s.running && !s.removing) {
     pillWasBusy = false;
     if (pill.hidden) return;
     pill.classList.add("done");
@@ -2718,7 +2756,14 @@ $("#indexPill").addEventListener("click", e => {
 async function pollStatus() {
   let s;
   try { s = await api("/api/status"); } catch { return setTimeout(pollStatus, 5000); }
+  const wasRemoving = lastStatus?.removing ?? null;
   lastStatus = s;
+  // A folder removal (from this page or another device): its row in Settings follows it.
+  const removeRow = $("#removeProgress");
+  if (removeRow && s.removing) removeRow.innerHTML = removeProgressHtml(s);
+  if ((s.removing ?? null) !== wasRemoving && $("#settingsDlg").open) {
+    loadFolders().then(() => { if ($("#settingsDlg").open) renderSettings(); });
+  }
   updateIndexPill(s);
   const first = $("#firstIndex");
   if (first) first.innerHTML = firstIndexHtml(s);
@@ -2741,7 +2786,7 @@ async function pollStatus() {
     render();
   }
   wasRunning = s.running;
-  setTimeout(pollStatus, s.running ? 1500 : 10000);
+  setTimeout(pollStatus, s.running || s.removing ? 1500 : 10000);
 }
 
 loadHash();

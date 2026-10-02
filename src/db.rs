@@ -226,6 +226,11 @@ pub fn forget_photo(conn: &mut Connection, id: i64) -> Result<()> {
 /// [`forget_photo`] for many photos at once: the people are remembered and the empty
 /// groups cleared once, not for every photo.
 pub fn forget_photos(conn: &mut Connection, ids: &[i64]) -> Result<()> {
+    forget_photos_with_progress(conn, ids, |_| {})
+}
+
+/// [`forget_photos`], deleting in batches and telling `progress` how many are done.
+pub fn forget_photos_with_progress(conn: &mut Connection, ids: &[i64], mut progress: impl FnMut(usize)) -> Result<()> {
     if ids.is_empty() {
         return Ok(());
     }
@@ -241,13 +246,20 @@ pub fn forget_photos(conn: &mut Connection, ids: &[i64]) -> Result<()> {
     people.sort_unstable();
     people.dedup();
     remember_named_people(conn, Some(&people))?;
-    let tx = conn.transaction()?;
-    {
-        let mut delete = tx.prepare("DELETE FROM photos WHERE id = ?")?;
-        for id in ids {
-            delete.execute([id])?;
+    let mut done = 0;
+    for chunk in ids.chunks(500) {
+        let tx = conn.transaction()?;
+        {
+            let mut delete = tx.prepare_cached("DELETE FROM photos WHERE id = ?")?;
+            for id in chunk {
+                delete.execute([id])?;
+            }
         }
+        tx.commit()?;
+        done += chunk.len();
+        progress(done);
     }
+    let tx = conn.transaction()?;
     tx.execute(
         "DELETE FROM persons WHERE name IS NULL AND id NOT IN (SELECT DISTINCT person_id FROM faces WHERE person_id IS NOT NULL)",
         [],

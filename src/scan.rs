@@ -42,6 +42,13 @@ pub struct ScanStatus {
     regroup: AtomicBool,
     /// The search for identical files, run after each scan.
     pub dups: Arc<crate::duplicates::DupStatus>,
+    /// While set (a folder is being removed), a running scan stops between photos and new
+    /// scans end at once, so none puts back photos that are being removed.
+    pub hold: AtomicBool,
+    /// The folder being removed, with how many of its photos are done.
+    pub removing: Mutex<Option<String>>,
+    pub remove_done: AtomicU64,
+    pub remove_total: AtomicU64,
 }
 
 #[derive(Serialize)]
@@ -54,6 +61,9 @@ pub struct StatusView {
     pub faces: u64,
     pub group_done: u64,
     pub group_total: u64,
+    pub removing: Option<String>,
+    pub remove_done: u64,
+    pub remove_total: u64,
 }
 
 impl ScanStatus {
@@ -67,6 +77,9 @@ impl ScanStatus {
             faces: self.faces.load(Ordering::Relaxed),
             group_done: self.group_done.load(Ordering::Relaxed),
             group_total: self.group_total.load(Ordering::Relaxed),
+            removing: self.removing.lock().unwrap().clone(),
+            remove_done: self.remove_done.load(Ordering::Relaxed),
+            remove_total: self.remove_total.load(Ordering::Relaxed),
         }
     }
 
@@ -194,6 +207,10 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
         return Ok(());
     }
     let files = list_files(&roots);
+    if status.hold.load(Ordering::SeqCst) {
+        tracing::info!("scan stopped: a folder is being removed");
+        return Ok(());
+    }
     // Photos on a folder that is currently unavailable (say, an unplugged drive) are kept.
     let offline: Vec<&PathBuf> = roots.iter().filter(|r| !r.is_dir()).collect();
     for r in &offline {
@@ -277,6 +294,9 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     std::thread::scope(|s| -> Result<()> {
         s.spawn(|| {
             todo.into_par_iter().for_each_with(sender, |sender, file| {
+                if status.hold.load(Ordering::Relaxed) {
+                    return; // stopped: what is done so far is kept, the rest waits for the next scan
+                }
                 let outcome = match process(file, models.as_ref()) {
                     Ok(p) => Outcome::Indexed(p),
                     Err((file, e)) => {
@@ -290,6 +310,10 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
         write_results(&mut conn, receiver, status)
     })?;
 
+    if status.hold.load(Ordering::SeqCst) {
+        tracing::info!("scan stopped: a folder is being removed");
+        return Ok(());
+    }
     if models.is_some() {
         status.set_phase("grouping faces");
         let progress = cluster::Progress { done: &status.group_done, total: &status.group_total };
