@@ -837,7 +837,7 @@ mod tests {
         let conn = crate::db::open(&cfg.db_path).unwrap();
         conn.execute(
             "INSERT INTO excluded (path) VALUES (?)",
-            [dir.path().join("photos/removed.jpg").to_string_lossy()],
+            [dir.path().join(crate::testutil::native("photos/removed.jpg")).to_string_lossy()],
         )
         .unwrap();
 

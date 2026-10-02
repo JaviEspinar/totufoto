@@ -6,6 +6,12 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use image::{Rgb, RgbImage};
 
+/// `rel` ("a/b.jpg") as a path with this system's separator, so it compares equal to the
+/// paths the scan stores (on Windows, `dir.join("a/b.jpg")` keeps the forward slash).
+pub fn native(rel: &str) -> PathBuf {
+    rel.split('/').collect()
+}
+
 /// A folder under the system's temporary folder, deleted (with its contents) when dropped.
 pub struct TempDir(PathBuf);
 
@@ -26,7 +32,7 @@ impl TempDir {
 
     /// `rel` inside this folder, with its parent folders created.
     pub fn file(&self, rel: &str) -> PathBuf {
-        let path = self.0.join(rel);
+        let path = self.0.join(native(rel));
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         path
     }
@@ -82,7 +88,7 @@ impl Library {
 
     /// The id of the photo at `rel` inside the photos folder.
     pub fn id(&self, rel: &str) -> i64 {
-        let path = self.root().join(rel);
+        let path = self.root().join(native(rel));
         self.conn()
             .query_row("SELECT id FROM photos WHERE path = ?", [path.to_string_lossy()], |r| r.get(0))
             .expect(rel)

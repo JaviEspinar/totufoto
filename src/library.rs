@@ -234,18 +234,21 @@ mod tests {
 
     #[test]
     fn photos_under_a_folder_not_its_namesakes() {
+        use crate::testutil::native;
+        // Paths as the scan stores them: absolute, with this system's separator.
+        let base = std::env::temp_dir();
         let conn = crate::db::open_in_memory();
-        for (id, path) in [(1, "/photos/a.jpg"), (2, "/photos/sub/b.jpg"), (3, "/photos2/c.jpg"), (4, "/x/d.jpg")] {
+        for (id, rel) in [(1, "photos/a.jpg"), (2, "photos/sub/b.jpg"), (3, "photos2/c.jpg"), (4, "x/d.jpg")] {
             conn.execute(
                 "INSERT INTO photos (id, path, mtime, size, width, height, taken, date_from_exif) VALUES (?, ?, 0, 1, 1, 1, '', 0)",
-                params![id, path],
+                params![id, base.join(native(rel)).to_string_lossy()],
             )
             .unwrap();
         }
-        let ids: Vec<i64> = photos_under(&conn, Path::new("/photos")).unwrap().into_iter().map(|(id, _)| id).collect();
+        let ids: Vec<i64> = photos_under(&conn, &base.join("photos")).unwrap().into_iter().map(|(id, _)| id).collect();
         assert_eq!(ids, [1, 2]);
-        assert_eq!(count_under(&conn, Path::new("/photos")).unwrap(), 2);
-        assert_eq!(count_under(&conn, Path::new("/photos/sub")).unwrap(), 1);
+        assert_eq!(count_under(&conn, &base.join("photos")).unwrap(), 2);
+        assert_eq!(count_under(&conn, &base.join(native("photos/sub"))).unwrap(), 1);
     }
 
     #[test]
