@@ -202,9 +202,15 @@ mod tests {
 
     /// The gallery's router on a test library (a.jpg indexed), without the desktop app.
     fn app(lib: &crate::testutil::Library) -> Router {
+        app_with_status(lib).0
+    }
+
+    /// The app, and its status to set busy flags on.
+    fn app_with_status(lib: &crate::testutil::Library) -> (Router, Arc<ScanStatus>) {
+        let status = Arc::new(ScanStatus::default());
         let state = AppState {
             pool: Pool::new(lib.cfg.db_path.clone()),
-            status: Arc::new(ScanStatus::default()),
+            status: status.clone(),
             scan: Arc::new(ScanConfig {
                 fixed_roots: lib.cfg.fixed_roots.clone(),
                 db_path: lib.cfg.db_path.clone(),
@@ -213,7 +219,7 @@ mod tests {
             }),
             host: None,
         };
-        router(state, crate::guard::HostNames::default())
+        (router(state, crate::guard::HostNames::default()), status)
     }
 
     /// Sends a request as the gallery's own page would, and returns the status and the body.
@@ -451,6 +457,38 @@ mod tests {
         .await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert!(outside.exists());
+    }
+
+    #[tokio::test]
+    async fn busy_work_refuses_a_second_start_and_frees_itself() {
+        use std::sync::atomic::Ordering::SeqCst;
+        let (lib, id) = library_with_a_photo();
+        let (app, status) = app_with_status(&lib);
+
+        // A deletion of duplicates already running: a second one is refused, and the
+        // refusal doesn't clear the running one's flag.
+        status.dups.deleting.store(true, SeqCst);
+        let (code, body) = call(&app, "POST", "/api/duplicates/delete", Some(json!({}))).await;
+        assert_eq!(code, StatusCode::CONFLICT);
+        assert!(body["error"].as_str().is_some());
+        assert!(status.dups.deleting.load(SeqCst));
+        // Once it ends, a new one runs, and frees the flag when done.
+        status.dups.deleting.store(false, SeqCst);
+        let (code, _) = call(&app, "POST", "/api/duplicates/delete", Some(json!({}))).await;
+        assert_eq!(code, StatusCode::OK);
+        assert!(!status.dups.deleting.load(SeqCst));
+
+        // Rotating waits for the scan.
+        status.running.store(true, SeqCst);
+        let (code, _) = call(&app, "POST", &format!("/api/photos/{id}/rotate"), Some(json!({ "turns": 1 }))).await;
+        assert_eq!(code, StatusCode::CONFLICT);
+        status.running.store(false, SeqCst);
+
+        // One folder removal at a time.
+        *status.removing.lock().unwrap() = Some("/elsewhere".into());
+        let (code, body) = call(&app, "POST", "/api/folders/remove", Some(json!({ "path": "/saved/folder" }))).await;
+        assert_eq!(code, StatusCode::CONFLICT);
+        assert!(body["error"].as_str().unwrap().contains("being removed"), "{body}");
     }
 
     #[tokio::test]
