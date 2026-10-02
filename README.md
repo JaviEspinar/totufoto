@@ -68,7 +68,7 @@ The command-line app serves the gallery at `http://127.0.0.1:7878` for your brow
 
 ### 1. Install Rust
 
-You need Rust 1.88 or newer. If you don't have it:
+You need Rust 1.93 or newer. If you don't have it:
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
