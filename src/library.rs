@@ -43,6 +43,13 @@ pub fn root_of<'a, R: AsRef<Path>>(roots: &'a [R], path: &Path) -> Option<&'a R>
     roots.iter().find(|r| path.starts_with(r.as_ref()))
 }
 
+/// Whether a photo folder can be read now. A folder that is missing, or there but
+/// completely empty, is taken for unplugged: on Linux an unmounted drive leaves its mount
+/// point behind as an empty folder, and its photos must not be taken for deleted.
+pub fn reachable(folder: &Path) -> bool {
+    std::fs::read_dir(folder).is_ok_and(|mut entries| entries.next().is_some())
+}
+
 /// The indexed photos (id, path) whose files are inside `folder`.
 pub fn photos_under(conn: &Connection, folder: &Path) -> Result<Vec<(i64, String)>> {
     let (len, prefix) = prefix(folder);
@@ -142,7 +149,7 @@ pub fn check_photo(conn: &mut Connection, roots: &[PathBuf], id: i64) -> Result<
     }
     let root = root_of(roots, &file);
     let folder_there = match root {
-        Some(r) => r.is_dir(),
+        Some(r) => reachable(r),
         None => file.parent().is_some_and(|p| p.is_dir()),
     };
     if !folder_there {

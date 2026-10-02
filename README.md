@@ -164,6 +164,8 @@ Everything the gallery learns is stored in `totufoto-data/index.sqlite`: metadat
 
 - Stopping and starting again does **not** re-index. Only new or changed files are processed, and deleted ones are removed.
 - Deleted photos are removed at the next scan. If you open one before that, the viewer tells you it is no longer in its folder and removes it at once; if its whole folder can't be reached (an unplugged drive), nothing is removed.
+- A photo folder that is missing or completely empty is taken for an unplugged drive (on Linux an unmounted drive leaves an empty folder behind), so its photos stay in the gallery and Settings shows it as *not available*. If you really emptied it, remove it in Settings.
+- A photo whose file changes (edited in another app, say) is read again and keeps its place in the gallery; its faces are found again.
 - People you have named are remembered even when all their photos are gone: if the photos come back, or new ones appear, their faces rejoin the name.
 - Photos are tracked by path. Moving or renaming the photo folder makes them look new, so they are indexed again. Named people are matched to the re-indexed faces automatically.
 - Use `--data DIR` to keep separate indexes for separate libraries. Delete the data folder to start from scratch.

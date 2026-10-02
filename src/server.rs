@@ -209,7 +209,7 @@ async fn folders(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {
             let photos = library::count_under(conn, &root)?;
             let fixed = scan_cfg.is_fixed(&root);
             out.push(
-                json!({ "path": root.to_string_lossy(), "available": root.is_dir(), "photos": photos, "fixed": fixed }),
+                json!({ "path": root.to_string_lossy(), "available": library::reachable(&root), "photos": photos, "fixed": fixed }),
             );
         }
         Ok(out)
@@ -1193,6 +1193,8 @@ mod tests {
     #[tokio::test]
     async fn a_photo_whose_file_is_gone_is_404_then_removed_by_check() {
         let (lib, id) = library_with_a_photo();
+        // Another file, so the folder isn't left empty (which would count as unplugged).
+        std::fs::write(lib.root().join("notes.txt"), "").unwrap();
         let app = app(&lib);
         std::fs::remove_file(lib.root().join("a.jpg")).unwrap();
         assert_eq!(call(&app, "GET", &format!("/original/{id}"), None).await.0, StatusCode::NOT_FOUND);
