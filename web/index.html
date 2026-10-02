@@ -411,8 +411,17 @@ main { overflow-y: auto; min-height: 0; padding: 0 16px 40px; overscroll-behavio
   display: inline-flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.35); color: #eee;
 }
 #viewer .trash:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
-#viewer .info { background: #161615; border-left: 1px solid #2a2a28; padding: 20px 18px; overflow-y: auto; }
-#viewer .info h3 { margin: 0 0 4px; font-size: 16px; }
+#viewer .info { background: #161615; border-left: 1px solid #2a2a28; position: relative; display: flex; flex-direction: column; min-height: 0; }
+#viewer .info-body { padding: 20px 18px; overflow-y: auto; min-height: 0; flex: 1; }
+#viewer .info h3 { margin: 0 0 4px; font-size: 16px; padding-right: 30px; }
+/* The details fold away like the People column, to a strip with the button to bring them back. */
+#viewer .info-toggle { position: absolute; top: 14px; right: 12px; z-index: 1; margin: 0; color: #a5a29b; }
+#viewer .info-toggle:hover { background: #2a2a28; color: #fff; }
+#viewer .info-toggle .when-closed, #viewer.info-collapsed .info-toggle .when-open { display: none; }
+#viewer.info-collapsed .info-toggle .when-closed { display: inline-flex; }
+#viewer.info-collapsed { grid-template-columns: 1fr 48px; }
+#viewer.info-collapsed .info-body { display: none; }
+#viewer.info-collapsed .info-toggle { right: 9px; }
 #viewer .info .s { color: #a5a29b; font-size: 12px; margin-bottom: 14px; word-break: break-all; }
 #viewer .info h5 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: #8b8880; margin: 16px 0 8px; }
 .vface { display: flex; align-items: center; gap: 10px; padding: 5px; border-radius: 8px; }
@@ -548,7 +557,14 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
   .folder .p { flex-basis: 100%; }
 
   #viewer { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; }
-  #viewer .info { max-height: 38dvh; border-left: 0; border-top: 1px solid #2a2a28; padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); }
+  #viewer .info { max-height: 38dvh; border-left: 0; border-top: 1px solid #2a2a28; }
+  #viewer .info-body { padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); }
+  #viewer .info-toggle { top: 8px; right: 8px; }
+  /* Below the photo here, so the icon turns: the panel folds down. */
+  #viewer .info-toggle svg { transform: rotate(90deg); }
+  #viewer.info-collapsed { grid-template-columns: minmax(0, 1fr); }
+  #viewer.info-collapsed .info { height: calc(46px + env(safe-area-inset-bottom)); }
+  #viewer.info-collapsed .info-toggle { right: 8px; }
   #viewer .nav { width: 38px; height: 54px; background: rgba(0, 0, 0, 0.35); }
   #viewer .prev { left: 6px; } #viewer .next { right: 6px; }
   #viewer .close { top: 8px; left: 8px; width: 40px; height: 40px; border-radius: 50%; background: rgba(0, 0, 0, 0.45); }
@@ -690,7 +706,12 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
     <div class="frame"><img alt=""><div class="boxes"></div></div>
     <button class="nav next" title="Next (→)">›</button>
   </div>
-  <div class="info"></div>
+  <div class="info">
+    <button class="icon-btn small info-toggle" id="infoToggle" aria-expanded="true" title="Hide the details (I)">
+      <span class="when-open"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/></svg></span><span class="when-closed"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/><path d="m10 15-3-3 3-3"/></svg></span>
+    </button>
+    <div class="info-body"></div>
+  </div>
 </div>
 
 <script>
@@ -2028,7 +2049,7 @@ async function openViewer(i, { keepImage = false } = {}) {
   }).join("");
   viewerPath = d.path;
   const place = d.city ? `${d.city}${d.region ? ", " + d.region : ""}, ${regionName(d.country)}` : null;
-  $(".info", viewer).innerHTML = `
+  $(".info-body", viewer).innerHTML = `
     <h3>${esc(fmtFull(d.taken))}</h3>
     <div class="s">${d.dateFromExif ? "" : "Date from file (no EXIF) · "}${d.width} × ${d.height}</div>
     <div class="photo-acts">
@@ -2407,6 +2428,22 @@ $(".close", viewer).onclick = closeViewer;
 $(".prev", viewer).onclick = () => openViewer(viewerIndex - 1);
 $(".next", viewer).onclick = () => openViewer(viewerIndex + 1);
 $(".stage", viewer).addEventListener("click", e => { if (e.target.classList.contains("stage")) closeViewer(); });
+// The details can fold away, leaving the photo more room; remembered in this browser.
+function setInfoCollapsed(collapsed) {
+  viewer.classList.toggle("info-collapsed", collapsed);
+  const b = $("#infoToggle");
+  b.setAttribute("aria-expanded", String(!collapsed));
+  b.title = collapsed ? "Show the details (I)" : "Hide the details (I)";
+  try { localStorage.setItem("totufoto.infoCollapsed", collapsed ? "1" : ""); } catch {}
+  // The photo fits the room it has now.
+  if (viewerIndex >= 0) {
+    resetZoom();
+    if (rotation) previewRotation();
+    else fitViewerImage(photos[viewerIndex][1], photos[viewerIndex][2]);
+  }
+}
+$("#infoToggle").addEventListener("click", e => { e.stopPropagation(); setInfoCollapsed(!viewer.classList.contains("info-collapsed")); });
+try { if (localStorage.getItem("totufoto.infoCollapsed") === "1") setInfoCollapsed(true); } catch {}
 $(".info", viewer).addEventListener("change", e => { if (e.target.id === "showBoxes") viewer.classList.toggle("boxes", e.target.checked); });
 $(".info", viewer).addEventListener("click", async e => {
   const link = e.target.closest("a[target=_blank]");
@@ -2454,6 +2491,7 @@ document.addEventListener("keydown", e => {
   if (e.key === "Escape") closeViewer();
   else if (e.key === "Delete") deleteViewerPhoto();
   else if (e.key === "r" || e.key === "R") { if ($("#viewer [data-rotate]")) rotateViewer(e.shiftKey ? -1 : 1); }
+  else if (e.key === "i" || e.key === "I") setInfoCollapsed(!viewer.classList.contains("info-collapsed"));
   else if (e.key === "ArrowLeft") openViewer(viewerIndex - 1);
   else if (e.key === "ArrowRight") openViewer(viewerIndex + 1);
 });
