@@ -1,0 +1,176 @@
+//! People: naming them, and moving faces between them ("Not them", "Same as").
+
+use anyhow::Result;
+use rusqlite::{Connection, OptionalExtension, params};
+
+/// Moves a face out of its person into a new unnamed person of its own ("Not them").
+/// Returns the new person's id, or `None` if the face doesn't exist.
+pub fn move_face_to_new_person(conn: &mut Connection, face: i64) -> Result<Option<i64>> {
+    let tx = conn.transaction()?;
+    let Some(old) =
+        tx.query_row("SELECT person_id FROM faces WHERE id = ?", [face], |r| r.get::<_, Option<i64>>(0)).optional()?
+    else {
+        return Ok(None);
+    };
+    tx.execute("INSERT INTO persons (name) VALUES (NULL)", [])?;
+    let person = tx.last_insert_rowid();
+    tx.execute("UPDATE faces SET person_id = ?, rejected = 1 WHERE id = ?", params![person, face])?;
+    // The old group may be empty now.
+    if let Some(old) = old {
+        tx.execute(
+            "DELETE FROM persons WHERE id = ?1 AND name IS NULL AND NOT EXISTS (SELECT 1 FROM faces WHERE person_id = ?1)",
+            [old],
+        )?;
+    }
+    tx.commit()?;
+    Ok(Some(person))
+}
+
+/// Moves one face to an existing person ("Same as" in the photo viewer). The face stays
+/// there: clustering never moves faces the user placed. Returns false if the face or the
+/// person doesn't exist.
+pub fn assign_face(conn: &mut Connection, face: i64, person: i64) -> Result<bool> {
+    let tx = conn.transaction()?;
+    let exists: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM persons WHERE id = ?)", [person], |r| r.get(0))?;
+    let Some(old) =
+        tx.query_row("SELECT person_id FROM faces WHERE id = ?", [face], |r| r.get::<_, Option<i64>>(0)).optional()?
+    else {
+        return Ok(false);
+    };
+    if !exists {
+        return Ok(false);
+    }
+    tx.execute("UPDATE faces SET person_id = ?, rejected = 1 WHERE id = ?", params![person, face])?;
+    if let Some(old) = old.filter(|&o| o != person) {
+        tx.execute(
+            "DELETE FROM persons WHERE id = ?1 AND name IS NULL AND NOT EXISTS (SELECT 1 FROM faces WHERE person_id = ?1)",
+            [old],
+        )?;
+    }
+    tx.commit()?;
+    Ok(true)
+}
+
+/// Faces marked "Not them" before they got their own group (older versions left them
+/// without a person) each get one now. Run once at startup.
+pub fn give_moved_faces_a_person(conn: &mut Connection) -> Result<usize> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let faces: Vec<i64> = tx
+        .prepare("SELECT id FROM faces WHERE rejected = 1 AND person_id IS NULL")?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    for face in &faces {
+        tx.execute("INSERT INTO persons (name) VALUES (NULL)", [])?;
+        tx.execute("UPDATE faces SET person_id = ? WHERE id = ?", params![tx.last_insert_rowid(), face])?;
+    }
+    tx.commit()?;
+    Ok(faces.len())
+}
+
+/// Names people so no two share a name (ignoring case): a taken name gets the first free
+/// " (n)" suffix, as file managers do ("Ana", "Ana (1)", "Ana (2)"...). Returns the name
+/// saved, `None` when the person was left unnamed.
+pub fn rename_person(conn: &mut Connection, id: i64, name: Option<&str>) -> Result<Option<String>> {
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    let name = name.map(str::trim).filter(|n| !n.is_empty()).map(str::to_string);
+    let name = match name {
+        Some(wanted) => {
+            // A named person with no photos left gives the name up to this one.
+            let empty: Vec<(i64, String)> = tx
+                .prepare(
+                    "SELECT id, name FROM persons WHERE name IS NOT NULL AND id != ?
+                     AND NOT EXISTS (SELECT 1 FROM faces WHERE person_id = persons.id)",
+                )?
+                .query_map([id], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<Result<_, _>>()?;
+            for (other, other_name) in empty {
+                if other_name.to_lowercase() == wanted.to_lowercase() {
+                    tx.execute("DELETE FROM persons WHERE id = ?", [other])?;
+                }
+            }
+            let taken: std::collections::HashSet<String> = tx
+                .prepare("SELECT name FROM persons WHERE name IS NOT NULL AND id != ?")?
+                .query_map([id], |r| r.get::<_, String>(0))?
+                .map(|n| n.map(|n| n.to_lowercase()))
+                .collect::<Result<_, _>>()?;
+            Some(unique_name(&wanted, |candidate| taken.contains(&candidate.to_lowercase())))
+        }
+        None => None,
+    };
+    tx.execute("UPDATE persons SET name = ? WHERE id = ?", params![name, id])?;
+    tx.commit()?;
+    Ok(name)
+}
+
+/// `wanted` if free, else "<base> (n)" with the smallest free n, where base drops an
+/// existing " (n)" suffix so "Ana (1)" becomes "Ana (2)" rather than "Ana (1) (1)".
+fn unique_name(wanted: &str, taken: impl Fn(&str) -> bool) -> String {
+    if !taken(wanted) {
+        return wanted.to_string();
+    }
+    let base = match wanted.strip_suffix(')').and_then(|w| w.rsplit_once(" (")) {
+        Some((base, n)) if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) => base,
+        _ => wanted,
+    };
+    (1..).map(|n| format!("{base} ({n})")).find(|c| !taken(c)).expect("some number is free")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn person_of(conn: &Connection, face: i64) -> Option<i64> {
+        conn.query_row("SELECT person_id FROM faces WHERE id = ?", [face], |r| r.get(0)).unwrap()
+    }
+
+    #[test]
+    fn names_are_unique_ignoring_case() {
+        let mut conn = crate::testutil::people_index();
+        assert_eq!(rename_person(&mut conn, 2, Some("  ben ")).unwrap().as_deref(), Some("ben (1)"));
+        assert_eq!(rename_person(&mut conn, 2, Some("Carla")).unwrap().as_deref(), Some("Carla"));
+        assert_eq!(rename_person(&mut conn, 2, Some("   ")).unwrap(), None, "blank clears the name");
+        // "Old Ana" has no photos left, so it gives its name up instead of making "Old Ana (1)".
+        assert_eq!(rename_person(&mut conn, 2, Some("old ana")).unwrap().as_deref(), Some("old ana"));
+        assert!(!crate::testutil::person_exists(&conn, 4));
+    }
+
+    #[test]
+    fn same_as_moves_one_face_and_tidies_up() {
+        let mut conn = crate::testutil::people_index();
+        // The unnamed person's only face goes to Ana: the empty unnamed group goes.
+        assert!(assign_face(&mut conn, 3, 1).unwrap());
+        assert_eq!(person_of(&conn, 3), Some(1));
+        assert!(!crate::testutil::person_exists(&conn, 2));
+        // Ben's only face goes to Ana: Ben, named, stays (his name may come back).
+        assert!(assign_face(&mut conn, 4, 1).unwrap());
+        assert!(crate::testutil::person_exists(&conn, 3));
+        let placed: bool = conn.query_row("SELECT rejected FROM faces WHERE id = 4", [], |r| r.get(0)).unwrap();
+        assert!(placed, "grouping must never move a face the user placed");
+        assert!(!assign_face(&mut conn, 99, 1).unwrap(), "no such face");
+        assert!(!assign_face(&mut conn, 1, 99).unwrap(), "no such person");
+        assert_eq!(person_of(&conn, 1), Some(1));
+    }
+
+    #[test]
+    fn not_them_gives_the_face_a_group_of_its_own() {
+        let mut conn = crate::testutil::people_index();
+        let new = move_face_to_new_person(&mut conn, 3).unwrap().unwrap();
+        assert_eq!(person_of(&conn, 3), Some(new));
+        assert!(!crate::testutil::person_exists(&conn, 2), "the unnamed group it left is empty now");
+        let new = move_face_to_new_person(&mut conn, 4).unwrap().unwrap();
+        assert_eq!(person_of(&conn, 4), Some(new));
+        assert!(crate::testutil::person_exists(&conn, 3), "Ben is named, so he stays");
+        assert_eq!(move_face_to_new_person(&mut conn, 99).unwrap(), None);
+    }
+
+    #[test]
+    fn unique_names() {
+        let taken = |list: &'static [&'static str]| move |c: &str| list.iter().any(|t| t.eq_ignore_ascii_case(c));
+        assert_eq!(unique_name("Ana", taken(&[])), "Ana");
+        assert_eq!(unique_name("Ana", taken(&["ana"])), "Ana (1)");
+        assert_eq!(unique_name("Ana", taken(&["Ana", "Ana (1)"])), "Ana (2)");
+        assert_eq!(unique_name("Ana (1)", taken(&["Ana", "Ana (1)"])), "Ana (2)");
+        assert_eq!(unique_name("Ana (x)", taken(&["Ana (x)"])), "Ana (x) (1)");
+        assert_eq!(unique_name("Ana", taken(&["Ana", "Ana (2)"])), "Ana (1)");
+    }
+}
