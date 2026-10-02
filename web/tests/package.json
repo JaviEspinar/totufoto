@@ -1,0 +1,14 @@
+{
+  "name": "imadive-ui-tests",
+  "private": true,
+  "description": "Browser tests for Imadive's web UI",
+  "type": "module",
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test": "playwright test",
+    "install-browser": "playwright install --with-deps chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0"
+  }
+}

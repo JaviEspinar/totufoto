@@ -1,8 +1,9 @@
 name: CI
 
 # Checks every pull request and every push to main: formatting, lints, the tests on the
-# three systems, and that the declared minimum Rust version still builds. The desktop apps
-# are built separately (desktop.yml), since they need the face models.
+# three systems, the UI in a browser, and that the declared minimum Rust version still
+# builds. The desktop apps are built separately (desktop.yml), since they need the face
+# models.
 on:
   pull_request:
   push:
@@ -82,3 +83,32 @@ jobs:
           toolchain: ${{ env.MSRV }}
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --locked --all-targets
+
+  ui:
+    name: UI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: web/tests
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked --release
+        working-directory: .
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/tests/package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npx playwright test
+      - name: Keep the traces of failed tests
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ui-test-results
+          path: web/tests/test-results/
+          retention-days: 7
