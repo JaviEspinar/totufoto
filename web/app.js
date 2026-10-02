@@ -15,6 +15,17 @@ try {
   }
 } catch {}
 const $ = (s, el = document) => el.querySelector(s);
+/** An icon from the page's sprite (index.html); `mirrored` flips it left to right. */
+const icon = (name, size = 15, mirrored = false) =>
+  `<svg class="icon" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><use href="#i-${name}"${mirrored ? ' transform="matrix(-1 0 0 1 24 0)"' : ""}/></svg>`;
+/** "1 photo", "2,345 photos". */
+const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+/** Preferences remembered in this browser (`imadive.<key>`). Storage may be unavailable
+ *  (private windows, blocked cookies): then nothing is remembered. */
+const pref = {
+  get(key) { try { return localStorage.getItem(`imadive.${key}`); } catch { return null; } },
+  set(key, value) { try { localStorage.setItem(`imadive.${key}`, value); } catch {} },
+};
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const regionName = (() => {
   try { const d = new Intl.DisplayNames([navigator.language], { type: "region" }); return cc => { try { return d.of(cc); } catch { return cc; } }; }
@@ -131,7 +142,7 @@ function photoQuery(extra = {}) {
 let peopleOrder = [], orderedCache = null;
 // The People tab's sort: "count" (most photos first) or "name" (A to Z, unnamed last).
 let peopleSort = "count";
-try { if (localStorage.getItem("imadive.peopleSort") === "name") peopleSort = "name"; } catch {}
+if (pref.get("peopleSort") === "name") peopleSort = "name";
 function sortedPeople() {
   if (peopleSort === "name") return peopleAlphabetical();
   return [...people].sort((a, b) => b.count - a.count
@@ -190,7 +201,7 @@ function setAsideCollapsed(collapsed) {
   const b = $("#asideToggle");
   b.setAttribute("aria-expanded", String(!collapsed));
   b.title = collapsed ? "Show the people column" : "Hide this column";
-  try { localStorage.setItem("imadive.asideCollapsed", collapsed ? "1" : ""); } catch {}
+  pref.set("asideCollapsed", collapsed ? "1" : "");
 }
 const isPhone = () => matchMedia("(max-width: 639px)").matches;
 // On phones the column is a panel that slides in; its button closes it.
@@ -230,7 +241,7 @@ document.addEventListener("keydown", e => {
 });
 // The top bar's height (two rows on phones), for placing the View panel under it.
 new ResizeObserver(([entry]) => document.documentElement.style.setProperty("--header-h", `${entry.target.offsetHeight}px`)).observe($("header"));
-try { if (localStorage.getItem("imadive.asideCollapsed") === "1") setAsideCollapsed(true); } catch {}
+if (pref.get("asideCollapsed") === "1") setAsideCollapsed(true);
 
 let sidebarEditing = false;
 /** How many people are selected, on the collapsed column's strip. */
@@ -545,7 +556,7 @@ async function renderPhotos(main, token, signal) {
     const groups = data.groups;
     const unit = { year: "year", month: "month", day: "day", place: "place" }[shape.cards];
     load.head.querySelector(".count").textContent =
-      `${groups.length.toLocaleString()} ${unit}${groups.length === 1 ? "" : "s"}, ${shownPhotoCount.toLocaleString()} photos`;
+      `${plural(groups.length, unit)}, ${shownPhotoCount.toLocaleString()} photos`;
     renderGroupCards(load.area, groups, shape.cards);
     return;
   }
@@ -586,7 +597,7 @@ function renderGroupCards(container, groups, mode) {
     return `<button type="button" class="card group-card" data-group="${esc(String(g.key))}">
       <img src="${thumbUrl(g.cover, g.v)}" loading="lazy" decoding="async" alt="">
       <span class="meta"><span class="t">${esc(title(g.key))}</span>
-      <span class="s">${where}${g.count.toLocaleString()} photo${g.count === 1 ? "" : "s"}</span></span>
+      <span class="s">${where}${plural(g.count, "photo")}</span></span>
     </button>`;
   };
   const grid = document.createElement("div");
@@ -639,7 +650,7 @@ async function renderUpcoming(main, token, signal) {
   const sub = (p, prev) => {
     if (prev && prev[3].slice(0, 4) === p[3].slice(0, 4)) return null;
     const y = +p[3].slice(0, 4), ago = thisYear - y;
-    return `${ago} year${ago === 1 ? "" : "s"} ago · ${y}`;
+    return `${plural(ago, "year")} ago · ${y}`;
   };
   renderGroups(load.area, groups, header, sub);
 }
@@ -682,7 +693,7 @@ async function renderOptimization(main, token, signal) {
   const checked = report.finished ? `Last checked ${esc(report.finished)}.` : "Not checked yet.";
   const summary = report.files
     ? `<div class="what"><div class="big">${fmtBytes(report.bytes)} can be freed</div>
-        <small>${report.files.toLocaleString()} duplicate file${report.files === 1 ? "" : "s"} in ${report.groups.length.toLocaleString()} set${report.groups.length === 1 ? "" : "s"}. ${checked}</small></div>
+        <small>${plural(report.files, "duplicate file")} in ${plural(report.groups.length, "set")}. ${checked}</small></div>
        <div class="acts"><button class="btn" data-dup-search>Search again</button>
          <button class="btn danger" data-dup-delete>Delete duplicates</button></div>`
     : `<div class="what"><div class="big">No duplicates</div><small>No two photos are identical files. ${checked}</small></div>
@@ -724,7 +735,7 @@ function deleteProgressHtml(p) {
   return `<div>${what}</div><progress ${p?.total ? `max="${p.total}" value="${p.done}"` : ""}></progress>`;
 }
 async function deleteDuplicates(report) {
-  const choice = await askChoice(`<p>Move <b>${report.files.toLocaleString()} duplicate file${report.files === 1 ? "" : "s"}</b> (${fmtBytes(report.bytes)}) to the bin of the computer running Imadive?</p>
+  const choice = await askChoice(`<p>Move <b>${plural(report.files, "duplicate file")}</b> (${fmtBytes(report.bytes)}) to the bin of the computer running Imadive?</p>
     <p>Of each set of identical files, the one with the oldest file date is kept. A file that changed since the search is left alone.</p>
     <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button><button class="btn danger" data-choice="bin">Move to the bin</button></div>`,
     "Delete duplicates?");
@@ -753,7 +764,7 @@ async function deleteDuplicates(report) {
     let result = await runWithProgress({});
     let freed = result.freed, binned = result.binned, deleted = result.deleted;
     if (result.no_bin.length) {
-      const again = await askChoice(`<p>${result.no_bin.length.toLocaleString()} file${result.no_bin.length === 1 ? "" : "s"} can't be moved to a bin on ${result.no_bin.length === 1 ? "its drive" : "their drive"}, so they can't be recovered once deleted. Their oldest copy is kept either way.</p>
+      const again = await askChoice(`<p>${plural(result.no_bin.length, "file")} can't be moved to a bin on ${result.no_bin.length === 1 ? "its drive" : "their drive"}, so they can't be recovered once deleted. Their oldest copy is kept either way.</p>
         <div class="dlg-actions"><button class="btn" data-choice="cancel">Keep them</button><button class="btn danger" data-choice="permanently">Delete permanently</button></div>`,
         "Delete them permanently?");
       if (again === "permanently") {
@@ -787,7 +798,7 @@ const faceCard = p => `
   <div class="card face-card ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}">
     <div class="avatar" title="Show photos" tabindex="0" role="button" aria-label="Show ${esc(personName(p))}'s photos">${faceImg(p.face)}</div>
     <input value="${esc(p.name || "")}" placeholder="Add a name" data-rename="${p.id}">
-    <div class="s">${p.count} photo${p.count === 1 ? "" : "s"}</div>
+    <div class="s">${plural(p.count, "photo")}</div>
     <div class="row">
       <button class="btn" data-merge="${p.id}" title="Merge with another person">Same as…</button>
       <button class="btn" data-hide="${p.id}">${p.hidden ? "Show" : "Hide"}</button>
@@ -801,7 +812,7 @@ const faceRow = p => `
   <div class="face-row ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}">
     <div class="avatar" title="Show photos" tabindex="0" role="button" aria-label="Show ${esc(personName(p))}'s photos">${faceImg(p.face)}</div>
     <input value="${esc(p.name || "")}" placeholder="Add a name" data-rename="${p.id}">
-    <span class="s">${p.count} photo${p.count === 1 ? "" : "s"}</span>
+    <span class="s">${plural(p.count, "photo")}</span>
     <button class="btn" data-merge="${p.id}" title="Merge with another person">Same as…</button>
     <button class="btn" data-hide="${p.id}">${p.hidden ? "Show" : "Hide"}</button>
   </div>`;
@@ -815,12 +826,12 @@ const nextFrame = () => new Promise(r => requestAnimationFrame(() => setTimeout(
 const PEOPLE_ZOOM = { cards: { min: 0.8, max: 1.6, step: 0.1 }, list: { min: 1, max: 3, step: 0.25 } };
 const peopleZoom = { cards: 1, list: 1 };
 let peopleLayout = "cards";
+if (pref.get("peopleLayout") === "list") peopleLayout = "list";
 try {
-  if (localStorage.getItem("imadive.peopleLayout") === "list") peopleLayout = "list";
-  const saved = JSON.parse(localStorage.getItem("imadive.peopleZoom") || "{}");
+  const saved = JSON.parse(pref.get("peopleZoom") || "{}");
   for (const [k, r] of Object.entries(PEOPLE_ZOOM))
     if (typeof saved[k] === "number") peopleZoom[k] = Math.min(r.max, Math.max(r.min, saved[k]));
-} catch {}
+} catch {} // a corrupted saved value: the default sizes
 /** Grid geometry for a layout at its current size; must match the CSS above. */
 function peopleLayoutFor(name) {
   const z = peopleZoom[name];
@@ -855,7 +866,7 @@ function mountPeopleGrid(host, { fadeIn = false, layout: L = peopleLayoutFor("ca
     card.classList.toggle("hidden-person", !!p.hidden);
     const input = card.querySelector("input");
     if (document.activeElement !== input && input.value !== (p.name || "")) input.value = p.name || "";
-    card.querySelector(".s").textContent = `${p.count} photo${p.count === 1 ? "" : "s"}`;
+    card.querySelector(".s").textContent = `${plural(p.count, "photo")}`;
     card.querySelector("[data-hide]").textContent = p.hidden ? "Show" : "Hide";
     if (card.querySelector("img").dataset.face !== String(p.face)) card.querySelector(".avatar").innerHTML = faceImg(p.face);
   }
@@ -975,7 +986,7 @@ async function renderPeople(main, token) {
   zoom.addEventListener("input", () => {
     peopleZoom[peopleLayout] = +zoom.value;
     host.style.setProperty("--z", zoom.value);
-    try { localStorage.setItem("imadive.peopleZoom", JSON.stringify(peopleZoom)); } catch {}
+    pref.set("peopleZoom", JSON.stringify(peopleZoom));
     cancelAnimationFrame(zoomFrame);
     zoomFrame = requestAnimationFrame(remount);
   });
@@ -983,14 +994,14 @@ async function renderPeople(main, token) {
     const next = e.target.dataset.layout;
     if (!next || next === peopleLayout) return;
     peopleLayout = next;
-    try { localStorage.setItem("imadive.peopleLayout", next); } catch {}
+    pref.set("peopleLayout", next);
     for (const b of $("#peopleLayout").children) b.classList.toggle("on", b.dataset.layout === next);
     syncZoom();
     remount();
   });
   $("#peopleSort").addEventListener("change", e => {
     peopleSort = e.target.value;
-    try { localStorage.setItem("imadive.peopleSort", peopleSort); } catch {}
+    pref.set("peopleSort", peopleSort);
     resetPeopleOrder();
     main.scrollTop = 0;
     refreshPeopleViews({ animate: false });
@@ -1072,7 +1083,7 @@ function showMergeStep(into) {
   const face = p => `<figure>
       <div class="avatar">${faceImg(p.face)}</div>
       <figcaption class="${p.name ? "" : "unnamed"}">${esc(personName(p))}</figcaption>
-      <div class="s">${p.count} photo${p.count === 1 ? "" : "s"}</div>
+      <div class="s">${plural(p.count, "photo")}</div>
     </figure>`;
   const resultName = b.name || a.name;
   $("#mergeConfirm").innerHTML = `
@@ -1103,7 +1114,7 @@ function renderMergeCandidates() {
     <button type="button" class="candidate" data-into="${p.id}">
       <span class="avatar-sm">${faceImg(p.face)}</span>
       <span class="n ${p.name ? "" : "unnamed"}">${esc(personName(p))}</span>
-      <span class="c">${p.count} photo${p.count === 1 ? "" : "s"}</span>
+      <span class="c">${plural(p.count, "photo")}</span>
     </button>`).join("") +
     (all.length > MERGE_LIMIT ? `<div class="more">${(all.length - MERGE_LIMIT).toLocaleString()} more. Type a name to narrow it down.</div>` : "") +
     (!all.length ? `<div class="more">Nobody matches.</div>` : "");
@@ -1193,7 +1204,7 @@ function askSameName(p, other, name, keepName) {
   const face = x => `<figure>
       <div class="avatar">${faceImg(x.face)}</div>
       <figcaption class="${x.name ? "" : "unnamed"}">${esc(personName(x))}</figcaption>
-      <div class="s">${x.count} photo${x.count === 1 ? "" : "s"}</div>
+      <div class="s">${plural(x.count, "photo")}</div>
     </figure>`;
   $("#nameTitle").textContent = `"${other.name}" already exists`;
   $("#namePair").innerHTML = `${face(p)}<span class="arrow" aria-hidden="true">?</span>${face(other)}`;
@@ -1396,10 +1407,10 @@ async function openViewer(i, { keepImage = false } = {}) {
     <div class="s">${d.dateFromExif ? "" : "Date from file (no EXIF) · "}${d.width} × ${d.height}</div>
     <div class="photo-acts">
       ${folderInfo.desktop && canShareFiles
-        ? `<button data-share-photo="${id}" title="Send this photo with another app"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></svg> Share</button>`
-        : `<a class="btn-like" href="/original/${id}?download=1&v=${v}" download title="Save the photo on this device"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg> Download</a>`}
-      ${d.rotatable ? `<button data-rotate="-1" title="Rotate left (Shift+R)" aria-label="Rotate left"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 4v6h6"/><path d="M3.5 15a9 9 0 1 0 2.1-9.4L3 10"/></svg></button><button data-rotate="1" title="Rotate right (R)" aria-label="Rotate right"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 4v6h-6"/><path d="M20.5 15a9 9 0 1 1-2.1-9.4L21 10"/></svg></button>` : ""}
-      ${folderInfo.desktop ? `<button data-reveal="${id}" title="Show the file in its folder"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg> Open in folder</button>` : ""}
+        ? `<button data-share-photo="${id}" title="Send this photo with another app">${icon("share", 15)} Share</button>`
+        : `<a class="btn-like" href="/original/${id}?download=1&v=${v}" download title="Save the photo on this device">${icon("download", 15)} Download</a>`}
+      ${d.rotatable ? `<button data-rotate="-1" title="Rotate left (Shift+R)" aria-label="Rotate left">${icon("rotate", 15)}</button><button data-rotate="1" title="Rotate right (R)" aria-label="Rotate right">${icon("rotate", 15, true)}</button>` : ""}
+      ${folderInfo.desktop ? `<button data-reveal="${id}" title="Show the file in its folder">${icon("folder", 15)} Open in folder</button>` : ""}
     </div>
     ${place ? `<h5>Place</h5><div>${esc(place)}</div><div class="s"><a href="https://www.openstreetmap.org/?mlat=${d.lat}&mlon=${d.lon}#map=14/${d.lat}/${d.lon}" target="_blank" rel="noopener">Open map</a></div>` : ""}
     <h5>People (${d.faces.length})</h5>
@@ -1799,7 +1810,7 @@ function setInfoCollapsed(collapsed) {
   const b = $("#infoToggle");
   b.setAttribute("aria-expanded", String(!collapsed));
   b.title = collapsed ? "Show the details (I)" : "Hide the details (I)";
-  try { localStorage.setItem("imadive.infoCollapsed", collapsed ? "1" : ""); } catch {}
+  pref.set("infoCollapsed", collapsed ? "1" : "");
   // The photo fits the room it has now.
   if (viewerIndex >= 0) {
     resetZoom();
@@ -1808,7 +1819,7 @@ function setInfoCollapsed(collapsed) {
   }
 }
 $("#infoToggle").addEventListener("click", e => { e.stopPropagation(); setInfoCollapsed(!viewer.classList.contains("info-collapsed")); });
-try { if (localStorage.getItem("imadive.infoCollapsed") === "1") setInfoCollapsed(true); } catch {}
+if (pref.get("infoCollapsed") === "1") setInfoCollapsed(true);
 $(".info", viewer).addEventListener("change", e => { if (e.target.id === "showBoxes") viewer.classList.toggle("boxes", e.target.checked); });
 $(".info", viewer).addEventListener("click", async e => {
   const link = e.target.closest("a[target=_blank]");
@@ -1876,7 +1887,7 @@ async function loadFolders() {
  *  those). Resolves to true once one was added. */
 function browseForFolder() {
   const dlg = $("#browseDlg"), list = $(".browse-list", dlg), input = $("#browsePath"), err = $(".err", dlg);
-  const icon = `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
+  const folderIcon = icon("folder", 16);
   let here = null, token = 0;
   const open = async path => {
     const mine = ++token;
@@ -1891,7 +1902,7 @@ function browseForFolder() {
       $("[data-up]", dlg).disabled = r.parent == null;
       $("[data-add-here]", dlg).disabled = !r.path;
       list.innerHTML = r.dirs.length
-        ? r.dirs.map(d => `<button type="button" data-dir="${esc(d.path)}">${icon}<span>${esc(d.name)}</span></button>`).join("")
+        ? r.dirs.map(d => `<button type="button" data-dir="${esc(d.path)}">${folderIcon}<span>${esc(d.name)}</span></button>`).join("")
         : `<div class="empty">No folders inside.</div>`;
       list.scrollTop = 0;
     } catch (e) {
@@ -1955,7 +1966,7 @@ function scanStateHtml(st) {
 function excludedHtml(st) {
   const n = st?.excluded ?? 0;
   if (!n) return "";
-  return `<div class="scan-state"><div class="what">${n.toLocaleString()} photo${n === 1 ? "" : "s"} removed from the gallery
+  return `<div class="scan-state"><div class="what">${plural(n, "photo")} removed from the gallery
       <small>Their files are still on disk. Showing them again indexes them at the next scan.</small></div>
     <button class="btn" data-show-excluded>Show again</button></div>`;
 }
@@ -1973,7 +1984,7 @@ function failuresHtml() {
   if (!failureCount) return "";
   const more = failureCount > failureList.length ? `<li class="more">and ${(failureCount - failureList.length).toLocaleString()} more</li>` : "";
   return `<div class="failures">
-    <div class="scan-state"><div class="what">${failureCount.toLocaleString()} file${failureCount === 1 ? "" : "s"} could not be read
+    <div class="scan-state"><div class="what">${plural(failureCount, "file")} could not be read
       <small>They are skipped until the file changes.</small></div>
       <button class="btn" data-retry title="Try these files again now">Try again</button></div>
     <details><summary>Show the files</summary><ul>${failureList.map(f =>
@@ -2091,7 +2102,7 @@ $("#settingsDlg").addEventListener("click", async e => {
         clearInterval(watch);
         lastStatus = { ...lastStatus, removing: null };
       }
-      toast(`${r.removed.toLocaleString()} photo${r.removed === 1 ? "" : "s"} removed from the gallery`
+      toast(`${plural(r.removed, "photo")} removed from the gallery`
         + (r.kept ? `; ${r.kept.toLocaleString()} stay, as another folder includes them` : ""));
       await Promise.all([loadFolders(), loadMeta()]);
       renderSettings();
