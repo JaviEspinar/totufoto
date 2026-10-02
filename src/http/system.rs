@@ -133,11 +133,16 @@ pub(super) async fn duplicates_delete(State(s): State<Shared>, Json(body): Json<
     Ok(Json(serde_json::to_value(result?)?).into_response())
 }
 
-/// How far the deletion has got; cheap (no database), for polling while it runs.
+/// How far the search and the deletion have got; cheap (no database), for polling while
+/// they run.
 pub(super) async fn duplicates_progress(State(s): State<Shared>) -> Json<JsonValue> {
     use std::sync::atomic::Ordering::Relaxed;
     let dups = &s.status.dups;
     Json(json!({
+        "scanning": s.status.running.load(Relaxed),
+        "searching": dups.running.load(Relaxed),
+        "checked": dups.done.load(Relaxed),
+        "to_check": dups.total.load(Relaxed),
         "deleting": dups.deleting.load(Relaxed),
         "done": dups.delete_done.load(Relaxed),
         "total": dups.delete_total.load(Relaxed),

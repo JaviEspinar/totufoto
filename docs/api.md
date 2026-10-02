@@ -156,7 +156,7 @@ Progress of the current or last scan, cheap enough to poll. `phase` is `listing 
 | `GET /api/duplicates` | the sets of identical files, the copy kept and the others, with the search progress |
 | `POST /api/duplicates/search` | search again (`202`) |
 | `POST /api/duplicates/delete` | `{}` moves every copy to the bin, keeping the oldest file of each set; `{"ids": [...]}` only those; `"permanently": true` deletes for good. Answers when done; `409` if a deletion is already running |
-| `GET /api/duplicates/progress` | `{"deleting", "done", "total", "freed"}`, for polling during a deletion |
+| `GET /api/duplicates/progress` | cheap, for polling: `{"scanning", "searching", "checked", "to_check"}` for the search, `{"deleting", "done", "total", "freed"}` for a deletion |
 
 ### Desktop
 

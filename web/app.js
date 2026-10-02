@@ -109,11 +109,27 @@ const api = async (url, opts) => {
   }
   return r.status === 204 || r.status === 202 ? null : r.json();
 };
-const post = (url, body) => api(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+/** Photo details already fetched (promises, by "id:version"), so moving through the viewer
+ *  is instant. Anything sent to the server may change them (a face moved, people merged), so
+ *  every POST empties it, and so does every reload of the people (a scan may regroup them). */
+const details = new Map();
+function photoDetail(id, version) {
+  const key = `${id}:${version}`;
+  if (!details.has(key)) {
+    if (details.size >= 200) details.delete(details.keys().next().value);
+    details.set(key, api(`/api/photos/${id}`).catch(err => { details.delete(key); throw err; }));
+  }
+  return details.get(key);
+}
+const post = (url, body) => {
+  details.clear();
+  return api(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+};
 
 async function loadMeta() {
   let list;
   [list, places] = await Promise.all([api("/api/people"), api("/api/places")]);
+  details.clear();
   setPeople(list);
   placeById = new Map(places.map(p => [p.id, p]));
   const known = new Set(people.map(p => p.id));
@@ -685,14 +701,23 @@ async function renderOptimization(main, job) {
     return;
   }
   if (report.scanning || report.running) {
-    // While the scan or the search runs: progress, refreshed every second.
-    const what = report.scanning ? "Waiting for the photo scan to finish…"
-      : `Checking ${report.done.toLocaleString()} of ${report.total.toLocaleString()} files that could be duplicates`;
-    main.innerHTML = `<div class="opt">${intro}<div class="opt-progress"><div>${what}</div>
-      <progress ${report.scanning || !report.total ? "" : `max="${report.total}" value="${report.done}"`}></progress></div></div>`;
-    // A failed refresh (the server busy for a moment) is tried again, not left on this screen.
-    const again = () => {
-      if (job.alive() && state.view === "optimization") renderOptimization(main, job).catch(() => setTimeout(again, 3000));
+    // While the scan or the search runs: its progress every second (the report itself only
+    // once it's done, since it can be large).
+    const progress = p => {
+      const what = p.scanning ? "Waiting for the photo scan to finish…"
+        : `Checking ${p.checked.toLocaleString()} of ${p.to_check.toLocaleString()} files that could be duplicates`;
+      return `<div>${what}</div><progress ${p.scanning || !p.to_check ? "" : `max="${p.to_check}" value="${p.checked}"`}></progress>`;
+    };
+    main.innerHTML = `<div class="opt">${intro}<div class="opt-progress" id="dupSearch">${progress({ scanning: report.scanning, checked: report.done, to_check: report.total })}</div></div>`;
+    // A failed request (the server busy for a moment) is tried again, not left on this screen.
+    const again = async () => {
+      if (!job.alive() || state.view !== "optimization") return;
+      const p = await api("/api/duplicates/progress", { signal: job.signal }).catch(() => null);
+      if (!job.alive()) return;
+      if (p && !p.scanning && !p.searching) return renderOptimization(main, job).catch(() => setTimeout(again, 3000));
+      const box = $("#dupSearch");
+      if (p && box) box.innerHTML = progress(p);
+      setTimeout(again, p ? 1000 : 3000);
     };
     setTimeout(again, 1000);
     return;
@@ -1389,7 +1414,10 @@ async function showViewerImage(i, id, w, h, v) {
     .catch(() => { if (viewerIndex === i) photoMissing(id); });
   // Ready for the arrows: neighbours' thumbnails, and the next photo in full size.
   for (const j of [i - 1, i + 1]) if (photos[j]) new Image().src = thumbUrl(photos[j].id, photos[j].version);
-  if (photos[i + 1]) new Image().src = originalUrl(photos[i + 1].id, photos[i + 1].version);
+  if (photos[i + 1]) {
+    new Image().src = originalUrl(photos[i + 1].id, photos[i + 1].version);
+    photoDetail(photos[i + 1].id, photos[i + 1].version).catch(() => {});
+  }
 }
 /** `keepImage`: only refresh the details and face boxes (the photo shown is already right). */
 async function openViewer(i, { keepImage = false } = {}) {
@@ -1406,7 +1434,7 @@ async function openViewer(i, { keepImage = false } = {}) {
   if (!keepImage) await showViewerImage(i, id, w, h, v);
   if (viewerIndex !== i) return;
   let d;
-  try { d = await api(`/api/photos/${id}`); }
+  try { d = await photoDetail(id, v); }
   catch (err) {
     if (viewerIndex !== i) return;
     // Not the previous photo's details: say what happened.
