@@ -1,7 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Totufoto",
-  "version": "0.1.9",
   "identifier": "com.javiespinar.totufoto",
   "build": {
     "frontendDist": "placeholder"

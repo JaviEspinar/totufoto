@@ -1,9 +1,14 @@
 [package]
 name = "totufoto-desktop"
-version = "0.1.9"
-edition = "2024"
-rust-version = "1.88"
 description = "Totufoto desktop app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+publish = false
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

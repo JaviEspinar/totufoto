@@ -1,11 +1,30 @@
-[package]
-name = "totufoto"
+[workspace]
+members = ["desktop"]
+
+# Shared by both packages; the desktop app's tauri.conf.json takes its version from here too.
+[workspace.package]
 version = "0.1.9"
 edition = "2024"
 rust-version = "1.88"
+license = "PolyForm-Noncommercial-1.0.0"
+repository = "https://github.com/JaviEspinar/totufoto"
+homepage = "https://github.com/JaviEspinar/totufoto"
+authors = ["Javier Espinar <javiespinar@gmail.com>"]
 
-[workspace]
-members = ["desktop"]
+[package]
+name = "totufoto"
+description = "Fast local photo gallery: timeline, places, upcoming anniversaries and people found by face recognition"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+readme = "README.md"
+keywords = ["photos", "gallery", "face-recognition", "exif", "self-hosted"]
+categories = ["multimedia::images", "web-programming::http-server"]
+publish = false
 
 [dependencies]
 anyhow = "1"
