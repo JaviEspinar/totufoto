@@ -421,12 +421,12 @@ fn process_inner(file: FileEntry, models: Option<&ModelPaths>) -> Result<Process
     drop(img);
     let thumb = thumbnail(&work)?;
 
-    let exif_date = exif.as_ref().and_then(exif_datetime);
+    let exif_date = exif.as_ref().and_then(crate::metadata::taken);
     let taken = exif_date.clone().unwrap_or_else(|| {
         let t = DateTime::from_timestamp(file.mtime, 0).unwrap_or_default().with_timezone(&Local);
         t.format("%Y-%m-%d %H:%M:%S").to_string()
     });
-    let gps = exif.as_ref().and_then(exif_gps);
+    let gps = exif.as_ref().and_then(crate::metadata::position);
 
     let faces = match models {
         Some(paths) => detect_faces(&work, paths)?,
@@ -597,39 +597,6 @@ fn place_id(conn: &Connection, cache: &mut HashMap<(String, String, String), i64
     )?;
     cache.insert(key, id);
     Ok(id)
-}
-
-fn exif_datetime(exif: &exif::Exif) -> Option<String> {
-    [exif::Tag::DateTimeOriginal, exif::Tag::DateTimeDigitized, exif::Tag::DateTime].into_iter().find_map(|tag| {
-        let field = exif.get_field(tag, exif::In::PRIMARY)?;
-        let exif::Value::Ascii(ref parts) = field.value else { return None };
-        let dt = exif::DateTime::from_ascii(parts.first()?).ok()?;
-        if dt.year < 1900 || dt.month == 0 || dt.day == 0 {
-            return None;
-        }
-        Some(format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second))
-    })
-}
-
-fn exif_gps(exif: &exif::Exif) -> Option<(f64, f64)> {
-    let coord = |value_tag, ref_tag, negative: u8| -> Option<f64> {
-        let field = exif.get_field(value_tag, exif::In::PRIMARY)?;
-        let exif::Value::Rational(ref v) = field.value else { return None };
-        if v.len() < 3 || v.iter().any(|r| r.denom == 0) {
-            return None;
-        }
-        let deg = v[0].to_f64() + v[1].to_f64() / 60.0 + v[2].to_f64() / 3600.0;
-        let sign = match exif.get_field(ref_tag, exif::In::PRIMARY).map(|f| &f.value) {
-            Some(exif::Value::Ascii(r)) if r.first().and_then(|s| s.first()) == Some(&negative) => -1.0,
-            _ => 1.0,
-        };
-        Some(deg * sign)
-    };
-    let lat = coord(exif::Tag::GPSLatitude, exif::Tag::GPSLatitudeRef, b'S')?;
-    let lon = coord(exif::Tag::GPSLongitude, exif::Tag::GPSLongitudeRef, b'W')?;
-    // 0,0 is what many cameras write when they have no fix.
-    let valid = lat.abs() <= 90.0 && lon.abs() <= 180.0 && (lat.abs() > 1e-6 || lon.abs() > 1e-6);
-    valid.then_some((lat, lon))
 }
 
 #[cfg(test)]

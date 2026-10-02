@@ -37,6 +37,7 @@ src/imaging.rs     decoding, orientation, resizing, JPEG encoding
 src/faces.rs       SCRFD detection, landmark alignment, ArcFace embeddings
 src/cluster.rs     grouping faces into people
 src/geo.rs         offline reverse geocoding
+src/metadata.rs    the date and place a photo's EXIF data gives
 src/duplicates.rs  finding and deleting identical files
 src/rotate.rs      rotating photos in their files
 src/library.rs     photo folders, and what may happen to the photos in them
