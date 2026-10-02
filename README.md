@@ -220,8 +220,10 @@ src/cluster.rs     grouping faces into people
 src/geo.rs         offline reverse geocoding
 src/duplicates.rs  finding and deleting identical files
 src/rotate.rs      rotating photos in their files
-src/db.rs          SQLite schema and shared queries
-src/server.rs      HTTP API (axum)
+src/db.rs          SQLite schema, migrations and shared queries
+src/library.rs     photo folders and what may happen to the photos in them
+src/guard.rs       request checks (DNS rebinding, cross-site requests)
+src/http/          HTTP API (axum): router and errors, then one file per area
 web/               UI: index.html, app.css, app.js (embedded into the binary)
 desktop/           Tauri desktop app: window, folder picker, embedded models and ONNX Runtime
 ```

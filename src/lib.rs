@@ -8,11 +8,11 @@ mod duplicates;
 pub mod faces;
 mod geo;
 mod guard;
+mod http;
 mod imaging;
 mod library;
 mod rotate;
 pub mod scan;
-mod server;
 #[cfg(test)]
 mod testutil;
 
