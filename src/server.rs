@@ -1,7 +1,7 @@
 //! HTTP API and embedded web UI.
 
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use anyhow::Result;
 use axum::extract::{Path, Query, State};
@@ -24,25 +24,34 @@ use crate::{imaging, library};
 const INDEX_HTML: &str = include_str!("../web/index.html");
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 
-/// Tiny SQLite connection pool: connections are cheap, but reusing them keeps the page cache warm.
+/// Tiny SQLite connection pool: reusing connections keeps their page cache warm, and the
+/// number in use at once is limited (a page asks for dozens of thumbnails at a time, and
+/// each connection may cache up to 16 MB).
 pub struct Pool {
     path: PathBuf,
     idle: Mutex<Vec<Connection>>,
+    permits: Arc<tokio::sync::Semaphore>,
 }
 
 impl Pool {
     pub fn new(path: PathBuf) -> Self {
-        Self { path, idle: Mutex::new(Vec::new()) }
+        let size = std::thread::available_parallelism().map_or(4, |n| n.get() * 2).max(4);
+        Self { path, idle: Mutex::new(Vec::new()), permits: Arc::new(tokio::sync::Semaphore::new(size)) }
     }
 
     fn with<T>(&self, f: impl FnOnce(&mut Connection) -> Result<T>) -> Result<T> {
-        let conn = self.idle.lock().unwrap().pop();
+        let conn = self.idle.lock().unwrap_or_else(PoisonError::into_inner).pop();
         let mut conn = match conn {
             Some(c) => c,
-            None => crate::db::open(&self.path)?,
+            None => {
+                let conn = crate::db::open(&self.path)?;
+                // Less than the scan's connection: these mostly read small rows and thumbnails.
+                conn.execute_batch("PRAGMA cache_size = -16384;")?;
+                conn
+            }
         };
         let out = f(&mut conn);
-        self.idle.lock().unwrap().push(conn);
+        self.idle.lock().unwrap_or_else(PoisonError::into_inner).push(conn);
         out
     }
 }
@@ -108,7 +117,13 @@ async fn db<T: Send + 'static>(
     f: impl FnOnce(&mut Connection) -> Result<T> + Send + 'static,
 ) -> ApiResult<T> {
     let state = state.clone();
-    Ok(tokio::task::spawn_blocking(move || state.pool.with(f)).await??)
+    // Held until the work ends, even if the request that asked for it is gone.
+    let permit = state.pool.permits.clone().acquire_owned().await?;
+    Ok(tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        state.pool.with(f)
+    })
+    .await??)
 }
 
 pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {

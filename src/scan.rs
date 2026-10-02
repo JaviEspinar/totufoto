@@ -39,6 +39,8 @@ pub struct ScanStatus {
     pub group_total: AtomicU64,
     /// Another scan was requested while one was running (for example a folder was added).
     rerun: AtomicBool,
+    /// A scan thread exists (see `spawn`).
+    spawned: AtomicBool,
     /// Regroup every face at the end of the next scan, not just the new ones.
     regroup: AtomicBool,
     /// The search for identical files, run after each scan.
@@ -117,22 +119,40 @@ impl ScanConfig {
 
 /// Scans in a background thread. If a scan is already running, another one follows it.
 pub fn spawn(cfg: Arc<ScanConfig>, status: Arc<ScanStatus>) {
-    if status.running.load(Ordering::SeqCst) {
+    // One scan thread at a time: the flag is taken atomically, so two requests at the same
+    // moment can't start two threads.
+    if status.spawned.swap(true, Ordering::SeqCst) {
         status.rerun.store(true, Ordering::SeqCst);
         return;
     }
     std::thread::spawn(move || {
         loop {
-            if let Err(e) = run(&cfg, &status) {
-                tracing::error!("scan failed: {e:#}");
+            // A panic must not end the thread with the flag still taken: no scan would ever
+            // run again.
+            let work = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                loop {
+                    if let Err(e) = run(&cfg, &status) {
+                        tracing::error!("scan failed: {e:#}");
+                    }
+                    if !status.rerun.swap(false, Ordering::SeqCst) {
+                        break;
+                    }
+                }
+                // Then look for identical files among what's new.
+                if let Err(e) = crate::duplicates::run(&cfg.db_path, &status.dups) {
+                    tracing::error!("duplicate search failed: {e:#}");
+                }
+            }));
+            if work.is_err() {
+                tracing::error!("the scan crashed; the next one starts from where the index is");
             }
-            if !status.rerun.swap(false, Ordering::SeqCst) {
+            status.spawned.store(false, Ordering::SeqCst);
+            // A scan asked for while this thread was finishing would be lost: run it here,
+            // unless another thread took the flag meanwhile.
+            if !(status.rerun.load(Ordering::SeqCst) && !status.spawned.swap(true, Ordering::SeqCst)) {
                 break;
             }
-        }
-        // Then look for identical files among what's new.
-        if let Err(e) = crate::duplicates::run(&cfg.db_path, &status.dups) {
-            tracing::error!("duplicate search failed: {e:#}");
+            status.rerun.store(false, Ordering::SeqCst);
         }
     });
 }
@@ -296,10 +316,12 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     tracing::info!("{} photos to index ({updated} changed), {removed} removed", todo.len());
 
     let (sender, receiver) = mpsc::sync_channel::<Outcome>(256);
+    // Set when saving fails: the remaining files aren't read for nothing.
+    let saving_failed = AtomicBool::new(false);
     std::thread::scope(|s| -> Result<()> {
         s.spawn(|| {
             todo.into_par_iter().for_each_with(sender, |sender, file| {
-                if status.hold.load(Ordering::Relaxed) {
+                if status.hold.load(Ordering::Relaxed) || saving_failed.load(Ordering::Relaxed) {
                     return; // stopped: what is done so far is kept, the rest waits for the next scan
                 }
                 let copy = FileEntry { path: file.path.clone(), mtime: file.mtime, size: file.size, known: file.known };
@@ -322,7 +344,9 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
                         Outcome::Failed(copy, format!("crashed while reading it: {why}"))
                     }
                 };
-                let _ = sender.send(outcome);
+                if sender.send(outcome).is_err() {
+                    saving_failed.store(true, Ordering::Relaxed);
+                }
             });
         });
         write_results(&mut conn, receiver, status)
@@ -895,5 +919,32 @@ mod tests {
             })
             .unwrap();
         assert_eq!((photos, failures), (0, 1));
+    }
+
+    #[test]
+    fn scans_asked_for_at_once_run_one_after_another() {
+        let lib = crate::testutil::Library::new();
+        lib.add("a.jpg", Photo::default());
+        let cfg = Arc::new(ScanConfig {
+            fixed_roots: lib.cfg.fixed_roots.clone(),
+            db_path: lib.cfg.db_path.clone(),
+            models: None,
+            cluster_threshold: 0.42,
+        });
+        let status = Arc::new(ScanStatus::default());
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let (cfg, status) = (cfg.clone(), status.clone());
+                std::thread::spawn(move || spawn(cfg, status))
+            })
+            .collect();
+        threads.into_iter().for_each(|t| t.join().unwrap());
+        let start = std::time::Instant::now();
+        while status.spawned.load(Ordering::SeqCst) || status.running.load(Ordering::SeqCst) {
+            assert!(start.elapsed().as_secs() < 30, "the scans never finished");
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(!status.rerun.load(Ordering::SeqCst), "no scan left waiting");
+        assert_eq!(lib.scan().total, 0, "a.jpg was indexed");
     }
 }
