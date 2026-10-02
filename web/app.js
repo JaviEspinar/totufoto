@@ -46,6 +46,8 @@ const state = {
   from: null, to: null, // capture date range, YYYY-MM-DD, both included
 };
 let people = [], peopleById = new Map(), places = [], placeById = new Map(), photos = [], viewerIndex = -1, renderToken = 0;
+/** The render job of the view on screen: { token, signal, alive() } (see render()). */
+let currentJob = { token: 0, signal: undefined, alive: () => true };
 /** Replaces the people list, and the lookup by id that goes with it. */
 function setPeople(list) {
   people = list;
@@ -409,7 +411,7 @@ function watchViewHead(main, head) {
 $("#main").addEventListener("scroll", e => {
   e.currentTarget.querySelector(":scope > .view-head")?.classList.toggle("stuck", e.currentTarget.scrollTop > 0);
 }, { passive: true });
-function beginViewLoad(main, view, headHtml, placeholders, token) {
+function beginViewLoad(main, view, headHtml, placeholders, job) {
   let head = main.querySelector(`:scope > .view-head[data-view="${view}"]`);
   let area = main.querySelector(`:scope > .view-area[data-view="${view}"]`);
   if (!head || !area) {
@@ -421,7 +423,7 @@ function beginViewLoad(main, view, headHtml, placeholders, token) {
   area.classList.add("stale");
   let shown = false;
   const timer = setTimeout(() => {
-    if (token !== renderToken) return;
+    if (!job.alive()) return;
     shown = true;
     area.classList.remove("stale");
     area.innerHTML = placeholders();
@@ -439,14 +441,14 @@ function beginViewLoad(main, view, headHtml, placeholders, token) {
 
 /** Renders groups progressively so huge libraries stay responsive. */
 function renderGroups(container, groups, headerFn, subFn) {
-  const token = renderToken;
+  const job = currentJob;
   const sentinel = document.createElement("div");
   sentinel.id = "sentinel";
   container.append(sentinel);
   let gi = 0, ii = 0, currentGrid = null, currentSub = null;
   const BATCH = 400;
   function pump() {
-    if (token !== renderToken) return observer.disconnect();
+    if (!job.alive()) return observer.disconnect();
     let budget = BATCH, html = "";
     const frag = document.createDocumentFragment();
     while (budget > 0 && gi < groups.length) {
@@ -519,17 +521,17 @@ function onChipClick(e) {
 }
 
 let shownPhotoCount = 0; // photos the Photos tab shows (as cards or tiles)
-async function renderPhotos(main, token, signal) {
+async function renderPhotos(main, job) {
   indexedAtRender = lastStatus?.running ? lastStatus.done : 0;
   const shape = photosShape();
   const load = beginViewLoad(main, "photos", filterChips() + `<div class="count">Loading photos…</div>`,
-    shape.cards ? cardPlaceholders : photoPlaceholders, token);
+    shape.cards ? cardPlaceholders : photoPlaceholders, job);
   // Grouped photos show as cards: the server sends one line per group, not every photo.
   // Only an opened group loads its photos.
   const data = shape.cards
-    ? await api(photoQuery().replace("/api/photos?", `/api/groups?by=${shape.cards}&`), { signal })
-    : await api(photoQuery(), { signal });
-  if (token !== renderToken) return;
+    ? await api(photoQuery().replace("/api/photos?", `/api/groups?by=${shape.cards}&`), { signal: job.signal })
+    : await api(photoQuery(), { signal: job.signal });
+  if (!job.alive()) return;
   photos = data.photos ?? [];
   shownPhotoCount = data.total ?? photos.length;
   load.finish();
@@ -609,12 +611,12 @@ function renderGroupCards(container, groups, mode) {
   // position being restored.
   const back = cardsReturn?.key === cardsViewKey() ? cardsReturn.scroll : 0;
   cardsReturn = null;
-  const main = $("#main"), BATCH = 120, token = renderToken;
+  const main = $("#main"), BATCH = 120, job = currentJob;
   let next = 0;
   const sentinel = document.createElement("div");
   container.append(sentinel);
   const pump = () => {
-    if (token !== renderToken) return observer.disconnect();
+    if (!job.alive()) return observer.disconnect();
     grid.insertAdjacentHTML("beforeend", groups.slice(next, next + BATCH).map(card).join(""));
     next += BATCH;
     if (next >= groups.length) { observer.disconnect(); sentinel.remove(); }
@@ -626,14 +628,14 @@ function renderGroupCards(container, groups, mode) {
   if (next < groups.length) observer.observe(sentinel);
 }
 
-async function renderUpcoming(main, token, signal) {
+async function renderUpcoming(main, job) {
   const opts = [7, 14, 30, 60, 90].map(d => `<button data-d="${d}" class="${d === state.upcoming ? "on" : ""}">${d} days</button>`).join("");
   const load = beginViewLoad(main, "upcoming",
     `<div class="upbar">Memories from past years for the next <div class="seg" id="days">${opts}</div></div>` + filterChips(),
-    photoPlaceholders, token);
+    photoPlaceholders, job);
   $("#days").addEventListener("click", e => { if (e.target.dataset.d) { state.upcoming = +e.target.dataset.d; render(); } });
-  const data = await api(photoQuery({ upcoming: state.upcoming }), { signal });
-  if (token !== renderToken) return;
+  const data = await api(photoQuery({ upcoming: state.upcoming }), { signal: job.signal });
+  if (!job.alive()) return;
   load.finish();
   const order = new Map(data.days.map((d, i) => [d, i]));
   // Upcoming days first (today, tomorrow...), and within a day the most recent year first.
@@ -662,17 +664,17 @@ const fmtBytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(
   : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
 const fmtFileDate = secs => new Date(secs * 1000).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 const DUP_BATCH = 100;
-async function renderOptimization(main, token, signal) {
-  const report = await api("/api/duplicates", { signal });
-  if (token !== renderToken) return;
+async function renderOptimization(main, job) {
+  const report = await api("/api/duplicates", { signal: job.signal });
+  if (!job.alive()) return;
   const intro = `<h2>Duplicate photos</h2><p class="lead">Identical files (the very same bytes) take space twice. Of each set, the copy with the oldest file date is kept. Nothing is deleted until you click <b>Delete duplicates</b>.</p>`;
   if (report.deleting) {
     // Deleting (started here or on another device): progress until it ends.
     main.innerHTML = `<div class="opt">${intro}<div class="opt-progress" id="dupDeleting">${deleteProgressHtml(null)}</div></div>`;
     const timer = setInterval(async () => {
-      if (token !== renderToken || state.view !== "optimization") return clearInterval(timer);
+      if (!job.alive() || state.view !== "optimization") return clearInterval(timer);
       const p = await api("/api/duplicates/progress").catch(() => null);
-      if (!p || token !== renderToken) return;
+      if (!p || !job.alive()) return;
       if (!p.deleting) { clearInterval(timer); loadMeta().catch(() => {}); return render(); }
       const box = $("#dupDeleting");
       if (box) box.innerHTML = deleteProgressHtml(p);
@@ -687,7 +689,7 @@ async function renderOptimization(main, token, signal) {
       <progress ${report.scanning || !report.total ? "" : `max="${report.total}" value="${report.done}"`}></progress></div></div>`;
     // A failed refresh (the server busy for a moment) is tried again, not left on this screen.
     const again = () => {
-      if (token === renderToken && state.view === "optimization") renderOptimization(main, token, signal).catch(() => setTimeout(again, 3000));
+      if (job.alive() && state.view === "optimization") renderOptimization(main, job).catch(() => setTimeout(again, 3000));
     };
     setTimeout(again, 1000);
     return;
@@ -963,7 +965,7 @@ function refreshPeopleViews({ animate = true } = {}) {
 }
 
 const SKELETON_DELAY = 150;
-async function renderPeople(main, token) {
+async function renderPeople(main, job) {
   main.innerHTML = `<div class="people-bar">
       <input class="search" id="peopleSearch" type="search" placeholder="Search people" autocomplete="off" value="${esc(peopleQuery)}">
       <span id="peopleCount"></span>
@@ -1027,7 +1029,7 @@ async function renderPeople(main, token) {
   });
   let placeholders = false, shown = false;
   const show = () => {
-    if (token !== renderToken) return;
+    if (!job.alive()) return;
     shown = true;
     if (!people.length) { host.innerHTML = `<div class="blank">No faces found yet.</div>`; $("#peopleCount").textContent = ""; return; }
     if (!peopleGrid) {
@@ -1041,14 +1043,14 @@ async function renderPeople(main, token) {
   else {
     $("#peopleCount").textContent = "Loading people…";
     setTimeout(() => {
-      if (token === renderToken && !shown) {
+      if (job.alive() && !shown) {
         placeholders = true;
         host.innerHTML = peopleLayoutFor(peopleLayout).skeleton();
       }
     }, SKELETON_DELAY);
   }
   await loadMeta();
-  if (token !== renderToken) return;
+  if (!job.alive()) return;
   if (peopleGrid) refreshPeopleViews({ animate: true }); // fresh counts, in place
   else show();
 }
@@ -1276,21 +1278,22 @@ async function render() {
   $("#groupBy").value = state.groupBy;
   $("#sort").value = state.sort;
   const main = $("#main");
+  // One job per render. A newer one replaces it: its request is cancelled, and alive()
+  // tells the views still loading or drawing in batches to stop.
   const token = ++renderToken;
-  // A newer view replaces the one still loading: cancel its request.
   viewRequest?.abort();
   viewRequest = new AbortController();
-  const signal = viewRequest.signal;
+  const job = currentJob = { token, signal: viewRequest.signal, alive: () => token === renderToken };
   peopleGrid?.destroy();
   peopleGrid = null;
   main.scrollTop = 0;
   try {
-    if (state.view === "photos") await renderPhotos(main, token, signal);
-    else if (state.view === "upcoming") await renderUpcoming(main, token, signal);
-    else if (state.view === "optimization") await renderOptimization(main, token, signal);
-    else await renderPeople(main, token);
+    if (state.view === "photos") await renderPhotos(main, job);
+    else if (state.view === "upcoming") await renderUpcoming(main, job);
+    else if (state.view === "optimization") await renderOptimization(main, job);
+    else await renderPeople(main, job);
   } catch (err) {
-    if (err.name === "AbortError" || token !== renderToken) return;
+    if (err.name === "AbortError" || !job.alive()) return;
     main.innerHTML = `<div class="blank">Something went wrong: ${esc(err.message)}</div>`;
   }
 }
