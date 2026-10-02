@@ -7,80 +7,25 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use rusqlite::{OptionalExtension, params_from_iter};
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 
 use crate::{imaging, library};
 
 use super::{ApiError, ApiResult, IMMUTABLE, Shared, db};
-use crate::db::filters::{PhotoQuery, date_range_filter, people_filter, photo_filters};
+use crate::db::filters::PhotoQuery;
+use crate::db::photos::{self, GroupBy, Groups, PhotoDetail, PhotoList, Place};
 
-pub(super) async fn photos(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResult<Json<JsonValue>> {
-    let result = db(&s, move |conn| {
-        let (filters, args, days) = photo_filters(&q);
-        let desc = q.sort.as_deref() != Some("asc");
-        let order = if desc { "taken DESC, id DESC" } else { "taken ASC, id ASC" };
-        let sql = format!(
-            "SELECT id, width, height, taken, place_id, version FROM photos WHERE 1 = 1{filters} ORDER BY {order}"
-        );
-        let mut stmt = conn.prepare_cached(&sql)?;
-        let rows: Vec<JsonValue> = stmt
-            .query_map(params_from_iter(args), |r| {
-                Ok(json!([
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, i64>(1)?,
-                    r.get::<_, i64>(2)?,
-                    r.get::<_, String>(3)?,
-                    r.get::<_, Option<i64>>(4)?,
-                    r.get::<_, i64>(5)?
-                ]))
-            })?
-            .collect::<Result<_, _>>()?;
-        Ok(json!({ "photos": rows, "days": days }))
-    })
-    .await?;
-    Ok(Json(result))
+pub(super) async fn photos(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResult<Json<PhotoList>> {
+    Ok(Json(db(&s, move |conn| photos::list_photos(conn, &q)).await?))
 }
 
-/// One line per group of the photos matching the filters, for the group cards: the key
-/// (year "2024", month "2024-10", day "2024-10-05", or place id with 0 for no location), the
-/// number of photos, and a cover photo (the newest, or the oldest when sorting oldest
-/// first). Dates follow the sort; places come with the most photos first.
-pub(super) async fn groups(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResult<Response> {
-    let key = match q.by.as_deref() {
-        Some("year") => "substr(taken, 1, 4)",
-        Some("month") => "substr(taken, 1, 7)",
-        Some("day") => "substr(taken, 1, 10)",
-        Some("place") => "COALESCE(place_id, 0)",
-        _ => return Err(ApiError::bad_request("by must be year, month, day or place")),
+/// One line per group of the photos matching the filters, for the group cards.
+pub(super) async fn groups(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResult<Json<Groups>> {
+    let Some(by) = GroupBy::parse(q.by.as_deref()) else {
+        return Err(ApiError::bad_request("by must be year, month, day or place"));
     };
-    let by_place = q.by.as_deref() == Some("place");
-    let result = db(&s, move |conn| {
-        let (filters, args, _) = photo_filters(&q);
-        let desc = q.sort.as_deref() != Some("asc");
-        // SQLite takes the other columns from the row that has the MAX/MIN: the cover.
-        let pick = if desc { "MAX(taken)" } else { "MIN(taken)" };
-        let order = if by_place { "n DESC, k" } else if desc { "k DESC" } else { "k ASC" };
-        let sql = format!("SELECT {key} AS k, COUNT(*) AS n, id, {pick}, version FROM photos WHERE 1 = 1{filters} GROUP BY k ORDER BY {order}");
-        let mut stmt = conn.prepare_cached(&sql)?;
-        let mut total = 0i64;
-        let rows: Vec<JsonValue> = stmt
-            .query_map(params_from_iter(args), |r| {
-                let key: JsonValue = if by_place { r.get::<_, i64>(0)?.into() } else { r.get::<_, String>(0)?.into() };
-                Ok((key, r.get::<_, i64>(1)?, r.get::<_, i64>(2)?, r.get::<_, i64>(4)?))
-            })?
-            .map(|row| {
-                row.map(|(key, count, cover, version)| {
-                    total += count;
-                    json!({ "key": key, "count": count, "cover": cover, "v": version })
-                })
-            })
-            .collect::<Result<_, _>>()?;
-        Ok(json!({ "groups": rows, "total": total }))
-    })
-    .await?;
-    Ok(Json(result).into_response())
+    Ok(Json(db(&s, move |conn| photos::groups(conn, &q, by)).await?))
 }
 
 /// Called when a photo can't be opened. If its file is gone but its folder is there, the
@@ -147,55 +92,8 @@ pub(super) async fn remove_photo(
     }
 }
 
-pub(super) async fn photo_detail(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Json<JsonValue>> {
-    let result = db(&s, move |conn| {
-        let photo = conn
-            .query_row(
-                "SELECT p.path, p.taken, p.date_from_exif, p.width, p.height, p.lat, p.lon, pl.city, pl.region, pl.country, p.version
-                 FROM photos p LEFT JOIN places pl ON pl.id = p.place_id WHERE p.id = ?",
-                [id],
-                |r| {
-                    Ok(json!({
-                        "id": id,
-                        "path": r.get::<_, String>(0)?,
-                        "taken": r.get::<_, String>(1)?,
-                        "dateFromExif": r.get::<_, bool>(2)?,
-                        "width": r.get::<_, i64>(3)?,
-                        "height": r.get::<_, i64>(4)?,
-                        "lat": r.get::<_, Option<f64>>(5)?,
-                        "lon": r.get::<_, Option<f64>>(6)?,
-                        "city": r.get::<_, Option<String>>(7)?,
-                        "region": r.get::<_, Option<String>>(8)?,
-                        "country": r.get::<_, Option<String>>(9)?,
-                        "version": r.get::<_, i64>(10)?,
-                        "rotatable": crate::rotate::can_rotate(std::path::Path::new(&r.get::<_, String>(0)?)),
-                    }))
-                },
-            )
-            .optional()?;
-        let Some(mut photo) = photo else { return Ok(JsonValue::Null) };
-        let faces: Vec<JsonValue> = conn
-            .prepare_cached(
-                "SELECT f.id, f.x, f.y, f.w, f.h, f.person_id, p.name FROM faces f
-                 LEFT JOIN persons p ON p.id = f.person_id WHERE f.photo_id = ? ORDER BY f.x",
-            )?
-            .query_map([id], |r| {
-                Ok(json!({
-                    "id": r.get::<_, i64>(0)?,
-                    "box": [r.get::<_, f64>(1)?, r.get::<_, f64>(2)?, r.get::<_, f64>(3)?, r.get::<_, f64>(4)?],
-                    "person": r.get::<_, Option<i64>>(5)?,
-                    "name": r.get::<_, Option<String>>(6)?,
-                }))
-            })?
-            .collect::<Result<_, _>>()?;
-        photo["faces"] = faces.into();
-        Ok(photo)
-    })
-    .await?;
-    if result.is_null() {
-        return Err(ApiError::not_found("photo"));
-    }
-    Ok(Json(result))
+pub(super) async fn photo_detail(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Json<PhotoDetail>> {
+    db(&s, move |conn| photos::photo_detail(conn, id)).await?.map(Json).ok_or_else(|| ApiError::not_found("photo"))
 }
 
 #[derive(Deserialize)]
@@ -209,50 +107,27 @@ pub(super) struct PlacesQuery {
     to: Option<String>,
 }
 
-pub(super) async fn places(State(s): State<Shared>, Query(q): Query<PlacesQuery>) -> ApiResult<Json<JsonValue>> {
-    let rows = db(&s, move |conn| {
-        let filter = people_filter("p.id", q.people.as_deref(), q.match_mode.as_deref());
-        let (range, args) = date_range_filter("p.taken", q.from.as_deref(), q.to.as_deref());
-        let rows: Vec<JsonValue> = conn
-            .prepare_cached(&format!(
-                "SELECT pl.id, pl.city, pl.region, pl.country, COUNT(*) AS n, MAX(p.id)
-                 FROM photos p JOIN places pl ON pl.id = p.place_id
-                 WHERE 1 = 1{filter}{range}
-                 GROUP BY pl.id ORDER BY n DESC, pl.city"
-            ))?
-            .query_map(params_from_iter(args), |r| {
-                Ok(json!({
-                    "id": r.get::<_, i64>(0)?,
-                    "city": r.get::<_, String>(1)?,
-                    "region": r.get::<_, String>(2)?,
-                    "country": r.get::<_, String>(3)?,
-                    "count": r.get::<_, i64>(4)?,
-                    "cover": r.get::<_, i64>(5)?,
-                }))
-            })?
-            .collect::<Result<_, _>>()?;
-        Ok(rows)
-    })
-    .await?;
-    Ok(Json(rows.into()))
+pub(super) async fn places(State(s): State<Shared>, Query(q): Query<PlacesQuery>) -> ApiResult<Json<Vec<Place>>> {
+    Ok(Json(
+        db(&s, move |conn| {
+            photos::places(conn, q.people.as_deref(), q.match_mode.as_deref(), q.from.as_deref(), q.to.as_deref())
+        })
+        .await?,
+    ))
 }
 
 pub(super) fn jpeg(bytes: Vec<u8>, cache: &'static str) -> Response {
     ([(header::CONTENT_TYPE, "image/jpeg"), (header::CACHE_CONTROL, cache)], bytes).into_response()
 }
 
-pub(super) async fn blob(s: &Shared, sql: &'static str, id: i64) -> ApiResult<Response> {
-    let data: Option<Vec<u8>> =
-        db(s, move |conn| Ok(conn.prepare_cached(sql)?.query_row([id], |r| r.get(0)).optional()?)).await?;
+pub(super) async fn thumb(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
+    let data = db(&s, move |conn| photos::thumbnail(conn, id)).await?;
     data.map(|d| jpeg(d, IMMUTABLE)).ok_or_else(|| ApiError::not_found("picture"))
 }
 
-pub(super) async fn thumb(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
-    blob(&s, "SELECT data FROM thumbs WHERE photo_id = ?", id).await
-}
-
 pub(super) async fn face_thumb(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
-    blob(&s, "SELECT thumb FROM faces WHERE id = ?", id).await
+    let data = db(&s, move |conn| photos::face_picture(conn, id)).await?;
+    data.map(|d| jpeg(d, IMMUTABLE)).ok_or_else(|| ApiError::not_found("picture"))
 }
 
 #[derive(Deserialize)]
@@ -294,10 +169,7 @@ pub(super) async fn rotate_photo(
 
 /// Shows the photo's file in the file manager (desktop app only; 409 otherwise).
 pub(super) async fn reveal_photo(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
-    let path: Option<String> = db(&s, move |conn| {
-        Ok(conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get(0)).optional()?)
-    })
-    .await?;
+    let path = db(&s, move |conn| photos::photo_path(conn, id)).await?;
     let Some(path) = path.map(PathBuf::from) else { return Err(ApiError::not_found("photo")) };
     let Some(host) = &s.host else {
         return Err(ApiError::desktop_only("open folders"));
@@ -340,10 +212,7 @@ pub(super) async fn original(
     Path(id): Path<i64>,
     Query(q): Query<OriginalQuery>,
 ) -> ApiResult<Response> {
-    let path: Option<String> = db(&s, move |conn| {
-        Ok(conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get(0)).optional()?)
-    })
-    .await?;
+    let path = db(&s, move |conn| photos::photo_path(conn, id)).await?;
     let Some(path) = path.map(PathBuf::from) else { return Err(ApiError::not_found("photo")) };
     if !path.is_file() {
         // Deleted outside the gallery (or its drive is unplugged): the page asks /check.

@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, params};
 
 /// The command-line folders, then the saved ones. A folder inside another one is left out:
 /// the outer one already includes it.
@@ -142,7 +142,7 @@ pub enum CheckPhoto {
 /// What happened to a photo that can't be opened. A photo whose file is gone while its
 /// folder is there is removed from the gallery.
 pub fn check_photo(conn: &mut Connection, roots: &[PathBuf], id: i64) -> Result<CheckPhoto> {
-    let Some(path) = photo_path(conn, id)? else { return Ok(CheckPhoto::Removed(None)) };
+    let Some(path) = crate::db::photos::photo_path(conn, id)? else { return Ok(CheckPhoto::Removed(None)) };
     let file = PathBuf::from(&path);
     if file.is_file() {
         return Ok(CheckPhoto::Present(path));
@@ -185,7 +185,7 @@ pub enum RemovePhoto {
 /// Removes a photo from the gallery or from disk. Only files inside the photo folders are
 /// deleted.
 pub fn remove_photo(conn: &mut Connection, roots: &[PathBuf], id: i64, from: RemoveFrom) -> Result<RemovePhoto> {
-    let Some(path) = photo_path(conn, id)? else { return Ok(RemovePhoto::NotFound) };
+    let Some(path) = crate::db::photos::photo_path(conn, id)? else { return Ok(RemovePhoto::NotFound) };
     let permanently = match from {
         RemoveFrom::Gallery => {
             conn.execute("INSERT OR IGNORE INTO excluded (path) VALUES (?)", [&path])?;
@@ -212,10 +212,6 @@ pub fn remove_photo(conn: &mut Connection, roots: &[PathBuf], id: i64, from: Rem
     }
     crate::db::forget_photo(conn, id)?;
     Ok(if permanently { RemovePhoto::Deleted(path) } else { RemovePhoto::Binned(path) })
-}
-
-fn photo_path(conn: &Connection, id: i64) -> Result<Option<String>> {
-    Ok(conn.query_row("SELECT path FROM photos WHERE id = ?", [id], |r| r.get(0)).optional()?)
 }
 
 #[cfg(test)]
