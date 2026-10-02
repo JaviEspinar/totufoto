@@ -19,6 +19,8 @@ pub(super) async fn status(State(s): State<Shared>) -> ApiResult<Json<JsonValue>
     value["failed"] = failed.into();
     // Photos removed from the gallery (their files kept); see /api/excluded/clear.
     value["excluded"] = excluded.into();
+    value["version"] = env!("CARGO_PKG_VERSION").into();
+    value["project"] = super::PROJECT_URL.into();
     Ok(Json(value))
 }
 
@@ -51,11 +53,15 @@ pub(super) struct OpenBody {
     url: String,
 }
 
-/// Opens a map link in the system browser (desktop app only). Limited to the map site
-/// the UI links to, so the endpoint can't be used to launch arbitrary URLs.
+/// Opens a link in the system browser (desktop app only). Limited to the sites the UI links
+/// to (maps, and the project's pages from Settings), so the endpoint can't be used to launch
+/// arbitrary URLs.
 pub(super) async fn open_url(State(s): State<Shared>, Json(body): Json<OpenBody>) -> ApiResult<StatusCode> {
     match &s.host {
-        Some(host) if body.url.starts_with("https://www.openstreetmap.org/") => {
+        Some(host)
+            if body.url.starts_with("https://www.openstreetmap.org/")
+                || body.url.starts_with(&format!("{}/", super::PROJECT_URL)) =>
+        {
             host.open_url(&body.url);
             Ok(StatusCode::NO_CONTENT)
         }

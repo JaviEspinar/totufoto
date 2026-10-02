@@ -28,6 +28,8 @@ const APP_CSS: &str = include_str!("../../web/app.css");
 const APP_JS: &str = include_str!("../../web/app.js");
 
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+/// The project's pages, linked from Settings. Update it when the repository moves.
+const PROJECT_URL: &str = "https://github.com/JaviEspinar/totufoto";
 
 /// The page, with its stylesheet and script linked by a hash of their contents
 /// (`/app.js?v=...`): browsers may keep them for good, and still fetch the new ones after an
