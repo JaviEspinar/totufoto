@@ -1,8 +1,8 @@
 # Security
 
-## What Totufoto protects against, and what it doesn't
+## What Imadive protects against, and what it doesn't
 
-Totufoto is a gallery for your own computer and your own network. It has **no login**, by design: whoever can reach the server can use all of it.
+Imadive is a gallery for your own computer and your own network. It has **no login**, by design: whoever can reach the server can use all of it.
 
 What the server can do, for anyone who can reach it:
 
@@ -20,7 +20,7 @@ What it does protect against, on every address:
 - **Web pages on other sites** using the gallery through your browser. Requests for a host name other than an IP address, `localhost`, the computer's own name or a name given with `--allow-host` are refused, which blocks DNS rebinding, and requests that change something are refused when the browser says they come from another site.
 - **Paths outside the gallery**: files are only served, rotated or deleted when they are photos indexed from the gallery's folders (which, as above, anyone on the network can add to).
 
-This is deliberate: Totufoto is meant for a home network, and managing its folders from another computer's browser is part of how it is used there. If that's not acceptable for your network, keep the default address (`127.0.0.1`) and use the desktop app or a browser on the same computer.
+This is deliberate: Imadive is meant for a home network, and managing its folders from another computer's browser is part of how it is used there. If that's not acceptable for your network, keep the default address (`127.0.0.1`) and use the desktop app or a browser on the same computer.
 
 ## Reporting a vulnerability
 

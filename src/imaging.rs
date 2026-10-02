@@ -43,7 +43,7 @@ pub fn decode(path: &Path, bytes: &[u8]) -> Result<DynamicImage> {
 /// HEIC/HEIF is decoded with macOS `sips`, which also applies the orientation.
 fn decode_heif(path: &Path) -> Result<DynamicImage> {
     let out =
-        std::env::temp_dir().join(format!("totufoto-{}-{:?}.jpg", std::process::id(), std::thread::current().id()));
+        std::env::temp_dir().join(format!("imadive-{}-{:?}.jpg", std::process::id(), std::thread::current().id()));
     let status = Command::new("sips")
         .args(["-s", "format", "jpeg", "-s", "formatOptions", "90", "-Z", "2560"])
         .arg(path)

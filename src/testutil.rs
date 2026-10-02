@@ -19,7 +19,7 @@ impl TempDir {
     pub fn new() -> Self {
         static NEXT: AtomicU32 = AtomicU32::new(0);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!("totufoto-test-{}-{n}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("imadive-test-{}-{n}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(&path).expect("temporary folder");
         // Canonical, like the folders the app stores (on macOS /tmp is a link to /private/tmp).

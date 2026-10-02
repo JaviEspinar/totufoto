@@ -58,15 +58,15 @@ jobs:
           cargo install tauri-cli --version "^2" --locked
           cargo tauri build --bundles appimage
           mkdir -p ../dist
-          cp ../target/release/bundle/appimage/*.AppImage "../dist/Totufoto-${VERSION}-linux-x86_64.AppImage"
+          cp ../target/release/bundle/appimage/*.AppImage "../dist/Imadive-${VERSION}-linux-x86_64.AppImage"
 
       - name: Build exe
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          cargo build --release -p totufoto-desktop --features custom-protocol
+          cargo build --release -p imadive-desktop --features custom-protocol
           mkdir -p dist
-          cp target/release/totufoto-desktop.exe "dist/Totufoto-${VERSION}-windows-x64.exe"
+          cp target/release/imadive-desktop.exe "dist/Imadive-${VERSION}-windows-x64.exe"
 
       - name: Self-test (Linux)
         if: runner.os == 'Linux'
@@ -83,9 +83,9 @@ jobs:
             # Tell a packaging problem apart from an app problem: run the binary outside the AppImage.
             echo "--- AppImage exit code $code; running the extracted binary" >> out.txt
             "$app" --appimage-extract > /dev/null 2>&1
-            ./squashfs-root/usr/bin/totufoto-desktop --self-test "$PWD/fixtures/photos" >> out.txt 2>&1
+            ./squashfs-root/usr/bin/imadive-desktop --self-test "$PWD/fixtures/photos" >> out.txt 2>&1
             echo "extracted binary exit code: $?" >> out.txt
-            ldd ./squashfs-root/usr/bin/totufoto-desktop | grep "not found" >> out.txt
+            ldd ./squashfs-root/usr/bin/imadive-desktop | grep "not found" >> out.txt
           fi
           cat out.txt
           # Also as an annotation, which shows on the run page without opening the log.
@@ -108,7 +108,7 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: totufoto-${{ matrix.name }}
+          name: imadive-${{ matrix.name }}
           path: dist/*
 
   release:

@@ -1,4 +1,4 @@
-# Totufoto: code quality and open-source readiness plan
+# Imadive: code quality and open-source readiness plan
 
 Review of the whole project at commit `17002fc` (release 0.1.9): the Rust service (`src/`, about 3,300 lines), the web UI (`web/index.html`, 2,890 lines), the desktop shell (`desktop/`), CI, scripts and repository hygiene. Nothing has been changed; this document is the plan.
 
@@ -28,7 +28,7 @@ The plan has five phases (section 8). Phase 1 (license, metadata, security fixes
 | Third-party notices | missing | Release binaries embed InsightFace buffalo_s models (non-commercial research only), ONNX Runtime (MIT, its LICENSE is fetched to `onnxruntime/LICENSE` but not shipped), the Visual C++ redistributables, and `reverse_geocoder` bundles GeoNames data (CC BY 4.0, attribution required). `README.md:10` names GeoNames but not its license. |
 | `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md` | missing | |
 | Issue and PR templates, Dependabot | missing | `.github/` only holds `workflows/desktop.yml`. |
-| Personal data in the tree | clean | No IPs, personal paths or emails in tracked files. `.claude/` is untracked. The project is published under the **waiting4timeout** account (licensor in `LICENSE`, `authors` in `Cargo.toml`); the repository still lives at `JaviEspinar/totufoto` until it is moved (see 2.3). |
+| Personal data in the tree | clean | No IPs, personal paths or emails in tracked files. `.claude/` is untracked. The project is published under the **waiting4timeout** account (licensor in `LICENSE`, `authors` in `Cargo.toml`); the repository still lives at `JaviEspinar/imadive` until it is moved (see 2.3). |
 | Formatting config | missing | No `rustfmt.toml`, `.editorconfig`; code uses lines up to about 150 characters, so any contributor's `cargo fmt` rewrites the tree. |
 
 ### 2.2 Planned changes
@@ -47,11 +47,11 @@ The plan has five phases (section 8). Phase 1 (license, metadata, security fixes
 
 The project is presented under the [waiting4timeout](https://github.com/waiting4timeout) account (decided). The repository itself stays at `github.com/JaviEspinar/totufoto` for now; when it moves:
 
-1. Transfer it in GitHub (Settings, General, Transfer ownership) rather than creating a new one: issues, releases, stars and the download history move with it, and GitHub redirects the old URLs, including `git clone` and release downloads, as long as no new repository takes the name `JaviEspinar/totufoto`.
+1. Transfer it in GitHub (Settings, General, Transfer ownership) rather than creating a new one: issues, releases, stars and the download history move with it, and GitHub redirects the old URLs, including `git clone` and release downloads, as long as no new repository takes the name `JaviEspinar/imadive`.
 2. Update the links in one commit: `Cargo.toml` (`repository`, `homepage`), `README.md` (latest release link, both `git clone` commands), `SECURITY.md` if a contact is added, and `.github/FUNDING.yml` once it exists. Old release notes (`release-notes/v0.1.6.md` links to v0.1.5) can keep their URLs, which redirect.
-3. **Keep the desktop identifier `com.javiespinar.totufoto`** (`desktop/tauri.conf.json:4`). It names the data folder (`%APPDATA%\com.javiespinar.totufoto`, `~/.local/share/com.javiespinar.totufoto`), so changing it makes the app open with an empty library for every existing user. Change it only together with code that moves the old folder on first start, and then update the data-folder table in the README.
+3. The desktop identifier became `com.waiting4timeout.imadive` with the rename to Imadive, together with code that moves the old `com.javiespinar.totufoto` data folder on first start. It names the data folder, so it must not change again without the same kind of migration.
 4. Repository settings do not all transfer: enable private vulnerability reporting, branch protection, Dependabot and Discussions again on the new repository, and check that the Actions workflows can still create releases.
-5. Local clones: `git remote set-url origin git@github.com:waiting4timeout/totufoto.git`.
+5. Local clones: `git remote set-url origin git@github.com:waiting4timeout/imadive.git`.
 6. Commits so far are authored with a personal e-mail address. To publish new commits under the professional identity only, set `git config user.email` in this repository to the waiting4timeout account's address (or its GitHub no-reply address); history stays as it is.
 
 ## 3. Rust service
@@ -119,7 +119,7 @@ Already in place and worth advertising: the Host allow-list on loopback (`app.rs
 Gaps, in order:
 
 1. **No Host or Origin check once bound to a non-loopback address** (`app.rs:96-101` returns `None`, which disables `check_host`). A web page can DNS-rebind to the LAN address and call every endpoint, including `POST /api/photos/{id}/remove {"from":"disk","permanently":true}`. **Fix (one middleware, always on):** for every non-GET request require `Sec-Fetch-Site: same-origin` or `none`, or an `Origin` header whose host equals the request `Host`. All current browsers send `Sec-Fetch-Site`. Keep the Host allow-list too, built from the bound address and the machine's own interface addresses instead of being switched off.
-2. **`POST /api/folders` enrols any directory on the machine** (`server.rs:244-246`). A LAN client can add `/` or `C:\Users`, wait for the scan, then delete any image through `remove`, `duplicates/delete` or `rotate`, because "inside the photo folders" now means anywhere. **Decision: keep it.** Totufoto is for a home network and managing folders from another computer's browser is part of its use; the risk is documented in the README and `SECURITY.md` instead. Web pages can no longer reach it (gap 1 is fixed), so only a device on the network can.
+2. **`POST /api/folders` enrols any directory on the machine** (`server.rs:244-246`). A LAN client can add `/` or `C:\Users`, wait for the scan, then delete any image through `remove`, `duplicates/delete` or `rotate`, because "inside the photo folders" now means anywhere. **Decision: keep it.** Imadive is for a home network and managing folders from another computer's browser is part of its use; the risk is documented in the README and `SECURITY.md` instead. Web pages can no longer reach it (gap 1 is fixed), so only a device on the network can.
 3. **`GET /api/folders/browse?path=` lists any directory** (`server.rs:334-381`): host filesystem layout disclosure to the LAN. Kept for the same reason as 2, and documented.
 4. **Body-less POSTs are reachable from a plain cross-site form** when the allow-list is off: `/api/scan`, `/api/regroup`, `/api/failures/retry`, `/api/excluded/clear`, `/api/duplicates/search`, `/api/photos/{id}/check` (which can forget index rows), `/api/faces/{id}/reject`, `/api/faces/{id}/cover`. The `Sec-Fetch-Site` check from gap 1 closes all of them.
 5. **Error bodies leak internal paths** (`server.rs:70, 211, 214, 349`). With the typed `ApiError` (3.4), log the chain and return a short message.
@@ -179,7 +179,7 @@ Every template was checked: file paths, person names, place names, search text, 
 ### 4.4 Duplication and naming
 
 - 14 inline SVG icons across 11 lines (606-608, 617, 704, 711, 2057-2060, 2509; the folder path appears twice, the panel-toggle icon in four variants). Use a `<symbol>` sprite with `<use>`; the four toggles become one symbol with CSS `scaleX(-1)`.
-- `askDelete` / `#deleteDlg` are a generic confirm dialog used for "Leave Totufoto?" (2855), folder removal (2687) and duplicates (1396, 1426). Rename to `confirm(title, html)` and `#confirmDlg`. Four promise-wrapped dialogs (`askSameName` 1873, `askDelete` 2218, `browseForFolder` 2534, `photoMissing` 2097) hand-roll the same listen/resolve/cleanup dance; one `openChoice(dlg)` helper covers them.
+- `askDelete` / `#deleteDlg` are a generic confirm dialog used for "Leave Imadive?" (2855), folder removal (2687) and duplicates (1396, 1426). Rename to `confirm(title, html)` and `#confirmDlg`. Four promise-wrapped dialogs (`askSameName` 1873, `askDelete` 2218, `browseForFolder` 2534, `photoMissing` 2097) hand-roll the same listen/resolve/cleanup dance; one `openChoice(dlg)` helper covers them.
 - Four direct `fetch` calls beside `api`/`post` (1401, 2134, 2243, 2560) exist because `api` cannot report the status code; make `api` throw `ApiError { status, body }`.
 - "N photo(s)" pluralisation is written 16 times; localStorage try/catch 10 times; the "after a face change" sequence (`await loadMeta(); refreshPeopleViews(); openViewer(viewerIndex)`) 4 times; `loadFolders().then(renderSettings if open)` 3 times; three hand-written day parsers (`fmtDay` 726, `fmtDate` 1148, `dateLabel` 794); the identical `face()` template at 1742 and 1863; `start()` (2667) and its inline copy for rescan (2676). Add `plural()`, `pref.get/set`, `parseDay()`, and reuse `start()`.
 - People-grid geometry constants (110, 112, 44, 250, 100, 150, 14, 6) are written in both CSS (269-308) and JS (`peopleLayoutFor`, 1495-1503) with a "must match" comment. Set them as CSS custom properties from JS, one source of truth.
@@ -259,9 +259,9 @@ What exists is good as far as it goes (rust-cache, AppImage self-test with fallb
 ```
 ci.yml       on: pull_request, push(main)
   fmt        cargo fmt --all --check
-  clippy     cargo clippy -p totufoto --all-targets -- -D warnings
-  test       matrix ubuntu / macos / windows: cargo test -p totufoto --locked
-  msrv       toolchain 1.88: cargo check -p totufoto --locked
+  clippy     cargo clippy -p imadive --all-targets -- -D warnings
+  test       matrix ubuntu / macos / windows: cargo test -p imadive --locked
+  msrv       toolchain 1.88: cargo check -p imadive --locked
   deny       cargo-deny-action (advisories, licenses, bans)
   ui         Playwright suite (section 6.3), chromium only
 desktop.yml  on: push(tags v*), workflow_dispatch

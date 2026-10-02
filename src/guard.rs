@@ -103,7 +103,7 @@ pub async fn check(State(names): State<Arc<HostNames>>, req: Request, next: Next
         tracing::warn!("refused a request for host {shown}; if that is this computer's name, start with --allow-host");
         return (
             StatusCode::FORBIDDEN,
-            format!("unexpected Host header {shown}: start Totufoto with --allow-host to use this name"),
+            format!("unexpected Host header {shown}: start Imadive with --allow-host to use this name"),
         )
             .into_response();
     }

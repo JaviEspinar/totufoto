@@ -1,4 +1,4 @@
-//! totufoto: fast local photo gallery with timeline, places and face grouping.
+//! imadive: fast local photo gallery with timeline, places and face grouping.
 //! Used by the command-line app (`src/main.rs`) and the desktop app (`desktop/`).
 
 mod app;

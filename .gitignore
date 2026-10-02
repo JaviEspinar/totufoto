@@ -1,4 +1,5 @@
 /target
+/imadive-data
 /totufoto-data
 /models/*.onnx
 /onnxruntime

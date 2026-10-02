@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Totufoto</title>
+<title>Imadive</title>
 <style>
 :root {
   --bg: #f6f5f2; --panel: #ffffff; --ink: #1c1b19; --muted: #6d6a64; --line: #e4e1da;
@@ -573,7 +573,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 </head>
 <body>
 <header>
-  <div class="brand">totufoto</div>
+  <div class="brand">imadive</div>
   <nav id="tabs">
     <button data-view="photos" class="on">Photos</button>
     <button data-view="upcoming">Upcoming</button>
@@ -682,7 +682,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 <dialog id="browseDlg">
   <div class="dlg-head"><h3>Add a photo folder</h3><button data-close title="Close">✕</button></div>
   <div class="dlg-body">
-    <p>Folders on the computer running Totufoto. Open a folder, then add it; its subfolders are included.</p>
+    <p>Folders on the computer running Imadive. Open a folder, then add it; its subfolders are included.</p>
     <div class="browse-path">
       <button class="btn" data-up title="Folder above" aria-label="Folder above">↑</button>
       <input id="browsePath" spellcheck="false" autocomplete="off" aria-label="Folder path" title="Type or paste a path and press Enter">
@@ -716,6 +716,13 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 
 <script>
 "use strict";
+// Imadive was called Totufoto: preferences saved under the old name carry over once.
+try {
+  for (const key of Object.keys(localStorage)) {
+    const now = key.replace(/^totufoto\./, "imadive.");
+    if (now !== key && localStorage.getItem(now) === null) localStorage.setItem(now, localStorage.getItem(key));
+  }
+} catch {}
 const $ = (s, el = document) => el.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const regionName = (() => {
@@ -816,7 +823,7 @@ function photoQuery(extra = {}) {
 let peopleOrder = [], orderedCache = null;
 // The People tab's sort: "count" (most photos first) or "name" (A to Z, unnamed last).
 let peopleSort = "count";
-try { if (localStorage.getItem("totufoto.peopleSort") === "name") peopleSort = "name"; } catch {}
+try { if (localStorage.getItem("imadive.peopleSort") === "name") peopleSort = "name"; } catch {}
 function sortedPeople() {
   if (peopleSort === "name") return peopleAlphabetical();
   return [...people].sort((a, b) => b.count - a.count
@@ -873,7 +880,7 @@ function setAsideCollapsed(collapsed) {
   const b = $("#asideToggle");
   b.setAttribute("aria-expanded", String(!collapsed));
   b.title = collapsed ? "Show the people column" : "Hide this column";
-  try { localStorage.setItem("totufoto.asideCollapsed", collapsed ? "1" : ""); } catch {}
+  try { localStorage.setItem("imadive.asideCollapsed", collapsed ? "1" : ""); } catch {}
 }
 const isPhone = () => matchMedia("(max-width: 639px)").matches;
 // On phones the column is a panel that slides in; its button closes it.
@@ -913,7 +920,7 @@ document.addEventListener("keydown", e => {
 });
 // The top bar's height (two rows on phones), for placing the View panel under it.
 new ResizeObserver(([entry]) => document.documentElement.style.setProperty("--header-h", `${entry.target.offsetHeight}px`)).observe($("header"));
-try { if (localStorage.getItem("totufoto.asideCollapsed") === "1") setAsideCollapsed(true); } catch {}
+try { if (localStorage.getItem("imadive.asideCollapsed") === "1") setAsideCollapsed(true); } catch {}
 
 let sidebarEditing = false;
 /** How many people are selected, on the collapsed column's strip. */
@@ -1207,7 +1214,7 @@ async function renderPhotos(main, token, signal) {
   if (!shownPhotoCount) {
     const filtered = state.people.size || state.place != null || state.date || state.from || state.to;
     if (!filtered && !folderInfo.folders.length) {
-      main.innerHTML = `<div class="welcome"><h2>Welcome to totufoto</h2>
+      main.innerHTML = `<div class="welcome"><h2>Welcome to Imadive</h2>
         <p>Add a folder with photos. It is indexed in the background, and subfolders are included.</p>
         <button class="btn primary" id="welcomeAdd">Add folder…</button></div>`;
       $("#welcomeAdd").onclick = () => (folderInfo.desktop ? addFolder(null) : browseForFolder())
@@ -1399,7 +1406,7 @@ function deleteProgressHtml(p) {
   return `<div>${what}</div><progress ${p?.total ? `max="${p.total}" value="${p.done}"` : ""}></progress>`;
 }
 async function deleteDuplicates(report) {
-  const choice = await askDelete(`<p>Move <b>${report.files.toLocaleString()} duplicate file${report.files === 1 ? "" : "s"}</b> (${fmtBytes(report.bytes)}) to the bin of the computer running Totufoto?</p>
+  const choice = await askDelete(`<p>Move <b>${report.files.toLocaleString()} duplicate file${report.files === 1 ? "" : "s"}</b> (${fmtBytes(report.bytes)}) to the bin of the computer running Imadive?</p>
     <p>Of each set of identical files, the one with the oldest file date is kept. A file that changed since the search is left alone.</p>
     <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button><button class="btn danger" data-choice="bin">Move to the bin</button></div>`,
     "Delete duplicates?");
@@ -1492,8 +1499,8 @@ const PEOPLE_ZOOM = { cards: { min: 0.8, max: 1.6, step: 0.1 }, list: { min: 1, 
 const peopleZoom = { cards: 1, list: 1 };
 let peopleLayout = "cards";
 try {
-  if (localStorage.getItem("totufoto.peopleLayout") === "list") peopleLayout = "list";
-  const saved = JSON.parse(localStorage.getItem("totufoto.peopleZoom") || "{}");
+  if (localStorage.getItem("imadive.peopleLayout") === "list") peopleLayout = "list";
+  const saved = JSON.parse(localStorage.getItem("imadive.peopleZoom") || "{}");
   for (const [k, r] of Object.entries(PEOPLE_ZOOM))
     if (typeof saved[k] === "number") peopleZoom[k] = Math.min(r.max, Math.max(r.min, saved[k]));
 } catch {}
@@ -1651,7 +1658,7 @@ async function renderPeople(main, token) {
   zoom.addEventListener("input", () => {
     peopleZoom[peopleLayout] = +zoom.value;
     host.style.setProperty("--z", zoom.value);
-    try { localStorage.setItem("totufoto.peopleZoom", JSON.stringify(peopleZoom)); } catch {}
+    try { localStorage.setItem("imadive.peopleZoom", JSON.stringify(peopleZoom)); } catch {}
     cancelAnimationFrame(zoomFrame);
     zoomFrame = requestAnimationFrame(remount);
   });
@@ -1659,14 +1666,14 @@ async function renderPeople(main, token) {
     const next = e.target.dataset.layout;
     if (!next || next === peopleLayout) return;
     peopleLayout = next;
-    try { localStorage.setItem("totufoto.peopleLayout", next); } catch {}
+    try { localStorage.setItem("imadive.peopleLayout", next); } catch {}
     for (const b of $("#peopleLayout").children) b.classList.toggle("on", b.dataset.layout === next);
     syncZoom();
     remount();
   });
   $("#peopleSort").addEventListener("change", e => {
     peopleSort = e.target.value;
-    try { localStorage.setItem("totufoto.peopleSort", peopleSort); } catch {}
+    try { localStorage.setItem("imadive.peopleSort", peopleSort); } catch {}
     resetPeopleOrder();
     main.scrollTop = 0;
     refreshPeopleViews({ animate: false });
@@ -2241,7 +2248,7 @@ async function deleteViewerPhoto() {
   const choice = await askDelete(`${what}
     <div class="delete-options">
       <button class="btn" data-choice="gallery">Remove from gallery<small>The file stays on disk. It won't come back with the next scan (Settings can show it again).</small></button>
-      <button class="btn danger" data-choice="disk">Remove from disk<small>Moves the file to the bin of the computer running Totufoto.</small></button>
+      <button class="btn danger" data-choice="disk">Remove from disk<small>Moves the file to the bin of the computer running Imadive.</small></button>
     </div>
     <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button></div>`, "Delete this photo?");
   if (choice === "cancel") return;
@@ -2440,7 +2447,7 @@ function setInfoCollapsed(collapsed) {
   const b = $("#infoToggle");
   b.setAttribute("aria-expanded", String(!collapsed));
   b.title = collapsed ? "Show the details (I)" : "Hide the details (I)";
-  try { localStorage.setItem("totufoto.infoCollapsed", collapsed ? "1" : ""); } catch {}
+  try { localStorage.setItem("imadive.infoCollapsed", collapsed ? "1" : ""); } catch {}
   // The photo fits the room it has now.
   if (viewerIndex >= 0) {
     resetZoom();
@@ -2449,7 +2456,7 @@ function setInfoCollapsed(collapsed) {
   }
 }
 $("#infoToggle").addEventListener("click", e => { e.stopPropagation(); setInfoCollapsed(!viewer.classList.contains("info-collapsed")); });
-try { if (localStorage.getItem("totufoto.infoCollapsed") === "1") setInfoCollapsed(true); } catch {}
+try { if (localStorage.getItem("imadive.infoCollapsed") === "1") setInfoCollapsed(true); } catch {}
 $(".info", viewer).addEventListener("change", e => { if (e.target.id === "showBoxes") viewer.classList.toggle("boxes", e.target.checked); });
 $(".info", viewer).addEventListener("click", async e => {
   const link = e.target.closest("a[target=_blank]");
@@ -2640,7 +2647,7 @@ function renderSettings(error = "") {
       <span class="p" title="${esc(f.path)}"><bdi>${esc(f.path)}</bdi></span>
       ${f.available ? `<span class="c">${f.photos.toLocaleString()} photos</span>` : `<span class="off" title="The folder can't be found right now. Its photos are kept until it's back or you remove it.">not available</span>`}
       ${f.fixed
-        ? `<span class="fixed" title="Given on the command line when Totufoto was started; remove it there">command line</span>`
+        ? `<span class="fixed" title="Given on the command line when Imadive was started; remove it there">command line</span>`
         : `<button class="btn" data-remove="${esc(f.path)}" ${removing ? `disabled title="Wait for the folder being removed"` : ""}>Remove</button>`}
     </div>`).join("") : `<p>No folders yet.</p>`;
   const add = `<div class="add-row"><button class="btn primary" ${desktop ? "data-pick" : "data-browse"} ${removing ? "disabled" : ""}>Add folder…</button></div>`;
@@ -2842,25 +2849,25 @@ async function pollStatus() {
 const hasFilters = () => state.people.size > 0 || state.place != null || !!state.date || !!state.from || !!state.to;
 function pushAppEntry() {
   saveHash(); // the address of what is on screen now
-  history.pushState({ totufoto: "top" }, "", location.href);
+  history.pushState({ imadive: "top" }, "", location.href);
 }
-history.replaceState({ totufoto: "base" }, "", location.href);
+history.replaceState({ imadive: "base" }, "", location.href);
 const armBack = () => {
   removeEventListener("pointerdown", armBack, true);
   removeEventListener("keydown", armBack, true);
-  if (history.state?.totufoto === "base") pushAppEntry();
+  if (history.state?.imadive === "base") pushAppEntry();
 };
 addEventListener("pointerdown", armBack, true);
 addEventListener("keydown", armBack, true);
 let leaving = false;
 addEventListener("popstate", async e => {
-  if (leaving || e.state?.totufoto !== "base") return;
+  if (leaving || e.state?.imadive !== "base") return;
   const undone = await undoOneStep();
   // The desktop app has no page to go back to (a mouse's back button, say).
   if (undone || folderInfo.desktop) return pushAppEntry();
   const choice = await askDelete(`<p>Close the gallery and go back to the previous page?</p>
     <div class="dlg-actions"><button class="btn" data-choice="cancel">Stay</button><button class="btn primary" data-choice="leave">Leave</button></div>`,
-    "Leave Totufoto?");
+    "Leave Imadive?");
   if (choice !== "leave") return pushAppEntry();
   leaving = true;
   history.back();

@@ -650,7 +650,7 @@ mod tests {
     #[test]
     fn a_failed_scan_is_not_left_running() {
         // A database that can't be opened (its folder is a file): the scan fails at once.
-        let not_a_folder = std::env::temp_dir().join(format!("totufoto-test-{}", std::process::id()));
+        let not_a_folder = std::env::temp_dir().join(format!("imadive-test-{}", std::process::id()));
         std::fs::write(&not_a_folder, b"").unwrap();
         let cfg = ScanConfig {
             fixed_roots: vec![std::env::temp_dir()],

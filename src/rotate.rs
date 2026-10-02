@@ -89,7 +89,7 @@ pub fn rotate_photo(conn: &mut Connection, roots: &[PathBuf], id: i64, turns: u8
 /// never left half written. Keeps the file's permissions.
 fn replace_file(path: &Path, bytes: &[u8], meta: &std::fs::Metadata) -> Result<()> {
     let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    let tmp = path.with_file_name(format!(".{name}.totufoto-rotating"));
+    let tmp = path.with_file_name(format!(".{name}.imadive-rotating"));
     let result = (|| -> Result<()> {
         std::fs::write(&tmp, bytes)?;
         std::fs::set_permissions(&tmp, meta.permissions())?;

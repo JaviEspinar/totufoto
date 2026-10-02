@@ -1,6 +1,6 @@
 [package]
-name = "totufoto-desktop"
-description = "Totufoto desktop app"
+name = "imadive-desktop"
+description = "Imadive desktop app"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -21,7 +21,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
 tokio = { version = "1", features = ["net"] }
-totufoto = { path = ".." }
+imadive = { path = ".." }
 tracing = "0.1"
 
 [features]
