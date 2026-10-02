@@ -1,20 +1,37 @@
 name: Desktop apps
 
-# Builds the Windows and Linux desktop apps and checks each one with its self-test on
-# every push to main. For a version tag (v*) it also attaches them to a GitHub Release.
+# Builds the Windows and Linux desktop apps and checks each one with its self-test. For a
+# version tag (v*) it also publishes them as a GitHub Release, with checksums and build
+# provenance. A push to main builds them when Rust code, dependencies or packaging change,
+# not for documentation, UI or test changes (ci.yml covers those); it can also be run by
+# hand. Path filters don't apply to tags, so a release always builds.
 on:
   push:
     branches: [main]
     tags: ["v*"]
+    paths:
+      - "desktop/**"
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/**"
+      - "fixtures/**"
+      - ".github/workflows/desktop.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer push replaces a build in progress; releases always finish.
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 jobs:
   build:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -24,14 +41,31 @@ jobs:
           - name: windows-x64
             os: windows-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      # For a release, the tag must match the version in Cargo.toml and have written notes,
+      # checked before anything is built.
       - name: Version
         shell: bash
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="dev-${GITHUB_SHA::7}"; fi
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            v="${GITHUB_REF_NAME#v}"
+            cargo_version=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
+            if [ "$v" != "$cargo_version" ]; then
+              echo "::error title=Version::tag $GITHUB_REF_NAME, but Cargo.toml says $cargo_version"
+              exit 1
+            fi
+            if [ ! -s "release-notes/$GITHUB_REF_NAME.md" ]; then
+              echo "::error title=Release notes::release-notes/$GITHUB_REF_NAME.md is missing or empty"
+              exit 1
+            fi
+          else
+            v="dev-${GITHUB_SHA::7}"
+          fi
           echo "VERSION=$v" >> "$GITHUB_ENV"
 
       - name: System libraries
@@ -51,11 +85,16 @@ jobs:
           ./scripts/fetch-models.ps1
           ./scripts/fetch-onnxruntime.ps1
 
+      - name: Tauri CLI
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        with:
+          tool: tauri-cli@2
+
       - name: Build AppImage
         if: runner.os == 'Linux'
         working-directory: desktop
         run: |
-          cargo install tauri-cli --version "^2" --locked
           cargo tauri build --bundles appimage
           mkdir -p ../dist
           cp ../target/release/bundle/appimage/*.AppImage "../dist/Imadive-${VERSION}-linux-x86_64.AppImage"
@@ -106,32 +145,39 @@ jobs:
           Write-Output "::$level title=Self-test (Windows)::$($report -replace "`r?`n", '%0A')"
           exit $p.ExitCode
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: imadive-${{ matrix.name }}
           path: dist/*
+          retention-days: 14
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Only this job writes: the release itself, and the signed provenance of each file.
     permissions:
-      contents: write # only this job publishes
+      contents: write
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: dist
           merge-multiple: true
-      # Written notes for this version, if any (release-notes/<tag>.md); GitHub's changelog
-      # link is added below them.
-      - name: Release notes
-        shell: bash
-        run: |
-          notes="release-notes/${GITHUB_REF_NAME}.md"
-          if [ -f "$notes" ]; then cp "$notes" notes.md; else : > notes.md; fi
-      - uses: softprops/action-gh-release@v3
+      # Lets anyone check a download: `sha256sum -c SHA256SUMS`, or
+      # `gh attestation verify <file> --repo <owner>/<repo>` for where and how it was built.
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS && cat SHA256SUMS
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: dist/*
+      # The written notes (checked by the build job); GitHub's changelog link is added below.
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
           files: dist/*
-          body_path: notes.md
+          body_path: release-notes/${{ github.ref_name }}.md
           generate_release_notes: true
