@@ -90,6 +90,7 @@ fn start(app: &mut tauri::App) -> Result<()> {
         models,
         face_threshold: FACE_THRESHOLD,
         host: Some(Arc::new(DesktopHost { app: app.handle().clone() })),
+        allowed_names: Vec::new(),
     })?;
     gallery.start_scan();
 
@@ -172,6 +173,7 @@ fn run_self_test(photos: Option<PathBuf>) -> Result<(bool, String)> {
             models: Some(models),
             face_threshold: FACE_THRESHOLD,
             host: None,
+            allowed_names: Vec::new(),
         })?;
         gallery.scan_blocking()?;
         let s = gallery.status();

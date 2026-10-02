@@ -4,9 +4,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{StatusCode, header};
-use axum::middleware::{self, Next};
+use axum::middleware;
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -81,7 +81,7 @@ async fn db<T: Send + 'static>(
     Ok(tokio::task::spawn_blocking(move || state.pool.with(f)).await??)
 }
 
-pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
+pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
     let router = Router::new()
         .route("/", get(|| async { Html(INDEX_HTML) }))
         .route("/api/status", get(status))
@@ -118,19 +118,8 @@ pub fn router(state: AppState, allowed_hosts: Option<Vec<String>>) -> Router {
         .route("/original/{id}", get(original))
         .layer(CompressionLayer::new())
         .with_state(Arc::new(state));
-    match allowed_hosts {
-        Some(hosts) => router.layer(middleware::from_fn_with_state(Arc::new(hosts), check_host)),
-        None => router,
-    }
-}
-
-async fn check_host(State(allowed): State<Arc<Vec<String>>>, req: Request, next: Next) -> Response {
-    let host = req.headers().get(header::HOST).and_then(|h| h.to_str().ok());
-    if host.is_some_and(|h| allowed.iter().any(|a| a.eq_ignore_ascii_case(h))) {
-        next.run(req).await
-    } else {
-        (StatusCode::FORBIDDEN, "unexpected Host header").into_response()
-    }
+    // On every address: no Host other than this server's, no changes from other sites.
+    router.layer(middleware::from_fn_with_state(Arc::new(names), crate::guard::check))
 }
 
 async fn status(State(s): State<Shared>) -> ApiResult<Json<JsonValue>> {

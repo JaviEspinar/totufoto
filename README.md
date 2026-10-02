@@ -16,6 +16,14 @@ It comes as a desktop app for Windows and Linux, and as a command-line app that 
   - *Only them*: all of them and no other known person.
 - All filters combine (people + place + date range + upcoming) and live in the URL, so views can be bookmarked.
 
+## Privacy and security
+
+- **Private by design**: everything runs on your computer. There is no account, no cloud and no telemetry; places are found with an offline city list, and the only network requests are the ones you make yourself (opening a map link).
+- **No login**: by default the gallery only accepts this computer. If you share it with your network (`--host 0.0.0.0`, to use it from a phone), anyone who can reach it can see your photos, rotate them and delete them. Only do that on a network you trust, such as your home network, and never expose it to the internet.
+- **Other websites can't use it**: requests for a name other than an IP address, `localhost`, this computer's own name or one you allow with `--allow-host` are refused (this blocks DNS rebinding), and requests that change something are refused when they come from another site.
+
+To report a security problem, see [SECURITY.md](SECURITY.md).
+
 ## Desktop app (Windows and Linux)
 
 Download the file for your system from the [latest release](https://github.com/JaviEspinar/totufoto/releases/latest) and run it. There is nothing to install: face recognition and everything it needs are built in.
@@ -134,7 +142,7 @@ Only photos stored on the Mac are found. Photos kept only in iCloud ("Optimize M
 - **Sidebar**: tick people (click the checkbox or their picture) to filter Photos and Upcoming, and pick *Together*, *Any* or *Only them* to decide how they combine. Click a name to rename that person right there (Enter saves, Esc cancels). The button at the top right of the column collapses it to a thin strip (showing how many people are selected), and opens it again. Names are unique: using a name someone already has asks whether they are the same person (*Merge them*) or not (*Keep separate* adds a number, like "Ana (1)").
 - **Date range**: *From* and *to* in the top bar keep only photos taken between those days (both included; either can be left empty). It applies to Photos and Upcoming.
 - **Filter chips**: each selected person, place and date range shows as a chip above the photos; × removes one, *Clear all* removes them all.
-- **Deleting**: the bin button in the viewer (or the Delete key) asks how: *Remove from gallery* keeps the file and leaves it out of later scans (Settings can show such photos again); *Remove from disk* moves the file to the bin of the computer running Totufoto (if its drive has no bin, it asks before deleting for good). Only files inside the photo folders can be deleted. The gallery has no login, so anyone who can open it on your network can delete photos too.
+- **Deleting**: the bin button in the viewer (or the Delete key) asks how: *Remove from gallery* keeps the file and leaves it out of later scans (Settings can show such photos again); *Remove from disk* moves the file to the bin of the computer running Totufoto (if its drive has no bin, it asks before deleting for good). Only files inside the photo folders can be deleted. The gallery has no login, so anyone who can open it on your network can delete photos too (see [Privacy and security](#privacy-and-security)).
 - **Download, Share and Open in folder**: buttons under the photo's date. In the browser there is *Download*, which saves the original file with its own name (HEIC and TIFF are saved as JPEG). The desktop app has *Share*, which opens the system share sheet with the photo (or *Download* where the system has none), and *Open in folder*, which shows the file selected in the file manager (Finder, Explorer, or the Linux file manager).
 - **Rotate**: the two arrow buttons under the photo's date (or `R` and `Shift+R`) turn the photo right or left, and the file is saved turned. JPEG photos are turned through their EXIF orientation, so the picture is not compressed again and loses no quality; PNG is rewritten turned (it is lossless). Other formats (HEIC, WebP, GIF, TIFF) can't be rotated. Several quick turns are saved once. Face boxes, people and thumbnails stay right, and the photo isn't indexed again. Rotating waits while a scan is running.
 - **Viewer**: click a photo to open it. Use the arrow keys to move and `Esc` to close. Click the open photo to zoom in where you clicked (click again to fit), drag to move around, and use the mouse wheel or a trackpad pinch to zoom in and out (up to 8x). The side panel shows the date, place and people. Click the name of an unnamed person (or of a face in no group) to name it there; a name that already exists offers to merge. For each face, *Same as…* moves just that face to the person you pick, and *Not them* moves it to a new unnamed group, which you can rename, hide or merge in People. *Card photo* makes that face the one shown on the person's card in People (it stays while the face belongs to them). Automatic grouping never moves a face you placed. *Show face boxes* draws the detected faces. The button at the top right of the details (or the `I` key) folds them away to give the photo more room, like the *People in the photo* column; the choice is remembered.
@@ -168,7 +176,8 @@ Run `totufoto --help` for the full list:
 | `--data DIR` | `totufoto-data` | where the SQLite index (with thumbnails) is stored |
 | `--models DIR` | `models` | folder with `det_500m.onnx` and `w600k_mbf.onnx` |
 | `--onnxruntime PATH` | | ONNX Runtime library file or folder. By default it looks at `ORT_DYLIB_PATH`, next to the executable, and in `./onnxruntime` |
-| `--port` / `--host` | `7878` / `127.0.0.1` | |
+| `--port` / `--host` | `7878` / `127.0.0.1` | `--host 0.0.0.0` shares the gallery with your network; there is no login, so only on a network you trust (see [Privacy and security](#privacy-and-security)) |
+| `--allow-host NAME` | | accept this host name too (repeatable), when you reach the gallery through a name such as `photos.home` instead of an IP address or the computer's own name |
 | `--face-threshold` | `0.42` | cosine similarity to treat two faces as the same person; raise it if different people get mixed, lower it if one person is split |
 | `--no-faces` | | skip face recognition |
 | `--scan-only` | | index and exit |
@@ -179,6 +188,7 @@ Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP, and HEIC/HEIF on macOS (deco
 
 ## Troubleshooting
 
+- **"unexpected Host header"**: you opened the gallery through a host name it doesn't know (for example a name set up on your router). Start it with `--allow-host that-name`, or use the computer's IP address.
 - **"face recognition disabled: ... not found"**: run `scripts/fetch-onnxruntime.sh` (or the `.ps1` on Windows) from the project folder, or point `--onnxruntime` at the library.
 
 ## How it's fast
