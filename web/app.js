@@ -1322,12 +1322,14 @@ async function render() {
     else await renderPeople(main, job);
   } catch (err) {
     if (err.name === "AbortError" || !job.alive()) return;
-    main.innerHTML = `<div class="blank">Something went wrong: ${esc(err.message)}</div>`;
+    main.innerHTML = `<div class="blank">Something went wrong: ${esc(err.message)}
+      <p><button class="btn" data-rerender>Try again</button></p></div>`;
   }
 }
 
 // ---- main area events ---------------------------------------------------------
 $("#main").addEventListener("click", e => {
+  if (e.target.closest("[data-rerender]")) return render();
   if (e.target.dataset.clear) return onChipClick(e);
   const t = e.target.closest(".tile");
   if (t) { e.preventDefault(); return openViewer(photos.findIndex(p => p.id === +t.dataset.id)); }
