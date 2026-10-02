@@ -30,7 +30,16 @@ $pkg = "onnxruntime-win-x64-$version"
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid())
 New-Item -ItemType Directory $tmp | Out-Null
 try {
+    $ProgressPreference = "SilentlyContinue" # the progress bar makes Invoke-WebRequest many times slower
     Invoke-WebRequest "https://github.com/microsoft/onnxruntime/releases/download/v$version/$pkg.zip" -OutFile "$tmp\ort.zip"
+    # SHA-256 of the default version's archive, as published on the release page.
+    if ($version -eq "1.28.2") {
+        $expected = "c4eedd29489d5feca21866d054638416f3655bf6b18851b3b6b85c8313e95c35"
+        $actual = (Get-FileHash -Algorithm SHA256 "$tmp\ort.zip").Hash
+        if ($actual -ne $expected) { throw "$pkg.zip has SHA-256 $actual, expected $expected; not using it" }
+    } else {
+        Write-Warning "ORT_VERSION=${version}: no checksum known for it, so the download is not verified"
+    }
     Expand-Archive "$tmp\ort.zip" -DestinationPath $tmp
     New-Item -ItemType Directory -Force onnxruntime | Out-Null
     Copy-Item "$tmp\$pkg\lib\onnxruntime.dll" onnxruntime\
