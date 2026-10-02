@@ -101,7 +101,10 @@ pub async fn check(State(names): State<Arc<HostNames>>, req: Request, next: Next
     if !host.is_some_and(|h| names.allows(h)) {
         let shown = host.unwrap_or("(none)");
         tracing::warn!("refused a request for host {shown}; if that is this computer's name, start with --allow-host");
-        return (StatusCode::FORBIDDEN, format!("unexpected Host header {shown}: start Totufoto with --allow-host to use this name"))
+        return (
+            StatusCode::FORBIDDEN,
+            format!("unexpected Host header {shown}: start Totufoto with --allow-host to use this name"),
+        )
             .into_response();
     }
     let safe = matches!(*req.method(), Method::GET | Method::HEAD | Method::OPTIONS);
@@ -123,7 +126,15 @@ mod tests {
     #[test]
     fn ip_addresses_and_localhost_are_allowed() {
         let n = names(&[]);
-        for h in ["127.0.0.1:7878", "192.168.0.13:7878", "10.0.0.5", "[::1]:7878", "[fe80::1]:80", "localhost:7878", "LOCALHOST"] {
+        for h in [
+            "127.0.0.1:7878",
+            "192.168.0.13:7878",
+            "10.0.0.5",
+            "[::1]:7878",
+            "[fe80::1]:80",
+            "localhost:7878",
+            "LOCALHOST",
+        ] {
             assert!(n.allows(h), "{h}");
         }
     }
@@ -134,7 +145,8 @@ mod tests {
         assert!(n.allows("caja.local:7878"));
         assert!(n.allows("photos.home:7878"));
         assert!(n.allows("PHOTOS.HOME."));
-        for h in ["evil.example:7878", "caja.local.evil.example", "localhost.evil.example", "1.2.3.4.evil.example", ""] {
+        for h in ["evil.example:7878", "caja.local.evil.example", "localhost.evil.example", "1.2.3.4.evil.example", ""]
+        {
             assert!(!n.allows(h), "{h}");
         }
     }

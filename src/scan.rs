@@ -114,7 +114,8 @@ impl ScanConfig {
         let all: Vec<PathBuf> = self.fixed_roots.iter().cloned().chain(saved).collect();
         let mut roots: Vec<PathBuf> = Vec::new();
         for (i, root) in all.iter().enumerate() {
-            let covered = all.iter().enumerate().any(|(j, other)| j != i && root.starts_with(other) && (root != other || j < i));
+            let covered =
+                all.iter().enumerate().any(|(j, other)| j != i && root.starts_with(other) && (root != other || j < i));
             if !covered {
                 roots.push(root.clone());
             }
@@ -206,7 +207,8 @@ pub fn run(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
 
 fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     let started = Instant::now();
-    for counter in [&status.total, &status.done, &status.errors, &status.faces, &status.group_done, &status.group_total] {
+    for counter in [&status.total, &status.done, &status.errors, &status.faces, &status.group_done, &status.group_total]
+    {
         counter.store(0, Ordering::Relaxed);
     }
     status.set_phase("listing files");
@@ -237,10 +239,8 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     };
 
     // Photos the user removed from the gallery stay out of it.
-    let excluded: HashSet<String> = conn
-        .prepare("SELECT path FROM excluded")?
-        .query_map([], |r| r.get(0))?
-        .collect::<Result<_, _>>()?;
+    let excluded: HashSet<String> =
+        conn.prepare("SELECT path FROM excluded")?.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
     // Files that failed before are only retried once they change.
     let failed: HashMap<String, (i64, i64)> = conn
         .prepare("SELECT path, mtime, size FROM failures")?
@@ -250,7 +250,9 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     let present: HashSet<String> = files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
     {
         let mut forget = conn.prepare("DELETE FROM failures WHERE path = ?")?;
-        for path in failed.keys().filter(|p| !present.contains(*p) && !offline.iter().any(|r| Path::new(p).starts_with(r))) {
+        for path in
+            failed.keys().filter(|p| !present.contains(*p) && !offline.iter().any(|r| Path::new(p).starts_with(r)))
+        {
             forget.execute([path])?;
         }
     }
@@ -311,7 +313,8 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
                 }
                 let copy = FileEntry { path: file.path.clone(), mtime: file.mtime, size: file.size };
                 // A file that crashes a decoder (or the face models) is a failed file, not a failed scan.
-                let processed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| process(file, models.as_ref())));
+                let processed =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| process(file, models.as_ref())));
                 let outcome = match processed {
                     Ok(Ok(p)) => Outcome::Indexed(p),
                     Ok(Err((file, e))) => {
@@ -319,7 +322,9 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
                         Outcome::Failed(file, format!("{e:#}"))
                     }
                     Err(panic) => {
-                        let why = panic.downcast_ref::<&str>().map(|s| s.to_string())
+                        let why = panic
+                            .downcast_ref::<&str>()
+                            .map(|s| s.to_string())
                             .or_else(|| panic.downcast_ref::<String>().cloned())
                             .unwrap_or_else(|| "unknown error".into());
                         tracing::error!("{}: crashed while reading it: {why}", copy.path.display());
@@ -546,10 +551,7 @@ fn exif_datetime(exif: &exif::Exif) -> Option<String> {
         if dt.year < 1900 || dt.month == 0 || dt.day == 0 {
             return None;
         }
-        Some(format!(
-            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-            dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second
-        ))
+        Some(format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second))
     })
 }
 

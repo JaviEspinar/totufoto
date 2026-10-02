@@ -15,13 +15,8 @@ pub const MIN_FACE_PX: f32 = 28.0;
 pub const EMBEDDING_DIM: usize = 512;
 
 /// Landmark template used by ArcFace for a 112x112 aligned crop.
-const ARCFACE_DST: [[f32; 2]; 5] = [
-    [38.2946, 51.6963],
-    [73.5318, 51.5014],
-    [56.0252, 71.7366],
-    [41.5493, 92.3655],
-    [70.7299, 92.2041],
-];
+const ARCFACE_DST: [[f32; 2]; 5] =
+    [[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366], [41.5493, 92.3655], [70.7299, 92.2041]];
 
 #[derive(Debug, Clone)]
 pub struct Detection {
@@ -301,7 +296,8 @@ fn bilinear(img: &RgbImage, x: f32, y: f32, w: u32, h: u32) -> image::Rgb<u8> {
     let (x0, y0) = (x.floor() as u32, y.floor() as u32);
     let (x1, y1) = ((x0 + 1).min(w - 1), (y0 + 1).min(h - 1));
     let (fx, fy) = (x - x0 as f32, y - y0 as f32);
-    let (p00, p10, p01, p11) = (img.get_pixel(x0, y0), img.get_pixel(x1, y0), img.get_pixel(x0, y1), img.get_pixel(x1, y1));
+    let (p00, p10, p01, p11) =
+        (img.get_pixel(x0, y0), img.get_pixel(x1, y0), img.get_pixel(x0, y1), img.get_pixel(x1, y1));
     let mut out = [0u8; 3];
     for c in 0..3 {
         let top = p00[c] as f32 * (1.0 - fx) + p10[c] as f32 * fx;

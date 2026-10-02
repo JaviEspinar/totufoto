@@ -19,7 +19,11 @@ pub fn can_rotate(path: &Path) -> bool {
 }
 
 pub enum Outcome {
-    Rotated { width: u32, height: u32, version: i64 },
+    Rotated {
+        width: u32,
+        height: u32,
+        version: i64,
+    },
     NotFound,
     Unsupported,
     /// not inside the photo folders
@@ -45,7 +49,8 @@ pub fn rotate_photo(conn: &mut Connection, roots: &[PathBuf], id: i64, turns: u8
         return Ok(Outcome::Unsupported);
     }
     let meta = std::fs::metadata(&path)?;
-    let indexed_mtime = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64);
+    let indexed_mtime =
+        meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64);
     if meta.len() as i64 != size || indexed_mtime != Some(mtime) {
         return Ok(Outcome::Changed);
     }
@@ -229,7 +234,8 @@ fn set_orientation(tiff: &[u8], turns: u8) -> Result<Vec<u8>> {
             return Ok(out);
         }
     }
-    let mut list: Vec<[u8; 12]> = (0..count).map(|i| tiff[entries + 12 * i..entries + 12 * i + 12].try_into().unwrap()).collect();
+    let mut list: Vec<[u8; 12]> =
+        (0..count).map(|i| tiff[entries + 12 * i..entries + 12 * i + 12].try_into().unwrap()).collect();
     let mut added = [0u8; 12];
     added[..2].copy_from_slice(&b16(ORIENTATION));
     added[2..4].copy_from_slice(&b16(SHORT));
@@ -342,7 +348,10 @@ mod tests {
             let once = rotate_jpeg(&original, 1).unwrap();
             assert_eq!(corner(&once), (20, 40, true, false));
             assert_eq!(exif_field(&once, exif::Tag::Make).as_deref(), Some("\"TotuCam1\""), "other EXIF data kept");
-            assert_eq!(exif_field(&once, exif::Tag::Orientation).as_deref(), Some("row 0 at right and column 0 at top"));
+            assert_eq!(
+                exif_field(&once, exif::Tag::Orientation).as_deref(),
+                Some("row 0 at right and column 0 at top")
+            );
             let twice = rotate_jpeg(&once, 1).unwrap();
             assert_eq!(corner(&twice), (40, 20, true, true));
         }
