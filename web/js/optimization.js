@@ -1,5 +1,6 @@
 // The Optimization view: identical files and deleting the copies.
 // One of the page's modules; main.js starts the page.
+import { lang, num, t, tn } from "./i18n.js";
 import { $, api, esc, loadMeta, plural, post, state } from "./core.js";
 import { thumbUrl } from "./photos.js";
 import { toast } from "./people.js";
@@ -7,14 +8,14 @@ import { render } from "./views.js";
 import { askChoice } from "./viewer.js";
 
 // ---- optimization: identical files ------------------------------------------------------
-const fmtBytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB`
-  : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
-const fmtFileDate = secs => new Date(secs * 1000).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const fmtBytes = n => n < 1024 ? `${num(n)} B` : n < 1048576 ? `${num(Math.round(n / 1024))} KB`
+  : n < 1073741824 ? `${num(+(n / 1048576).toFixed(1))} MB` : `${num(+(n / 1073741824).toFixed(2))} GB`;
+const fmtFileDate = secs => new Date(secs * 1000).toLocaleString(lang, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 const DUP_BATCH = 100;
 export async function renderOptimization(main, job) {
   const report = await api("/api/duplicates", { signal: job.signal });
   if (!job.alive()) return;
-  const intro = `<h2>Duplicate photos</h2><p class="lead">Identical files (the very same bytes) take space twice. Of each set, the copy with the oldest file date is kept. Nothing is deleted until you click <b>Delete duplicates</b>.</p>`;
+  const intro = `<h2>${t("Duplicate photos")}</h2><p class="lead">${t("Identical files (the very same bytes) take space twice. Of each set, the copy with the oldest file date is kept. Nothing is deleted until you click <b>Delete duplicates</b>.")}</p>`;
   if (report.deleting) {
     // Deleting (started here or on another device): progress until it ends.
     main.innerHTML = `<div class="opt">${intro}<div class="opt-progress" id="dupDeleting">${deleteProgressHtml(null)}</div></div>`;
@@ -32,8 +33,8 @@ export async function renderOptimization(main, job) {
     // While the scan or the search runs: its progress every second (the report itself only
     // once it's done, since it can be large).
     const progress = p => {
-      const what = p.scanning ? "Waiting for the photo scan to finish…"
-        : `Checking ${p.checked.toLocaleString()} of ${p.to_check.toLocaleString()} files that could be duplicates`;
+      const what = p.scanning ? t("Waiting for the photo scan to finish…")
+        : t("Checking {done} of {total} files that could be duplicates", { done: num(p.checked), total: num(p.to_check) });
       return `<div>${what}</div><progress ${p.scanning || !p.to_check ? "" : `max="${p.to_check}" value="${p.checked}"`}></progress>`;
     };
     main.innerHTML = `<div class="opt">${intro}<div class="opt-progress" id="dupSearch">${progress({ scanning: report.scanning, checked: report.done, to_check: report.total })}</div></div>`;
@@ -50,19 +51,19 @@ export async function renderOptimization(main, job) {
     setTimeout(again, 1000);
     return;
   }
-  const checked = report.finished ? `Last checked ${esc(report.finished)}.` : "Not checked yet.";
+  const checked = report.finished ? t("Last checked {when}.", { when: esc(report.finished) }) : t("Not checked yet.");
   const summary = report.files
-    ? `<div class="what"><div class="big">${fmtBytes(report.bytes)} can be freed</div>
-        <small>${plural(report.files, "duplicate file")} in ${plural(report.groups.length, "set")}. ${checked}</small></div>
-       <div class="acts"><button class="btn" data-dup-search>Search again</button>
-         <button class="btn danger" data-dup-delete>Delete duplicates</button></div>`
-    : `<div class="what"><div class="big">No duplicates</div><small>No two photos are identical files. ${checked}</small></div>
-       <div class="acts"><button class="btn" data-dup-search>Search again</button></div>`;
+    ? `<div class="what"><div class="big">${t("{size} can be freed", { size: fmtBytes(report.bytes) })}</div>
+        <small>${t("{files} in {sets}.", { files: plural(report.files, "duplicate file"), sets: plural(report.groups.length, "set") })} ${checked}</small></div>
+       <div class="acts"><button class="btn" data-dup-search>${t("Search again")}</button>
+         <button class="btn danger" data-dup-delete>${t("Delete duplicates")}</button></div>`
+    : `<div class="what"><div class="big">${t("No duplicates")}</div><small>${t("No two photos are identical files.")} ${checked}</small></div>
+       <div class="acts"><button class="btn" data-dup-search>${t("Search again")}</button></div>`;
   main.innerHTML = `<div class="opt">${intro}<div class="opt-summary">${summary}</div><div id="dupGroups"></div></div>`;
   const list = $("#dupGroups");
   const file = (f, kind) => `<div class="dup-file ${kind}">${kind === "keep"
-    ? `<span class="tag" title="The oldest copy: it stays where it is">Keep</span>`
-    : `<span class="tag" title="Moved to the bin only when you click Delete duplicates">To delete</span>`}
+    ? `<span class="tag" title="${t("The oldest copy: it stays where it is")}">${t("Keep")}</span>`
+    : `<span class="tag" title="${t("Moved to the bin only when you click Delete duplicates")}">${t("To delete")}</span>`}
       <span class="p" title="${esc(f.path)}"><bdi>${esc(f.path)}</bdi></span><span class="when">${fmtFileDate(f.mtime)}</span></div>`;
   let shown = 0;
   const more = () => {
@@ -72,7 +73,7 @@ export async function renderOptimization(main, job) {
         <div class="files">${file(g.keep, "keep")}${g.remove.map(f => file(f, "remove")).join("")}</div></div>`).join(""));
     shown += DUP_BATCH;
     if (shown < report.groups.length)
-      list.insertAdjacentHTML("beforeend", `<button class="btn dup-more">Show ${Math.min(DUP_BATCH, report.groups.length - shown)} more</button>`);
+      list.insertAdjacentHTML("beforeend", `<button class="btn dup-more">${t("Show {n} more", { n: num(Math.min(DUP_BATCH, report.groups.length - shown)) })}</button>`);
   };
   more();
   list.addEventListener("click", e => { if (e.target.classList.contains("dup-more")) more(); });
@@ -81,7 +82,7 @@ export async function renderOptimization(main, job) {
     try { await post("/api/duplicates/search"); }
     catch (err) {
       e.target.disabled = false;
-      return toast(`Couldn't start the search: ${err.message}`, true);
+      return toast(t("Couldn't start the search: {error}", { error: err.message }), true);
     }
     setTimeout(render, 300);
   });
@@ -89,16 +90,16 @@ export async function renderOptimization(main, job) {
 }
 /** Progress of a deletion: files done of total and space freed so far (null: starting). */
 function deleteProgressHtml(p) {
-  const what = !p || !p.total ? "Deleting the duplicates…"
-    : p.done < p.total ? `Deleting ${p.done.toLocaleString()} of ${p.total.toLocaleString()} duplicate files · ${fmtBytes(p.freed)} freed`
-    : `Updating the gallery · ${fmtBytes(p.freed)} freed`;
+  const what = !p || !p.total ? t("Deleting the duplicates…")
+    : p.done < p.total ? t("Deleting {done} of {total} duplicate files · {size} freed", { done: num(p.done), total: num(p.total), size: fmtBytes(p.freed) })
+    : t("Updating the gallery · {size} freed", { size: fmtBytes(p.freed) });
   return `<div>${what}</div><progress ${p?.total ? `max="${p.total}" value="${p.done}"` : ""}></progress>`;
 }
 async function deleteDuplicates(report) {
-  const choice = await askChoice(`<p>Move <b>${plural(report.files, "duplicate file")}</b> (${fmtBytes(report.bytes)}) to the bin of the computer running Imadive?</p>
-    <p>Of each set of identical files, the one with the oldest file date is kept. A file that changed since the search is left alone.</p>
-    <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button><button class="btn danger" data-choice="bin">Move to the bin</button></div>`,
-    "Delete duplicates?");
+  const choice = await askChoice(`<p>${t("Move <b>{files}</b> ({size}) to the bin of the computer running Imadive?", { files: plural(report.files, "duplicate file"), size: fmtBytes(report.bytes) })}</p>
+    <p>${t("Of each set of identical files, the one with the oldest file date is kept. A file that changed since the search is left alone.")}</p>
+    <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button><button class="btn danger" data-choice="bin">${t("Move to the bin")}</button></div>`,
+    t("Delete duplicates?"));
   if (choice !== "bin") return;
   const run = body => post("/api/duplicates/delete", body);
   // The summary becomes a progress bar while the server works through the files.
@@ -124,19 +125,26 @@ async function deleteDuplicates(report) {
     let result = await runWithProgress({});
     let freed = result.freed, binned = result.binned, deleted = result.deleted;
     if (result.no_bin.length) {
-      const again = await askChoice(`<p>${plural(result.no_bin.length, "file")} can't be moved to a bin on ${result.no_bin.length === 1 ? "its drive" : "their drive"}, so they can't be recovered once deleted. Their oldest copy is kept either way.</p>
-        <div class="dlg-actions"><button class="btn" data-choice="cancel">Keep them</button><button class="btn danger" data-choice="permanently">Delete permanently</button></div>`,
-        "Delete them permanently?");
+      const again = await askChoice(`<p>${tn(result.no_bin.length,
+        "{n} file can't be moved to a bin on its drive, so it can't be recovered once deleted. Its oldest copy is kept either way.",
+        "{n} files can't be moved to a bin on their drive, so they can't be recovered once deleted. Their oldest copy is kept either way.")}</p>
+        <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Keep them")}</button><button class="btn danger" data-choice="permanently">${t("Delete permanently")}</button></div>`,
+        t("Delete them permanently?"));
       if (again === "permanently") {
         const r2 = await runWithProgress({ ids: result.no_bin, permanently: true });
         freed += r2.freed; deleted += r2.deleted;
         result.skipped.push(...r2.skipped);
       }
     }
-    const parts = [binned && `${binned.toLocaleString()} moved to the bin`, deleted && `${deleted.toLocaleString()} deleted`].filter(Boolean).join(", ");
-    toast(`${fmtBytes(freed)} freed${parts ? `: ${parts}` : ""}${result.skipped.length ? `. ${result.skipped.length} left alone (changed since the search)` : ""}`);
+    const parts = [
+      binned && tn(binned, "{n} file moved to the bin", "{n} files moved to the bin"),
+      deleted && tn(deleted, "{n} file deleted", "{n} files deleted"),
+    ].filter(Boolean).join(", ");
+    const skipped = result.skipped.length
+      ? `. ${tn(result.skipped.length, "{n} file left alone (it changed since the search)", "{n} files left alone (they changed since the search)")}` : "";
+    toast(`${t("{size} freed", { size: fmtBytes(freed) })}${parts ? `: ${parts}` : ""}${skipped}`);
   } catch (err) {
-    toast(`Couldn't delete the duplicates: ${err.message}`, true);
+    toast(t("Couldn't delete the duplicates: {error}", { error: err.message }), true);
   }
   loadMeta().catch(() => {});
   render();

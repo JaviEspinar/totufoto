@@ -1,8 +1,9 @@
 // The photo viewer: details, faces, sharing, rotating, deleting, zoom and swipe.
 // One of the page's modules; main.js starts the page.
-import { $, api, del, esc, fmtFull, icon, loadMeta, personById, personName, photoDetail, post, pref, regionName, state } from "./core.js";
+import { t } from "./i18n.js";
+import { $, api, del, esc, fmtFull, icon, loadMeta, personById, personName, photoDetail, plural, post, pref, regionName, state } from "./core.js";
 import { renderPeopleList } from "./sidebar.js";
-import { onePhotoLess, originalUrl, photos, thumbUrl, versionOf } from "./photos.js";
+import { onePhotoLess, originalUrl, photos, shownPhotoCount, thumbUrl, versionOf } from "./photos.js";
 import { openAssign, refreshPeopleViews, renamePerson, toast } from "./people.js";
 import { render } from "./views.js";
 import { folderInfo } from "./settings.js";
@@ -83,7 +84,7 @@ export async function openViewer(i, { keepImage = false } = {}) {
     if (viewerIndex !== i) return;
     // Not the previous photo's details: say what happened.
     $(".boxes", viewer).innerHTML = "";
-    setDetails(`<div class="s">Couldn't load this photo's details: ${esc(err.message)}</div>`);
+    setDetails(`<div class="s">${t("Couldn't load this photo's details: {error}", { error: esc(err.message) })}</div>`);
     return;
   }
   if (viewerIndex !== i) return;
@@ -96,32 +97,32 @@ export async function openViewer(i, { keepImage = false } = {}) {
   const place = d.city ? `${d.city}${d.region ? ", " + d.region : ""}, ${regionName(d.country)}` : null;
   setDetails(`
     <h3>${esc(fmtFull(d.taken))}</h3>
-    <div class="s">${d.dateFromExif ? "" : "Date from file (no EXIF) · "}${d.width} × ${d.height}</div>
+    <div class="s">${d.dateFromExif ? "" : `${t("Date from file (no EXIF)")} · `}${d.width} × ${d.height}</div>
     <div class="photo-acts">
       ${folderInfo.desktop && canShareFiles
-        ? `<button data-share-photo="${id}" title="Send this photo with another app">${icon("share", 15)} Share</button>`
-        : `<a class="btn-like" href="/original/${id}?download=1&v=${v}" download title="Save the photo on this device">${icon("download", 15)} Download</a>`}
-      ${d.rotatable ? `<button data-rotate="-1" title="Rotate left (Shift+R)" aria-label="Rotate left">${icon("rotate", 15)}</button><button data-rotate="1" title="Rotate right (R)" aria-label="Rotate right">${icon("rotate", 15, true)}</button>` : ""}
-      ${folderInfo.desktop ? `<button data-reveal="${id}" title="Show the file in its folder">${icon("folder", 15)} Open in folder</button>` : ""}
+        ? `<button data-share-photo="${id}" title="${t("Send this photo with another app")}">${icon("share", 15)} ${t("Share")}</button>`
+        : `<a class="btn-like" href="/original/${id}?download=1&v=${v}" download title="${t("Save the photo on this device")}">${icon("download", 15)} ${t("Download")}</a>`}
+      ${d.rotatable ? `<button data-rotate="-1" title="${t("Rotate left (Shift+R)")}" aria-label="${t("Rotate left")}">${icon("rotate", 15)}</button><button data-rotate="1" title="${t("Rotate right (R)")}" aria-label="${t("Rotate right")}">${icon("rotate", 15, true)}</button>` : ""}
+      ${folderInfo.desktop ? `<button data-reveal="${id}" title="${t("Show the file in its folder")}">${icon("folder", 15)} ${t("Open in folder")}</button>` : ""}
     </div>
-    ${place ? `<h5>Place</h5><div>${esc(place)}</div><div class="s"><a href="https://www.openstreetmap.org/?mlat=${d.lat}&mlon=${d.lon}#map=14/${d.lat}/${d.lon}" target="_blank" rel="noopener">Open map</a></div>` : ""}
-    <h5>People (${d.faces.length})</h5>
+    ${place ? `<h5>${t("Place")}</h5><div>${esc(place)}</div><div class="s"><a href="https://www.openstreetmap.org/?mlat=${d.lat}&mlon=${d.lon}#map=14/${d.lat}/${d.lon}" target="_blank" rel="noopener">${t("Open map")}</a></div>` : ""}
+    <h5>${t("People ({n})", { n: d.faces.length })}</h5>
     ${d.faces.length ? d.faces.map(f => {
       const person = personById(f.person);
       return `<div class="vface"><img src="/face/${f.id}" alt="">
         <span class="who">${person?.name
-          ? `<span class="n" data-person="${f.person}" title="Show ${esc(person.name)}'s photos" tabindex="0" role="button">${esc(person.name)}</span>`
-          : `<span class="n unnamed editable" data-name-face="${f.id}" data-current="${f.person ?? ""}" title="Click to name this person" tabindex="0" role="button">${person ? esc(personName(person)) : "Not grouped"}</span>`}
+          ? `<span class="n" data-person="${f.person}" title="${t("Show {name}'s photos", { name: esc(person.name) })}" tabindex="0" role="button">${esc(person.name)}</span>`
+          : `<span class="n unnamed editable" data-name-face="${f.id}" data-current="${f.person ?? ""}" title="${t("Click to name this person")}" tabindex="0" role="button">${person ? esc(personName(person)) : t("Not grouped")}</span>`}
         <span class="acts">
-          <button data-assign="${f.id}" data-current="${f.person ?? ""}" title="Pick who this face is">Same as…</button>
-          ${person ? `<button data-reject="${f.id}" title="This face is not ${esc(personName(person))}: move it to a new group you can rename or hide">Not them</button>` : ""}
+          <button data-assign="${f.id}" data-current="${f.person ?? ""}" title="${t("Pick who this face is")}">${t("Same as…")}</button>
+          ${person ? `<button data-reject="${f.id}" title="${t("This face is not {name}: move it to a new group you can rename or hide", { name: esc(personName(person)) })}">${t("Not them")}</button>` : ""}
           ${!person ? "" : person.face === f.id
-            ? `<button class="is-cover" disabled title="This face is on ${esc(personName(person))}'s card in People">✓ Card photo</button>`
-            : `<button data-cover="${f.id}" title="Show this face on ${esc(personName(person))}'s card in People">Card photo</button>`}
+            ? `<button class="is-cover" disabled title="${t("This face is on {name}'s card in People", { name: esc(personName(person)) })}">✓ ${t("Card photo")}</button>`
+            : `<button data-cover="${f.id}" title="${t("Show this face on {name}'s card in People", { name: esc(personName(person)) })}">${t("Card photo")}</button>`}
         </span></span></div>`;
-    }).join("") : `<div class="s">No faces detected.</div>`}
-    <label><input type="checkbox" id="showBoxes" ${viewer.classList.contains("boxes") ? "checked" : ""}> Show face boxes</label>
-    <h5>File</h5><div class="s">${esc(d.path)}</div>`);
+    }).join("") : `<div class="s">${t("No faces detected.")}</div>`}
+    <label><input type="checkbox" id="showBoxes" ${viewer.classList.contains("boxes") ? "checked" : ""}> ${t("Show face boxes")}</label>
+    <h5>${t("File")}</h5><div class="s">${esc(d.path)}</div>`);
 }
 /** The full photo couldn't be loaded: ask the server why. A file that is gone (its folder
  *  still there) is removed from the gallery; an unreachable folder removes nothing. */
@@ -131,11 +132,11 @@ async function photoMissing(id) {
   if (!result || result.status === "present") return; // a passing glitch; nothing to say
   const dlg = $("#goneDlg");
   if (result.status === "removed") {
-    $("#goneTitle").textContent = "This photo is no longer there";
-    $("#goneText").textContent = "Its file is no longer in its folder, so it has been removed from the gallery.";
+    $("#goneTitle").textContent = t("This photo is no longer there");
+    $("#goneText").textContent = t("Its file is no longer in its folder, so it has been removed from the gallery.");
   } else {
-    $("#goneTitle").textContent = "This photo can't be reached";
-    $("#goneText").textContent = `Its folder can't be reached right now (an unplugged drive or a network folder, for example). Nothing was removed: it will show again when the folder is back.`;
+    $("#goneTitle").textContent = t("This photo can't be reached");
+    $("#goneText").textContent = t("Its folder can't be reached right now (an unplugged drive or a network folder, for example). Nothing was removed: it will show again when the folder is back.");
   }
   $("#gonePath").textContent = result.path || "";
   dlg.showModal();
@@ -148,9 +149,9 @@ function dropPhotoFromView(id) {
   const index = photos.findIndex(p => p.id === id);
   if (index >= 0) photos.splice(index, 1);
   $(`.tile[data-id="${id}"]`)?.remove();
-  const count = $(".view-head .count");
-  if (count && /^[\d,]+ photos$/.test(count.textContent)) count.textContent = `${Math.max(0, parseInt(count.textContent.replace(/,/g, "")) - 1).toLocaleString()} photos`;
   onePhotoLess();
+  const count = $(".view-head .count");
+  if (count?.dataset.photos != null) count.textContent = plural(shownPhotoCount, "photo");
   if (photos.length && viewer.classList.contains("open")) openViewer(Math.min(Math.max(index, 0), photos.length - 1));
   else closeViewer();
   loadMeta().then(() => refreshPeopleViews({ animate: false })).catch(() => {});
@@ -170,14 +171,14 @@ async function sharePhoto(id, button) {
     const file = new File([blob], blob.type === "image/jpeg" ? name.replace(/\.(heic|heif|tiff?|avif)$/i, ".jpg") : name, { type: blob.type });
     await navigator.share({ files: [file] });
   } catch (err) {
-    if (err.name !== "AbortError") toast(`Couldn't share it: ${err.message}`, true);
+    if (err.name !== "AbortError") toast(t("Couldn't share it: {error}", { error: err.message }), true);
   } finally {
     button.disabled = false;
   }
 }
 async function revealPhoto(id) {
   try { await post(`/api/photos/${id}/reveal`); }
-  catch (err) { toast(`Couldn't open its folder: ${err.message}`, true); }
+  catch (err) { toast(t("Couldn't open its folder: {error}", { error: err.message }), true); }
 }
 
 // ---- rotating a photo ------------------------------------------------------------------
@@ -225,7 +226,7 @@ async function flushRotation() {
     res = await post(`/api/photos/${r.id}/rotate`, { turns });
   } catch (err) {
     if (here() && !rotation) unturn(photos[viewerIndex].width, photos[viewerIndex].height);
-    return toast(`Couldn't rotate the photo: ${err.message}`, true);
+    return toast(t("Couldn't rotate the photo: {error}", { error: err.message }), true);
   }
   const p = photos.find(p => p.id === r.id);
   if (p) Object.assign(p, { width: res.width, height: res.height, version: res.version });
@@ -234,9 +235,9 @@ async function flushRotation() {
   full.src = originalUrl(r.id, res.version);
   thumb.src = thumbUrl(r.id, res.version);
   await Promise.all([full.decode(), thumb.decode()]).catch(() => {});
-  for (const t of document.querySelectorAll(`.tile[data-id="${r.id}"]`)) {
-    t.style.setProperty("--r", (res.width / res.height).toFixed(3));
-    t.href = originalUrl(r.id, res.version);
+  for (const tile of document.querySelectorAll(`.tile[data-id="${r.id}"]`)) {
+    tile.style.setProperty("--r", (res.width / res.height).toFixed(3));
+    tile.href = originalUrl(r.id, res.version);
   }
   for (const im of document.querySelectorAll("img")) {
     if (im.src && new URL(im.src).pathname.startsWith(`/thumb/${r.id}/`)) im.src = thumb.src;
@@ -281,10 +282,10 @@ async function deleteViewerPhoto() {
   const what = `<div class="delete-what"><img src="${thumbUrl(id, versionOf(id))}" alt=""><div class="p">${esc(path)}</div></div>`;
   const choice = await askChoice(`${what}
     <div class="delete-options">
-      <button class="btn" data-choice="gallery">Remove from gallery<small>The file stays on disk. It won't come back with the next scan (Settings can show it again).</small></button>
-      <button class="btn danger" data-choice="disk">Remove from disk<small>Moves the file to the bin of the computer running Imadive.</small></button>
+      <button class="btn" data-choice="gallery">${t("Remove from gallery")}<small>${t("The file stays on disk. It won't come back with the next scan (Settings can show it again).")}</small></button>
+      <button class="btn danger" data-choice="disk">${t("Remove from disk")}<small>${t("Moves the file to the bin of the computer running Imadive.")}</small></button>
     </div>
-    <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button></div>`, "Delete this photo?");
+    <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button></div>`, t("Delete this photo?"));
   if (choice === "cancel") return;
   const remove = (from, permanently = false) => del(`/api/photos/${id}`, permanently ? { from, permanently } : { from })
     .then(body => ({ ok: true, status: 200, body }))
@@ -292,14 +293,14 @@ async function deleteViewerPhoto() {
   let result = await remove(choice);
   if (result.status === 409 && result.body.status === "no-bin") {
     // No bin to move it to (some external or network drives): only delete for good if confirmed.
-    const again = await askChoice(`${what}<p>This file can't be moved to a bin on its drive, so it can't be recovered once deleted.</p>
-      <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button><button class="btn danger" data-choice="permanently">Delete permanently</button></div>`,
-      "Delete it permanently?");
+    const again = await askChoice(`${what}<p>${t("This file can't be moved to a bin on its drive, so it can't be recovered once deleted.")}</p>
+      <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button><button class="btn danger" data-choice="permanently">${t("Delete permanently")}</button></div>`,
+      t("Delete it permanently?"));
     if (again !== "permanently") return;
     result = await remove("disk", true);
   }
-  if (!result.ok) return toast(`Couldn't delete the photo: ${result.body.error || result.status}`, true);
-  toast({ removed: "Removed from the gallery; the file is still on disk", binned: "Moved to the bin", deleted: "Deleted permanently" }[result.body.status] || "Removed");
+  if (!result.ok) return toast(t("Couldn't delete the photo: {error}", { error: result.body.error || result.status }), true);
+  toast({ removed: t("Removed from the gallery; the file is still on disk"), binned: t("Moved to the bin"), deleted: t("Deleted permanently") }[result.body.status] || t("Removed"));
   dropPhotoFromView(id);
 }
 $(".trash", viewer).addEventListener("click", deleteViewerPhoto);
@@ -311,8 +312,8 @@ function startViewerRename(label) {
   const face = +label.dataset.nameFace, current = label.dataset.current ? +label.dataset.current : null;
   const input = document.createElement("input");
   input.className = "rename";
-  input.placeholder = "Add a name";
-  input.setAttribute("aria-label", "Name");
+  input.placeholder = t("Add a name");
+  input.setAttribute("aria-label", t("Name"));
   label.hidden = true;
   label.after(input);
   input.focus();
@@ -334,7 +335,7 @@ function startViewerRename(label) {
       }
       await renamePerson(person, value);
     } catch (err) {
-      toast(`Couldn't save the name: ${err.message}`, true);
+      toast(t("Couldn't save the name: {error}", { error: err.message }), true);
     }
     await loadMeta().catch(() => {});
     refreshPeopleViews({ animate: false });
@@ -394,10 +395,10 @@ function resetZoom(animate = false) {
  *  a gap at an edge once larger. */
 function clampZoom() {
   const stage = $(".stage", viewer), frame = frameEl();
-  const axis = (t, offset, size, limit) => {
+  const axis = (pos, offset, size, limit) => {
     const scaled = size * zoom.s;
     if (scaled <= limit) return (limit - scaled) / 2 - offset;
-    return Math.min(-offset, Math.max(limit - scaled - offset, t));
+    return Math.min(-offset, Math.max(limit - scaled - offset, pos));
   };
   zoom.x = axis(zoom.x, frame.offsetLeft, frame.offsetWidth, stage.clientWidth);
   zoom.y = axis(zoom.y, frame.offsetTop, frame.offsetHeight, stage.clientHeight);
@@ -501,7 +502,7 @@ function showInfoCollapsed(collapsed) {
   viewer.classList.toggle("info-collapsed", collapsed);
   const b = $("#infoToggle");
   b.setAttribute("aria-expanded", String(!collapsed));
-  b.title = collapsed ? "Show the details (I)" : "Hide the details (I)";
+  b.title = collapsed ? t("Show the details (I)") : t("Hide the details (I)");
 }
 function setInfoCollapsed(collapsed) {
   showInfoCollapsed(collapsed);
@@ -520,7 +521,7 @@ $(".info", viewer).addEventListener("click", async e => {
   const link = e.target.closest("a[target=_blank]");
   if (link && folderInfo.desktop) {
     e.preventDefault();
-    return post("/api/open", { url: link.href }).catch(err => toast(`Couldn't open the map: ${err.message}`, true));
+    return post("/api/open", { url: link.href }).catch(err => toast(t("Couldn't open the map: {error}", { error: err.message }), true));
   }
   const act = e.target.closest(".photo-acts button");
   if (act?.dataset.sharePhoto) return sharePhoto(+act.dataset.sharePhoto, act);
@@ -535,10 +536,10 @@ $(".info", viewer).addEventListener("click", async e => {
     try {
       const { person } = await post(`/api/faces/${e.target.dataset.cover}/cover`);
       const p = personById(person);
-      toast(p ? `This face is now on ${personName(p)}'s card` : "Card photo changed");
+      toast(p ? t("This face is now on {name}'s card", { name: personName(p) }) : t("Card photo changed"));
     } catch (err) {
       e.target.disabled = false;
-      return toast(`Couldn't change the card photo: ${err.message}`, true);
+      return toast(t("Couldn't change the card photo: {error}", { error: err.message }), true);
     }
     await loadMeta();
     refreshPeopleViews({ animate: false });
@@ -548,9 +549,9 @@ $(".info", viewer).addEventListener("click", async e => {
     e.target.disabled = true;
     try {
       const { person } = await post(`/api/faces/${e.target.dataset.reject}/reject`);
-      toast(`Moved to a new group, Unnamed #${person}. Rename or hide it in People.`);
+      toast(t("Moved to a new group, {name}. Rename or hide it in People.", { name: personName({ id: person }) }));
     } catch (err) {
-      toast(`Couldn't move the face: ${err.message}`, true);
+      toast(t("Couldn't move the face: {error}", { error: err.message }), true);
     }
     await loadMeta();
     openViewer(viewerIndex);

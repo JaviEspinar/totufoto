@@ -1,5 +1,6 @@
 // The People view, the merge dialog, and changes to people (shown at once, saved after).
 // One of the page's modules; main.js starts the page.
+import { lang, num, t } from "./i18n.js";
 import { $, esc, loadMeta, onPeopleLoaded, patch, people, personById, personName, plural, post, pref, setPeople, state } from "./core.js";
 import { matchPeople, peopleOrder, peopleSort, renderPeopleList, resetPeopleOrder, restorePeopleOrder, setPeopleSort } from "./sidebar.js";
 import { render } from "./views.js";
@@ -32,12 +33,12 @@ const faceImg = id => loadedFaces.has(String(id))
   : `<img src="/face/${id}" alt="" data-face="${id}" decoding="async">`;
 const faceCard = p => `
   <div class="card face-card ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}">
-    <div class="avatar" title="Show photos" tabindex="0" role="button" aria-label="Show ${esc(personName(p))}'s photos">${faceImg(p.face)}</div>
-    <input value="${esc(p.name || "")}" placeholder="Add a name" data-rename="${p.id}">
+    <div class="avatar" title="${t("Show photos")}" tabindex="0" role="button" aria-label="${t("Show {name}'s photos", { name: esc(personName(p)) })}">${faceImg(p.face)}</div>
+    <input value="${esc(p.name || "")}" placeholder="${t("Add a name")}" data-rename="${p.id}">
     <div class="s">${plural(p.count, "photo")}</div>
     <div class="row">
-      <button class="btn" data-merge="${p.id}" title="Merge with another person">Same as…</button>
-      <button class="btn" data-hide="${p.id}">${p.hidden ? "Show" : "Hide"}</button>
+      <button class="btn" data-merge="${p.id}" title="${t("Merge with another person")}">${t("Same as…")}</button>
+      <button class="btn" data-hide="${p.id}">${p.hidden ? t("Show") : t("Hide")}</button>
     </div>
   </div>`;
 const skeletonCard = () => `
@@ -46,11 +47,11 @@ const skeletonCard = () => `
   </div>`;
 const faceRow = p => `
   <div class="face-row ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}">
-    <div class="avatar" title="Show photos" tabindex="0" role="button" aria-label="Show ${esc(personName(p))}'s photos">${faceImg(p.face)}</div>
-    <input value="${esc(p.name || "")}" placeholder="Add a name" data-rename="${p.id}">
+    <div class="avatar" title="${t("Show photos")}" tabindex="0" role="button" aria-label="${t("Show {name}'s photos", { name: esc(personName(p)) })}">${faceImg(p.face)}</div>
+    <input value="${esc(p.name || "")}" placeholder="${t("Add a name")}" data-rename="${p.id}">
     <span class="s">${plural(p.count, "photo")}</span>
-    <button class="btn" data-merge="${p.id}" title="Merge with another person">Same as…</button>
-    <button class="btn" data-hide="${p.id}">${p.hidden ? "Show" : "Hide"}</button>
+    <button class="btn" data-merge="${p.id}" title="${t("Merge with another person")}">${t("Same as…")}</button>
+    <button class="btn" data-hide="${p.id}">${p.hidden ? t("Show") : t("Hide")}</button>
   </div>`;
 const skeletonRow = () => `
   <div class="face-row skeleton" aria-hidden="true"><div class="avatar shimmer"></div><div class="line shimmer"></div></div>`;
@@ -115,7 +116,7 @@ function mountPeopleGrid(host, { fadeIn = false, layout: L = peopleLayoutFor("ca
     const input = card.querySelector("input");
     if (document.activeElement !== input && input.value !== (p.name || "")) input.value = p.name || "";
     card.querySelector(".s").textContent = `${plural(p.count, "photo")}`;
-    card.querySelector("[data-hide]").textContent = p.hidden ? "Show" : "Hide";
+    card.querySelector("[data-hide]").textContent = p.hidden ? t("Show") : t("Hide");
     if (card.querySelector("img").dataset.face !== String(p.face)) card.querySelector(".avatar").innerHTML = faceImg(p.face);
   }
   // `animate`: true slides cards to their new places; false (a re-sort, a search) moves them
@@ -149,8 +150,8 @@ function mountPeopleGrid(host, { fadeIn = false, layout: L = peopleLayoutFor("ca
         continue;
       }
       update(el, p);
-      const t = pos(i);
-      if (el.style.transform !== t) el.style.transform = t;
+      const at = pos(i);
+      if (el.style.transform !== at) el.style.transform = at;
       el.style.width = `${grid.cardW}px`;
     }
     const alive = new Set(grid.items.map(p => p.id));
@@ -184,7 +185,7 @@ function mountPeopleGrid(host, { fadeIn = false, layout: L = peopleLayoutFor("ca
 }
 
 function peopleCountText(n) {
-  return peopleQuery ? `${n.toLocaleString()} matching` : `${n.toLocaleString()} people`;
+  return peopleQuery ? t("{n} matching", { n: num(n) }) : t("{n} people", { n: num(n) });
 }
 /** Redraws everything that shows people from the in-memory list (cheap). `animate` makes
  *  cards slide to their new places, for changes like a merge. */
@@ -199,17 +200,17 @@ export function refreshPeopleViews({ animate = true } = {}) {
 const SKELETON_DELAY = 150;
 export async function renderPeople(main, job) {
   main.innerHTML = `<div class="people-bar">
-      <input class="search" id="peopleSearch" type="search" placeholder="Search people" autocomplete="off" value="${esc(peopleQuery)}">
+      <input class="search" id="peopleSearch" type="search" placeholder="${t("Search people")}" autocomplete="off" value="${esc(peopleQuery)}">
       <span id="peopleCount"></span>
-      <select id="peopleSort" title="Sort people" aria-label="Sort people">
-        <option value="count" ${peopleSort === "count" ? "selected" : ""}>Most photos</option>
-        <option value="name" ${peopleSort === "name" ? "selected" : ""}>Name</option>
+      <select id="peopleSort" title="${t("Sort people")}" aria-label="${t("Sort people")}">
+        <option value="count" ${peopleSort === "count" ? "selected" : ""}>${t("Most photos")}</option>
+        <option value="name" ${peopleSort === "name" ? "selected" : ""}>${t("Name")}</option>
       </select>
-      <label class="zoom" title="Size"><span aria-hidden="true">A</span>
-        <input type="range" id="peopleZoom" aria-label="Size"><span class="big" aria-hidden="true">A</span></label>
-      <div class="seg" id="peopleLayout" role="group" aria-label="Layout">
-        <button data-layout="cards" class="${peopleLayout === "cards" ? "on" : ""}" title="Big pictures">Cards</button>
-        <button data-layout="list" class="${peopleLayout === "list" ? "on" : ""}" title="More people on screen">List</button>
+      <label class="zoom" title="${t("Size")}"><span aria-hidden="true">A</span>
+        <input type="range" id="peopleZoom" aria-label="${t("Size")}"><span class="big" aria-hidden="true">A</span></label>
+      <div class="seg" id="peopleLayout" role="group" aria-label="${t("Layout")}">
+        <button data-layout="cards" class="${peopleLayout === "cards" ? "on" : ""}" title="${t("Big pictures")}">${t("Cards")}</button>
+        <button data-layout="list" class="${peopleLayout === "list" ? "on" : ""}" title="${t("More people on screen")}">${t("List")}</button>
       </div>
     </div>
     <div id="peopleHost"></div>`;
@@ -262,7 +263,7 @@ export async function renderPeople(main, job) {
   const show = () => {
     if (!job.alive()) return;
     shown = true;
-    if (!people.length) { host.innerHTML = `<div class="blank">No faces found yet.</div>`; $("#peopleCount").textContent = ""; return; }
+    if (!people.length) { host.innerHTML = `<div class="blank">${t("No faces found yet.")}</div>`; $("#peopleCount").textContent = ""; return; }
     if (!peopleGrid) {
       resetPeopleOrder(); // opening the tab is when the list gets sorted again
       peopleGrid = mountPeopleGrid(host, { fadeIn: placeholders, layout: peopleLayoutFor(peopleLayout) });
@@ -272,7 +273,7 @@ export async function renderPeople(main, job) {
   // What we already have shows at once. Placeholders only appear if loading is slow.
   if (people.length) show();
   else {
-    $("#peopleCount").textContent = "Loading people…";
+    $("#peopleCount").textContent = t("Loading people…");
     setTimeout(() => {
       if (job.alive() && !shown) {
         placeholders = true;
@@ -295,7 +296,7 @@ function openPicker() {
   $("#mergeFilter").value = "";
   showMergeStep(null);
   // Open at once with a spinner; the list fills in on the next frame.
-  $("#mergeDlg .candidates").innerHTML = `<div class="spinner" role="progressbar" aria-label="Loading"></div>`;
+  $("#mergeDlg .candidates").innerHTML = `<div class="spinner" role="progressbar" aria-label="${t("Loading")}"></div>`;
   $("#mergeDlg").showModal();
   $("#mergeFilter").focus();
   const opened = { mergeFrom, assignFace };
@@ -319,11 +320,11 @@ function showMergeStep(into) {
   const picking = into == null;
   $("#mergePick").hidden = !picking;
   $("#mergeConfirm").hidden = picking;
-  $("#mergeTitle").textContent = !picking ? "Merge these people?" : assignFace != null ? "Who is this?" : "Same person as…";
+  $("#mergeTitle").textContent = !picking ? t("Merge these people?") : assignFace != null ? t("Who is this?") : t("Same person as…");
   if (picking) {
     $("#mergeHint").innerHTML = assignFace != null
-      ? `<img src="/face/${assignFace}" alt=""><span>Pick who this face is. Only this photo changes.</span>`
-      : `Pick who this is. Their photos are combined into one person.`;
+      ? `<img src="/face/${assignFace}" alt=""><span>${t("Pick who this face is. Only this photo changes.")}</span>`
+      : t("Pick who this is. Their photos are combined into one person.");
     return;
   }
   const a = personById(mergeFrom), b = personById(into);
@@ -335,16 +336,18 @@ function showMergeStep(into) {
   const resultName = b.name || a.name;
   $("#mergeConfirm").innerHTML = `
     <div class="merge-pair">${face(a)}<span class="arrow" aria-hidden="true">→</span>${face(b)}</div>
-    <p class="merge-note">The photos of <b>${esc(personName(a))}</b> move to <b>${esc(personName(b))}</b>${resultName ? `, named <b>${esc(resultName)}</b>` : ""}. This can't be undone, but a wrong face can later be removed with <i>Not them</i> in the photo viewer.</p>
+    <p class="merge-note">${resultName
+      ? t("The photos of <b>{from}</b> move to <b>{into}</b>, named <b>{name}</b>. This can't be undone, but a wrong face can later be removed with <i>Not them</i> in the photo viewer.", { from: esc(personName(a)), into: esc(personName(b)), name: esc(resultName) })
+      : t("The photos of <b>{from}</b> move to <b>{into}</b>. This can't be undone, but a wrong face can later be removed with <i>Not them</i> in the photo viewer.", { from: esc(personName(a)), into: esc(personName(b)) })}</p>
     <div class="dlg-actions">
-      <button class="btn" data-back>Back</button>
-      <button class="btn primary" data-confirm="${into}">Merge</button>
+      <button class="btn" data-back>${t("Back")}</button>
+      <button class="btn primary" data-confirm="${into}">${t("Merge")}</button>
     </div>`;
   $("#mergeConfirm [data-confirm]").focus();
 }
 // The picker lists people A to Z (accents and case ignored, "Person 2" before "Person 10"),
 // with unnamed people last. Sorted once per people list.
-export const nameCollator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+export const nameCollator = new Intl.Collator(lang, { sensitivity: "base", numeric: true });
 let alphabeticalCache = null;
 export function peopleAlphabetical() {
   if (alphabeticalCache?.source === people) return alphabeticalCache.out;
@@ -363,8 +366,8 @@ function renderMergeCandidates() {
       <span class="n ${p.name ? "" : "unnamed"}">${esc(personName(p))}</span>
       <span class="c">${plural(p.count, "photo")}</span>
     </button>`).join("") +
-    (all.length > MERGE_LIMIT ? `<div class="more">${(all.length - MERGE_LIMIT).toLocaleString()} more. Type a name to narrow it down.</div>` : "") +
-    (!all.length ? `<div class="more">Nobody matches.</div>` : "");
+    (all.length > MERGE_LIMIT ? `<div class="more">${t("{n} more. Type a name to narrow it down.", { n: num(all.length - MERGE_LIMIT) })}</div>` : "") +
+    (!all.length ? `<div class="more">${t("Nobody matches.")}</div>` : "");
 }
 $("#mergeFilter").addEventListener("input", renderMergeCandidates);
 $("#mergeDlg").addEventListener("click", e => {
@@ -395,18 +398,18 @@ const resync = () => loadMeta().then(refreshPeopleViews).catch(() => {});
 function mergePeople(from, into) {
   const a = personById(from), b = personById(into);
   if (!a || !b) return;
-  const label = `${personName(a)} into ${personName(b)}`;
+  const names = { from: personName(a), into: personName(b) };
   const orderBefore = peopleOrder; // so a failed merge puts the person back in their place
   b.count += a.count; // exact count (photos with both) comes with the resync
   if (!b.name) b.name = a.name;
   setPeople(people.filter(p => p.id !== from));
   if (state.people.delete(from)) state.people.add(into);
   refreshPeopleViews();
-  toast(`Merged ${label}`);
+  toast(t("Merged {from} into {into}", names));
   return post(`/api/people/${from}/merge`, { into })
     .then(resync)
     .catch(err => {
-      toast(`Couldn't merge ${label}: ${err.message}`, true);
+      toast(t("Couldn't merge {from} into {into}: {error}", { ...names, error: err.message }), true);
       restorePeopleOrder(orderBefore);
       resync();
     });
@@ -417,9 +420,9 @@ async function assignFaceTo(face, person) {
   const p = personById(person);
   try {
     await post(`/api/faces/${face}/assign`, { person });
-    toast(`Moved to ${p ? personName(p) : "that person"}`);
+    toast(p ? t("Moved to {name}", { name: personName(p) }) : t("Moved to that person"));
   } catch (err) {
-    toast(`Couldn't move the face: ${err.message}`, true);
+    toast(t("Couldn't move the face: {error}", { error: err.message }), true);
   }
   await loadMeta();
   refreshPeopleViews();
@@ -432,7 +435,7 @@ export function toggleHidden(id) {
   p.hidden = !p.hidden;
   refreshPeopleViews();
   patch(`/api/people/${id}`, { hidden: p.hidden })
-    .catch(err => { toast(`Couldn't save: ${err.message}`, true); resync(); });
+    .catch(err => { toast(t("Couldn't save: {error}", { error: err.message }), true); resync(); });
 }
 
 // Names are unique. Giving someone a name another person already has asks whether they're
@@ -452,10 +455,10 @@ function askSameName(p, other, name, keepName) {
       <figcaption class="${x.name ? "" : "unnamed"}">${esc(personName(x))}</figcaption>
       <div class="s">${plural(x.count, "photo")}</div>
     </figure>`;
-  $("#nameTitle").textContent = `"${other.name}" already exists`;
+  $("#nameTitle").textContent = t("\"{name}\" already exists", { name: other.name });
   $("#namePair").innerHTML = `${face(p)}<span class="arrow" aria-hidden="true">?</span>${face(other)}`;
-  $("#nameNote").innerHTML = `Is this the same person? <b>Merge them</b> to combine their photos, or keep them apart and name this one <b>${esc(keepName)}</b>.`;
-  $("#nameKeep").textContent = `Keep separate as "${keepName}"`;
+  $("#nameNote").innerHTML = t("Is this the same person? <b>Merge them</b> to combine their photos, or keep them apart and name this one <b>{name}</b>.", { name: esc(keepName) });
+  $("#nameKeep").textContent = t("Keep separate as \"{name}\"", { name: keepName });
   dlg.returnValue = "cancel";
   return new Promise(resolve => {
     // Opened after the key press that saved the name has finished, so that Enter can't also
@@ -488,7 +491,7 @@ export async function renamePerson(id, value) {
   refreshPeopleViews({ animate: false });
   for (const label of document.querySelectorAll(`[data-person-chip="${id}"] .label`)) label.textContent = personName(p);
   return patch(`/api/people/${id}`, { name: name ?? "" })
-    .then(saved => { if (saved?.name && saved.name !== p.name) toast(`Saved as "${saved.name}", a name that was free`); })
+    .then(saved => { if (saved?.name && saved.name !== p.name) toast(t("Saved as \"{name}\", a name that was free", { name: saved.name })); })
     .then(resync)
-    .catch(err => { toast(`Couldn't save the name: ${err.message}`, true); resync(); });
+    .catch(err => { toast(t("Couldn't save the name: {error}", { error: err.message }), true); resync(); });
 }

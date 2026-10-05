@@ -30,6 +30,7 @@ It comes as a desktop app for Windows and Linux, and as a command-line app that 
   - *Any*: at least one of them,
   - *Only them*: all of them and no other known person.
 - All filters combine (people + place + date range + upcoming) and live in the URL, so views can be bookmarked.
+- **In English or Spanish**, with a light or dark theme (or your system's), chosen in Settings.
 
 ## Privacy and security
 

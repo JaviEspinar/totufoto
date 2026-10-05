@@ -1,5 +1,6 @@
 // The People in the photo column, and the panels that replace it on small screens.
 // One of the page's modules; main.js starts the page.
+import { num, t, tn } from "./i18n.js";
 import { $, onPeopleLoaded, people, personById, personName, pref, saveHash, state } from "./core.js";
 import { nameCollator, peopleAlphabetical, renamePerson } from "./people.js";
 import { render } from "./views.js";
@@ -57,16 +58,16 @@ function sidebarRow(p) {
     row = document.createElement("div");
     row.className = "person";
     row.dataset.person = p.id;
-    row.innerHTML = `<input type="checkbox" data-id="${p.id}" aria-label="Select">
-      <img loading="lazy" alt="" title="Select"><span class="n" title="Click to rename" tabindex="0" role="button"></span><span class="c"></span>`;
+    row.innerHTML = `<input type="checkbox" data-id="${p.id}" aria-label="${t("Select")}">
+      <img loading="lazy" alt="" title="${t("Select")}"><span class="n" title="${t("Click to rename")}" tabindex="0" role="button"></span><span class="c"></span>`;
     sidebarRows.set(p.id, row);
   }
   const img = row.querySelector("img"), name = row.querySelector(".n");
   if (img.dataset.face !== String(p.face)) { img.dataset.face = p.face; img.src = `/face/${p.face}`; }
   name.textContent = personName(p);
   name.classList.toggle("unnamed", !p.name);
-  name.setAttribute("aria-label", `Rename ${personName(p)}`);
-  row.querySelector("input").setAttribute("aria-label", `Select ${personName(p)}`);
+  name.setAttribute("aria-label", t("Rename {name}", { name: personName(p) }));
+  row.querySelector("input").setAttribute("aria-label", t("Select {name}", { name: personName(p) }));
   row.querySelector(".c").textContent = p.count;
   row.querySelector("input").checked = state.people.has(p.id);
   return row;
@@ -76,7 +77,7 @@ function setAsideCollapsed(collapsed) {
   document.body.classList.toggle("aside-collapsed", collapsed);
   const b = $("#asideToggle");
   b.setAttribute("aria-expanded", String(!collapsed));
-  b.title = collapsed ? "Show the people column" : "Hide this column";
+  b.title = collapsed ? t("Show the people column") : t("Hide this column");
   pref.set("asideCollapsed", collapsed ? "1" : "");
 }
 const isPhone = () => matchMedia("(max-width: 639px)").matches;
@@ -129,7 +130,7 @@ export function updateRailCount() {
   const railCount = $("#railCount");
   railCount.hidden = !state.people.size;
   railCount.textContent = state.people.size;
-  railCount.title = `${state.people.size} ${state.people.size === 1 ? "person" : "people"} selected`;
+  railCount.title = tn(state.people.size, "{n} person selected", "{n} people selected");
 }
 export function renderPeopleList() {
   updateRailCount();
@@ -140,7 +141,7 @@ export function renderPeopleList() {
   $("#peopleFilter").hidden = visible.length <= 12;
   for (const b of $("#match").children) b.classList.toggle("on", b.dataset.m === state.match);
   if (!visible.length) {
-    list.innerHTML = `<div class="empty-side">No people yet. Faces are grouped automatically while the library is indexed.</div>`;
+    list.innerHTML = `<div class="empty-side">${t("No people yet. Faces are grouped automatically while the library is indexed.")}</div>`;
     return;
   }
   const matches = matchPeople($("#peopleFilter").value, visible);
@@ -148,8 +149,8 @@ export function renderPeopleList() {
   const shown = [...visible.filter(p => state.people.has(p.id)), ...rest.slice(0, SIDEBAR_LIMIT)];
   const hiddenCount = rest.length - SIDEBAR_LIMIT;
   const extra = document.createElement("div");
-  extra.innerHTML = (hiddenCount > 0 ? `<div class="more">${hiddenCount.toLocaleString()} more. Search to find them.</div>` : "") +
-    (!matches.length ? `<div class="empty-side">Nobody matches.</div>` : "");
+  extra.innerHTML = (hiddenCount > 0 ? `<div class="more">${t("{n} more. Search to find them.", { n: num(hiddenCount) })}</div>` : "") +
+    (!matches.length ? `<div class="empty-side">${t("Nobody matches.")}</div>` : "");
   const rows = shown.map(sidebarRow);
   // Only touch the list when its rows changed; moving existing rows keeps their pictures.
   const current = [...list.children];
@@ -184,8 +185,8 @@ function startSidebarRename(row) {
   const input = document.createElement("input");
   input.className = "rename";
   input.value = p.name || "";
-  input.placeholder = "Add a name";
-  input.setAttribute("aria-label", "Name");
+  input.placeholder = t("Add a name");
+  input.setAttribute("aria-label", t("Name"));
   label.hidden = true;
   label.after(input);
   sidebarEditing = true;

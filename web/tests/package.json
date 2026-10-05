@@ -9,7 +9,8 @@
   "scripts": {
     "test": "playwright test",
     "install-browser": "playwright install --with-deps chromium",
-    "check-scripts": "node script-order.mjs"
+    "check-scripts": "node script-order.mjs",
+    "check-strings": "node strings.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

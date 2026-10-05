@@ -33,7 +33,7 @@ dev *folders="fixtures/photos":
 lint:
     cargo fmt --all --check
     cargo clippy --locked --all-targets -- -D warnings
-    cd web/tests && npm ci --silent && npm run check-scripts
+    cd web/tests && npm ci --silent && npm run check-scripts && npm run check-strings
 
 # Format the code
 fmt:

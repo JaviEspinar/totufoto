@@ -1,6 +1,7 @@
 // The Photos and Upcoming views: the justified grid, group cards, and progressive loading.
 // One of the page's modules; main.js starts the page.
-import { $, MONTHS, api, dateLabel, esc, fmtDate, fmtDay, personById, personName, photoQuery, placeById, placeLabel, plural, regionName, state } from "./core.js";
+import { lang, num, t, tn } from "./i18n.js";
+import { $, api, dateLabel, esc, fmtDate, fmtDay, fmtMonth, personById, personName, photoQuery, placeById, placeLabel, plural, regionName, state } from "./core.js";
 import { renderPeopleList } from "./sidebar.js";
 import { toast } from "./people.js";
 import { currentJob, render, syncRangeInputs } from "./views.js";
@@ -12,11 +13,11 @@ import { firstIndexHtml, lastStatus } from "./status.js";
 const photoRow = ([id, width, height, taken, place, version]) => ({ id, width, height, taken, place, version });
 
 function groupKey(p, mode = state.groupBy) {
-  const t = p.taken;
+  const taken = p.taken;
   switch (mode) {
-    case "day": return t.slice(0, 10);
-    case "month": return t.slice(0, 7);
-    case "year": return t.slice(0, 4);
+    case "day": return taken.slice(0, 10);
+    case "month": return taken.slice(0, 7);
+    case "year": return taken.slice(0, 4);
     case "place": return "p" + (p.place ?? "");
     default: return "";
   }
@@ -24,9 +25,9 @@ function groupKey(p, mode = state.groupBy) {
 function groupTitle(key, sample, mode = state.groupBy) {
   switch (mode) {
     case "day": return fmtDay(key);
-    case "month": return `${MONTHS[+key.slice(5, 7) - 1]} ${key.slice(0, 4)}`;
+    case "month": return fmtMonth(key);
     case "year": return key;
-    case "place": return sample.place == null ? "No location" : placeLabel(sample.place);
+    case "place": return sample.place == null ? t("No location") : placeLabel(sample.place);
     default: return "";
   }
 }
@@ -157,25 +158,25 @@ function renderGroups(container, groups, headerFn, subFn) {
 }
 
 function rangeLabel() {
-  if (state.from && state.to) return `${fmtDate(state.from)} to ${fmtDate(state.to)}`;
-  return state.from ? `Since ${fmtDate(state.from)}` : `Until ${fmtDate(state.to)}`;
+  if (state.from && state.to) return t("{from} to {to}", { from: fmtDate(state.from), to: fmtDate(state.to) });
+  return state.from ? t("Since {date}", { date: fmtDate(state.from) }) : t("Until {date}", { date: fmtDate(state.to) });
 }
 /** Chips for the active filters. */
 function filterChips() {
   const chip = (label, key, person = "") =>
     `<span class="chip"${person ? ` data-person-chip="${person}"` : ""}><span class="label">${esc(label)}</span>` +
-    `<button data-clear="${key}" title="Remove filter" aria-label="Remove ${esc(label)}">×</button></span>`;
+    `<button data-clear="${key}" title="${t("Remove filter")}" aria-label="${t("Remove {name}", { name: esc(label) })}">×</button></span>`;
   const selected = [...state.people].map(id => personById(id)).filter(Boolean);
   const parts = [];
   // How the people combine, when it matters.
   if (selected.length > 1 || (selected.length && state.match === "only"))
-    parts.push(`<span class="chip-mode">${{ all: "Together:", any: "Any of:", only: "Only:" }[state.match]}</span>`);
+    parts.push(`<span class="chip-mode">${{ all: t("Together:"), any: t("Any of:"), only: t("Only:") }[state.match]}</span>`);
   for (const p of selected) parts.push(chip(personName(p), `person:${p.id}`, p.id));
   let count = selected.length;
   if (state.place != null) { parts.push(chip(placeLabel(state.place), "place")); count++; }
   if (state.date) { parts.push(chip(dateLabel(state.date), "date")); count++; }
   if (state.from || state.to) { parts.push(chip(rangeLabel(), "range")); count++; }
-  if (count) parts.push(`<button class="clear-all" data-clear="all">Clear all</button>`);
+  if (count) parts.push(`<button class="clear-all" data-clear="all">${t("Clear all")}</button>`);
   return `<div class="filters">${parts.join("")}</div>`;
 }
 export function onChipClick(e) {
@@ -200,7 +201,7 @@ export function onePhotoLess() { shownPhotoCount = Math.max(0, shownPhotoCount -
 export async function renderPhotos(main, job) {
   indexedAtRender = lastStatus?.running ? lastStatus.done : 0;
   const shape = photosShape();
-  const load = beginViewLoad(main, "photos", filterChips() + `<div class="count">Loading photos…</div>`,
+  const load = beginViewLoad(main, "photos", filterChips() + `<div class="count">${t("Loading photos…")}</div>`,
     shape.cards ? cardPlaceholders : photoPlaceholders, job);
   // Grouped photos show as cards: the server sends one line per group, not every photo.
   // Only an opened group loads its photos.
@@ -211,13 +212,15 @@ export async function renderPhotos(main, job) {
   photos = (data.photos ?? []).map(photoRow);
   shownPhotoCount = data.total ?? photos.length;
   load.finish();
-  load.head.querySelector(".count").textContent = `${shownPhotoCount.toLocaleString()} photos`;
+  const count = load.head.querySelector(".count");
+  count.textContent = plural(shownPhotoCount, "photo");
+  count.dataset.photos = ""; // a plain photo count, which removing a photo updates
   if (!shownPhotoCount) {
     const filtered = state.people.size || state.place != null || state.date || state.from || state.to;
     if (!filtered && !folderInfo.folders.length) {
-      main.innerHTML = `<div class="welcome"><h2>Welcome to Imadive</h2>
-        <p>Add a folder with photos. It is indexed in the background, and subfolders are included.</p>
-        <button class="btn primary" id="welcomeAdd">Add folder…</button></div>`;
+      main.innerHTML = `<div class="welcome"><h2>${t("Welcome to Imadive")}</h2>
+        <p>${t("Add a folder with photos. It is indexed in the background, and subfolders are included.")}</p>
+        <button class="btn primary" id="welcomeAdd">${t("Add folder…")}</button></div>`;
       $("#welcomeAdd").onclick = () => (folderInfo.desktop ? addFolder(null) : browseForFolder())
         .then(ok => ok && render()).catch(err => toast(err.message, true));
       return;
@@ -228,15 +231,16 @@ export async function renderPhotos(main, job) {
       $("#indexPill").hidden = true;
       return;
     }
-    const msg = filtered ? "No photos match these filters." : "No photos yet. They appear here while the folders are indexed.";
+    const msg = filtered ? t("No photos match these filters.") : t("No photos yet. They appear here while the folders are indexed.");
     load.area.innerHTML = `<div class="blank">${msg}</div>`;
     return;
   }
   if (shape.cards) {
     const groups = data.groups;
-    const unit = { year: "year", month: "month", day: "day", place: "place" }[shape.cards];
-    load.head.querySelector(".count").textContent =
-      `${plural(groups.length, unit)}, ${shownPhotoCount.toLocaleString()} photos`;
+    const n = groups.length;
+    const groupCount = { year: () => plural(n, "year"), month: () => plural(n, "month"), day: () => plural(n, "day"), place: () => plural(n, "place") }[shape.cards]();
+    delete count.dataset.photos;
+    count.textContent = `${groupCount}, ${plural(shownPhotoCount, "photo")}`;
     renderGroupCards(load.area, groups, shape.cards);
     return;
   }
@@ -271,7 +275,7 @@ let cardsReturn = null; // { key, scroll } of the cards view left by opening a g
 export function rememberCards() { cardsReturn = { key: cardsViewKey(), scroll: $("#main").scrollTop }; }
 /** Cards from the server's group summaries: `{ key, count, cover }` per group. */
 function renderGroupCards(container, groups, mode) {
-  const title = key => mode === "place" ? (key === 0 ? "No location" : placeById.get(key)?.city ?? "Unknown place")
+  const title = key => mode === "place" ? (key === 0 ? t("No location") : placeById.get(key)?.city ?? t("Unknown place"))
     : groupTitle(key, null, mode);
   const card = g => {
     const place = mode === "place" && g.key !== 0 ? placeById.get(g.key) : null;
@@ -307,9 +311,9 @@ function renderGroupCards(container, groups, mode) {
 }
 
 export async function renderUpcoming(main, job) {
-  const opts = [7, 14, 30, 60, 90].map(d => `<button data-d="${d}" class="${d === state.upcoming ? "on" : ""}">${d} days</button>`).join("");
+  const opts = [7, 14, 30, 60, 90].map(d => `<button data-d="${d}" class="${d === state.upcoming ? "on" : ""}">${t("{n} days", { n: d })}</button>`).join("");
   const load = beginViewLoad(main, "upcoming",
-    `<div class="upbar">Memories from past years for the next <div class="seg" id="days">${opts}</div></div>` + filterChips(),
+    `<div class="upbar">${t("Memories from past years for the next")} <div class="seg" id="days">${opts}</div></div>` + filterChips(),
     photoPlaceholders, job);
   $("#days").addEventListener("click", e => { if (e.target.dataset.d) { state.upcoming = +e.target.dataset.d; render(); } });
   const data = await api(photoQuery({ upcoming: state.upcoming }), { signal: job.signal });
@@ -319,20 +323,20 @@ export async function renderUpcoming(main, job) {
   // Upcoming days first (today, tomorrow...), and within a day the most recent year first.
   photos = data.photos.map(photoRow).sort((a, b) =>
     order.get(a.taken.slice(5, 10)) - order.get(b.taken.slice(5, 10)) || b.taken.localeCompare(a.taken));
-  if (!photos.length) { load.area.innerHTML = `<div class="blank">No photos were taken on these dates in previous years.</div>`; return; }
+  if (!photos.length) { load.area.innerHTML = `<div class="blank">${t("No photos were taken on these dates in previous years.")}</div>`; return; }
   const thisYear = new Date().getFullYear();
   const groups = groupPhotos(photos, p => p.taken.slice(5, 10));
   const header = g => {
     const idx = order.get(g.key);
     const [m, d] = g.key.split("-").map(Number);
-    const label = new Date(thisYear, m - 1, d).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
-    const when = idx === 0 ? "Today" : idx === 1 ? "Tomorrow" : `In ${idx} days`;
+    const label = new Date(thisYear, m - 1, d).toLocaleDateString(lang, { weekday: "long", month: "long", day: "numeric" });
+    const when = idx === 0 ? t("Today") : idx === 1 ? t("Tomorrow") : t("In {n} days", { n: idx });
     return `<h2>${when} · ${esc(label)}<small>${g.items.length}</small></h2>`;
   };
   const sub = (p, prev) => {
     if (prev && prev.taken.slice(0, 4) === p.taken.slice(0, 4)) return null;
     const y = +p.taken.slice(0, 4), ago = thisYear - y;
-    return `${plural(ago, "year")} ago · ${y}`;
+    return `${tn(ago, "{n} year ago", "{n} years ago")} · ${y}`;
   };
   renderGroups(load.area, groups, header, sub);
 }

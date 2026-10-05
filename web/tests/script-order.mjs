@@ -34,6 +34,12 @@ function load(name) {
       for (const s of st.specifiers) m.imports.set(s.local.name, { from, name: s.imported?.name ?? "default" });
       continue;
     }
+    if (st.type === "ExportDefaultDeclaration") {
+      // `export default <value>`: set when the module runs, like a const.
+      const fn = /Function/.test(st.declaration.type) ? st.declaration : null;
+      m.decls.set("default", { kind: fn?.type === "FunctionDeclaration" ? "function" : "const", line: st.loc.start.line, fn });
+      continue;
+    }
     if (st.type === "ExportNamedDeclaration" && st.declaration) st = st.declaration;
     const line = st.loc.start.line;
     if (st.type === "FunctionDeclaration") m.decls.set(st.id.name, { kind: "function", line, fn: st });
@@ -116,6 +122,7 @@ for (const f of files) if (!modules.has(f)) report(`web/js/${f}.js is not import
 for (const name of order) {
   for (let st of modules.get(name).ast.body) {
     if (st.type === "ImportDeclaration") continue;
+    if (st.type === "ExportDefaultDeclaration") st = st.declaration;
     if (st.type === "ExportNamedDeclaration" && st.declaration) st = st.declaration;
     if (st.type === "FunctionDeclaration") continue;
     const line = st.loc.start.line;

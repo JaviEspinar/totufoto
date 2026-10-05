@@ -1,5 +1,6 @@
 // The scan status: polling it, and the progress shown outside Settings.
 // One of the page's modules; main.js starts the page.
+import { num, t, tn } from "./i18n.js";
 import { $, api, esc, loadMeta, state } from "./core.js";
 import { indexedAtRender, shownPhotoCount } from "./photos.js";
 import { toast } from "./people.js";
@@ -21,27 +22,27 @@ function indexWork(s) {
   if (s?.removing) {
     const name = s.removing.split(/[\\/]/).filter(Boolean).pop() || s.removing;
     return s.remove_total
-      ? { title: `Removing ${s.remove_done.toLocaleString()} of ${s.remove_total.toLocaleString()} photos`, detail: `Folder ${name}`, done: s.remove_done, total: s.remove_total }
-      : { title: "Removing a folder…", detail: `Folder ${name}` };
+      ? { title: t("Removing {done} of {total} photos", { done: num(s.remove_done), total: num(s.remove_total) }), detail: t("Folder {name}", { name }), done: s.remove_done, total: s.remove_total }
+      : { title: t("Removing a folder…"), detail: t("Folder {name}", { name }) };
   }
   if (!s?.running) return null;
   if (s.phase === "indexing photos" && s.total > 0) {
-    return { title: `Indexing ${s.done.toLocaleString()} of ${s.total.toLocaleString()} photos`,
-      detail: s.faces ? `${s.faces.toLocaleString()} faces found` : "Reading photos, making thumbnails, finding faces",
+    return { title: t("Indexing {done} of {total} photos", { done: num(s.done), total: num(s.total) }),
+      detail: s.faces ? tn(s.faces, "{n} face found", "{n} faces found") : t("Reading photos, making thumbnails, finding faces"),
       done: s.done, total: s.total };
   }
   if (s.phase === "grouping faces" && s.group_total > 0) {
-    return { title: `Grouping faces ${Math.min(100, Math.floor((100 * s.group_done) / s.group_total))}%`,
-      detail: "Placing faces into people", done: s.group_done, total: s.group_total };
+    return { title: t("Grouping faces {pct}%", { pct: Math.min(100, Math.floor((100 * s.group_done) / s.group_total)) }),
+      detail: t("Placing faces into people"), done: s.group_done, total: s.group_total };
   }
   // Listing the files of a large library takes a while: say so when nothing is shown yet.
-  if (s.phase === "listing files" && !shownPhotoCount) return { title: "Looking for photos…", detail: "Listing the files in your folders" };
+  if (s.phase === "listing files" && !shownPhotoCount) return { title: t("Looking for photos…"), detail: t("Listing the files in your folders") };
   return null;
 }
 export function firstIndexHtml(s) {
-  const w = indexWork(s) ?? { title: "Getting ready…", detail: "" };
-  return `<h2>Indexing your photos</h2>
-    <p>Photos appear here as they are indexed. You can close the app; it continues where it left off.</p>
+  const w = indexWork(s) ?? { title: t("Getting ready…"), detail: "" };
+  return `<h2>${t("Indexing your photos")}</h2>
+    <p>${t("Photos appear here as they are indexed. You can close the app; it continues where it left off.")}</p>
     <progress ${w.total ? `max="${w.total}" value="${w.done}"` : ""}></progress>
     <div class="n">${esc(w.title)}${w.detail ? ` · ${esc(w.detail)}` : ""}</div>`;
 }
@@ -62,12 +63,12 @@ export function updateIndexPill(s) {
     const fresh = s.phase === "indexing photos" ? s.done - Math.min(indexedAtRender, s.done) : 0;
     const more = $("[data-pill-new]", pill);
     more.hidden = !(fresh > 0 && shownPhotoCount > 0 && state.view === "photos");
-    more.textContent = `Show ${fresh.toLocaleString()} new`;
+    more.textContent = t("Show {n} new", { n: num(fresh) });
   } else if (pillWasBusy && !s.running && !s.removing) {
     pillWasBusy = false;
     if (pill.hidden) return;
     pill.classList.add("done");
-    $(".t b", pill).textContent = "Your library is up to date";
+    $(".t b", pill).textContent = t("Your library is up to date");
     $(".t small", pill).textContent = "";
     $("[data-pill-new]", pill).hidden = true;
     pillDoneTimer = setTimeout(() => { pill.hidden = true; }, 4000);
@@ -88,10 +89,10 @@ export async function pollStatus() {
   let s;
   try { s = await api("/api/status"); } catch {
     // Otherwise the page just stops changing when the program is closed or the network drops.
-    if (++pollFailures === 3) toast("Can't reach Imadive. Is it still running?", true);
+    if (++pollFailures === 3) toast(t("Can't reach Imadive. Is it still running?"), true);
     return setTimeout(pollStatus, 5000);
   }
-  if (pollFailures >= 3) toast("Connected to Imadive again");
+  if (pollFailures >= 3) toast(t("Connected to Imadive again"));
   pollFailures = 0;
   const wasRemoving = lastStatus?.removing ?? null;
   lastStatus = s;

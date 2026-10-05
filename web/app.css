@@ -6,8 +6,18 @@
   --row: 200px; --gap: 4px;
   color-scheme: light;
 }
+/* Dark: chosen in Settings (data-theme="dark" on <html>), or the system's when Settings says
+   System (no data-theme). The two blocks below are the same; keep them in step. */
+:root[data-theme="dark"] {
+  --bg: #121211; --panel: #1b1b1a; --ink: #edebe6; --muted: #9a968e; --line: #2c2b29;
+  --accent: #6b9cff; --accent-ink: #0d0d0c; --chip: #262523; --hover: #232321;
+  /* lighter than in the light scheme, so small red text stays readable on the dark panel */
+  --danger: #f08a5d; --danger-ink: #121211;
+  --brand-ink: var(--ink);
+  color-scheme: dark;
+}
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #121211; --panel: #1b1b1a; --ink: #edebe6; --muted: #9a968e; --line: #2c2b29;
     --accent: #6b9cff; --accent-ink: #0d0d0c; --chip: #262523; --hover: #232321;
     /* lighter than in the light scheme, so small red text stays readable on the dark panel */
@@ -59,6 +69,7 @@ nav button.on, .seg button.on { background: var(--chip); color: var(--ink); font
 .chip { max-width: 100%; }
 .chip .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tools { display: flex; align-items: center; gap: 10px; color: var(--muted); }
+.tools label { white-space: nowrap; } /* a label stays next to its field, whatever its language */
 .tools select { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; }
 .range { display: flex; align-items: center; gap: 6px; }
 .compact-only { display: none; }
@@ -189,9 +200,11 @@ body.no-aside aside { display: none; }
 .dup-file.remove .tag { background: #fde8e4; color: #b42318; }
 .dup-file .p { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 .dup-file .when { flex: none; color: var(--muted); font-size: 12px; }
+:root[data-theme="dark"] .dup-file.keep .tag { background: #173d24; color: #8fdca4; }
+:root[data-theme="dark"] .dup-file.remove .tag { background: #4a1d17; color: #f4a99c; }
 @media (prefers-color-scheme: dark) {
-  .dup-file.keep .tag { background: #173d24; color: #8fdca4; }
-  .dup-file.remove .tag { background: #4a1d17; color: #f4a99c; }
+  :root:not([data-theme="light"]) .dup-file.keep .tag { background: #173d24; color: #8fdca4; }
+  :root:not([data-theme="light"]) .dup-file.remove .tag { background: #4a1d17; color: #f4a99c; }
 }
 @media (max-width: 639px) { .dup-file .when { display: none; } .dup-group img { width: 56px; height: 56px; } }
 .delete-what { display: flex; align-items: center; gap: 12px; margin: 4px 0 12px; }
@@ -478,6 +491,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 .folder.removing { flex-wrap: wrap; }
 .folder .remove-progress { flex: 1 1 180px; font-size: 12px; color: var(--muted); }
 .folder .remove-progress progress { width: 100%; height: 8px; margin-top: 4px; accent-color: var(--accent); }
+.prefs { display: flex; flex-wrap: wrap; gap: 10px 24px; margin: 6px 0 4px; }
+.prefs label { display: flex; align-items: center; gap: 8px; }
 .about p { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
 .about b { color: var(--ink); }
 .about a { color: var(--accent); }
@@ -500,7 +515,7 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 .welcome p { color: var(--muted); margin: 0 0 20px; }
 
 /* ---- Tablets and narrow windows: dates, grouping and order move into a panel ---------- */
-@media (max-width: 1099px) {
+@media (max-width: 1299px) {
   #viewBtn { display: inline-flex; }
   body.no-aside #viewBtn { display: none; }
   .tools {

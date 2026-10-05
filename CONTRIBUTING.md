@@ -35,6 +35,7 @@ CI runs the same checks, the tests on Linux, macOS and Windows, a build with the
 
 - **Rust**: `cargo fmt` formats the code (`rustfmt.toml`); clippy must be clean.
 - **Web UI**: plain HTML, CSS and JavaScript in `web/`, with no build step and no dependencies; keep it that way. The script is split by area into ES modules in `web/js/` (see [How it works](docs/architecture.md#the-page-web)). Match the style of the code around your change. For a change visible in the page, a browser test in `web/tests` helps, and a screenshot in the pull request helps more.
+- **Text in the page**: write it in English inside `t("...")` (or `tn(n, "{n} photo", "{n} photos")` for counts), with `{name}` placeholders for the parts that vary, and add the translation to each `web/js/i18n_*.js`. `just lint` (and CI) list any text without one. A new language is a new `i18n_xx.js` with every text (`node web/tests/strings.mjs --list` prints them), added to `languages` in `web/js/i18n.js` and to `SCRIPTS` in `src/http/mod.rs`.
 - **Tests**: a fix comes with a test that fails without it when that is practical. `src/testutil.rs` makes temporary libraries with real JPEG files and EXIF data, so most of the gallery can be tested without face models.
 - **Anything that deletes or changes photo files** needs a test, and must only touch files inside the photo folders.
 - **The index**: new columns go through the migrations in `src/db/mod.rs`, and an index made by an older version must keep working.

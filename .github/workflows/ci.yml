@@ -119,6 +119,8 @@ jobs:
       # The page's modules parse, are all reached from main.js, and use nothing at startup
       # before it is set.
       - run: npm run check-scripts
+      # Every text the page shows has a translation in each language, with the same placeholders.
+      - run: npm run check-strings
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test
       - name: Keep the traces of failed tests

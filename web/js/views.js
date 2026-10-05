@@ -1,5 +1,6 @@
 // render(): one job per view; and the clicks in the main area.
 // One of the page's modules; main.js starts the page.
+import { t } from "./i18n.js";
 import { $, esc, saveHash, state } from "./core.js";
 import { renderPeopleList, setDrawer, updateRailCount } from "./sidebar.js";
 import { onChipClick, photos, rememberCards, renderPhotos, renderUpcoming } from "./photos.js";
@@ -40,8 +41,8 @@ export async function render() {
     else await renderPeople(main, job);
   } catch (err) {
     if (err.name === "AbortError" || !job.alive()) return;
-    main.innerHTML = `<div class="blank">Something went wrong: ${esc(err.message)}
-      <p><button class="btn" data-rerender>Try again</button></p></div>`;
+    main.innerHTML = `<div class="blank">${t("Something went wrong: {error}", { error: esc(err.message) })}
+      <p><button class="btn" data-rerender>${t("Try again")}</button></p></div>`;
   }
 }
 
@@ -49,8 +50,8 @@ export async function render() {
 $("#main").addEventListener("click", e => {
   if (e.target.closest("[data-rerender]")) return render();
   if (e.target.dataset.clear) return onChipClick(e);
-  const t = e.target.closest(".tile");
-  if (t) { e.preventDefault(); return openViewer(photos.findIndex(p => p.id === +t.dataset.id)); }
+  const tile = e.target.closest(".tile");
+  if (tile) { e.preventDefault(); return openViewer(photos.findIndex(p => p.id === +tile.dataset.id)); }
   const group = e.target.closest("[data-group]");
   if (group) {
     rememberCards();

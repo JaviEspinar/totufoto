@@ -1,5 +1,6 @@
 // The Back button, and startup. The page's entry point: the modules it imports (and
 // theirs) run first, so everything it starts is ready.
+import { t } from "./i18n.js";
 import { loadHash, loadMeta, saveHash, state } from "./core.js";
 import { renderPeopleList, setDrawer, setViewPanel } from "./sidebar.js";
 import { render, syncRangeInputs } from "./views.js";
@@ -32,9 +33,9 @@ addEventListener("popstate", async e => {
   const undone = await undoOneStep();
   // The desktop app has no page to go back to (a mouse's back button, say).
   if (undone || folderInfo.desktop) return pushAppEntry();
-  const choice = await askChoice(`<p>Close the gallery and go back to the previous page?</p>
-    <div class="dlg-actions"><button class="btn" data-choice="cancel">Stay</button><button class="btn primary" data-choice="leave">Leave</button></div>`,
-    "Leave Imadive?");
+  const choice = await askChoice(`<p>${t("Close the gallery and go back to the previous page?")}</p>
+    <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Stay")}</button><button class="btn primary" data-choice="leave">${t("Leave")}</button></div>`,
+    t("Leave Imadive?"));
   if (choice !== "leave") return pushAppEntry();
   leaving = true;
   history.back();

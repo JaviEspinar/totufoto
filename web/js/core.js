@@ -1,5 +1,8 @@
 // Shared helpers, the view state and the address it lives in, and loading people and places.
 // One of the page's modules; main.js starts the page.
+import { lang, t, tn, translateMessage, translatePage } from "./i18n.js";
+
+translatePage();
 
 // Elements that act as buttons without being <button>s (names to rename, faces to open)
 // answer Enter and Space like buttons do.
@@ -20,8 +23,9 @@ export const $ = (s, el = document) => el.querySelector(s);
 /** An icon from the page's sprite (index.html); `mirrored` flips it left to right. */
 export const icon = (name, size = 15, mirrored = false) =>
   `<svg class="icon" viewBox="0 0 24 24" width="${size}" height="${size}" aria-hidden="true"><use href="#i-${name}"${mirrored ? ' transform="matrix(-1 0 0 1 24 0)"' : ""}/></svg>`;
-/** "1 photo", "2,345 photos". */
-export const plural = (n, word) => `${n.toLocaleString()} ${word}${n === 1 ? "" : "s"}`;
+/** "1 photo", "2,345 photos", in the page's language: the dictionary has "{n} photo" and
+ *  "{n} photos" (web/tests/strings.mjs checks every word used here has both). */
+export const plural = (n, word) => tn(n, `{n} ${word}`, `{n} ${word}s`);
 /** Preferences remembered in this browser (`imadive.<key>`). Storage may be unavailable
  *  (private windows, blocked cookies): then nothing is remembered. */
 export const pref = {
@@ -30,17 +34,18 @@ export const pref = {
 };
 export const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 export const regionName = (() => {
-  try { const d = new Intl.DisplayNames([navigator.language], { type: "region" }); return cc => { try { return d.of(cc); } catch { return cc; } }; }
+  try { const d = new Intl.DisplayNames([lang], { type: "region" }); return cc => { try { return d.of(cc); } catch { return cc; } }; }
   catch { return cc => cc; }
 })();
-export const MONTHS = Array.from({ length: 12 }, (_, i) => new Date(2000, i, 1).toLocaleString(undefined, { month: "long" }));
 /** The local day of "YYYY-MM-DD..." (capture times are local, without a time zone). */
 const parseDay = t => new Date(+t.slice(0, 4), +t.slice(5, 7) - 1, +t.slice(8, 10));
 /** "Thu, December 26, 2024" */
-export const fmtDay = t => parseDay(t).toLocaleDateString(undefined, { weekday: "short", year: "numeric", month: "long", day: "numeric" });
+export const fmtDay = d => parseDay(d).toLocaleDateString(lang, { weekday: "short", year: "numeric", month: "long", day: "numeric" });
 /** "Dec 26, 2024" */
-export const fmtDate = t => parseDay(t).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
-export const fmtFull = t => fmtDay(t) + " · " + t.slice(11, 16);
+export const fmtDate = d => parseDay(d).toLocaleDateString(lang, { day: "numeric", month: "short", year: "numeric" });
+export const fmtFull = d => fmtDay(d) + " · " + d.slice(11, 16);
+/** "October 2024" (or "octubre de 2024") for "2024-10". */
+export const fmtMonth = d => new Date(+d.slice(0, 4), +d.slice(5, 7) - 1, 1).toLocaleDateString(lang, { month: "long", year: "numeric" });
 
 export const state = {
   view: "photos", sort: "desc", groupBy: "month", match: "all",
@@ -105,7 +110,7 @@ export const api = async (url, opts) => {
     const text = await r.text();
     let body = null;
     try { body = JSON.parse(text); } catch {}
-    throw new ApiError(r.status, body?.error || text || String(r.status), body);
+    throw new ApiError(r.status, translateMessage(body?.error || text || String(r.status)), body);
   }
   return r.status === 204 || r.status === 202 ? null : r.json();
 };
@@ -148,14 +153,14 @@ export async function loadMeta() {
  *  were added). This file uses nothing from the others, so it can run first. */
 const afterPeopleLoad = [];
 export const onPeopleLoaded = fn => afterPeopleLoad.push(fn);
-export const personName = p => p.name || `Unnamed #${p.id}`;
+export const personName = p => p.name || t("Unnamed #{id}", { id: p.id });
 export const placeLabel = id => {
-  if (id === 0) return "No location";
+  if (id === 0) return t("No location");
   const p = placeById.get(id);
-  return p ? `${p.city}, ${regionName(p.country)}` : "Unknown place";
+  return p ? `${p.city}, ${regionName(p.country)}` : t("Unknown place");
 };
 /** "2024", "October 2024" or a full day, for a YYYY / YYYY-MM / YYYY-MM-DD date filter. */
-export const dateLabel = d => d.length === 4 ? d : d.length === 7 ? `${MONTHS[+d.slice(5, 7) - 1]} ${d.slice(0, 4)}` : fmtDay(d);
+export const dateLabel = d => d.length === 4 ? d : d.length === 7 ? fmtMonth(d) : fmtDay(d);
 
 export function photoQuery(extra = {}) {
   const q = new URLSearchParams({ sort: state.sort, ...extra });
