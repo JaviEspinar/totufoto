@@ -33,6 +33,22 @@ pub fn list_people(conn: &Connection) -> Result<Vec<PersonSummary>> {
         .collect::<Result<_, _>>()?)
 }
 
+/// One person as `list_people` gives them, if they have a face.
+pub fn person(conn: &Connection, id: i64) -> Result<Option<PersonSummary>> {
+    Ok(conn
+        .prepare_cached(
+            "SELECT p.id, p.name, p.hidden, COUNT(DISTINCT f.photo_id),
+                    COALESCE((SELECT id FROM faces WHERE id = p.cover_face AND person_id = p.id),
+                             (SELECT id FROM faces WHERE person_id = p.id ORDER BY score DESC LIMIT 1))
+             FROM persons p JOIN faces f ON f.person_id = p.id
+             WHERE p.id = ? GROUP BY p.id",
+        )?
+        .query_row([id], |r| {
+            Ok(PersonSummary { id: r.get(0)?, name: r.get(1)?, hidden: r.get(2)?, count: r.get(3)?, face: r.get(4)? })
+        })
+        .optional()?)
+}
+
 pub fn set_hidden(conn: &Connection, person: i64, hidden: bool) -> Result<()> {
     conn.execute("UPDATE persons SET hidden = ? WHERE id = ?", params![hidden, person])?;
     Ok(())

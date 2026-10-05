@@ -1,6 +1,7 @@
 // The Optimization view: identical files and deleting the copies.
 // One of the page's modules; main.js starts the page.
 import { $, api, esc, loadMeta, plural, post, state } from "./core.js";
+import { thumbUrl } from "./photos.js";
 import { toast } from "./people.js";
 import { render } from "./views.js";
 import { askChoice } from "./viewer.js";
@@ -67,7 +68,7 @@ export async function renderOptimization(main, job) {
   const more = () => {
     list.querySelector(".dup-more")?.remove();
     list.insertAdjacentHTML("beforeend", report.groups.slice(shown, shown + DUP_BATCH).map(g => `
-      <div class="dup-group"><img src="/thumb/${g.keep.id}" loading="lazy" alt="">
+      <div class="dup-group"><img src="${thumbUrl(g.keep.id, g.keep.version)}" loading="lazy" alt="">
         <div class="files">${file(g.keep, "keep")}${g.remove.map(f => file(f, "remove")).join("")}</div></div>`).join(""));
     shown += DUP_BATCH;
     if (shown < report.groups.length)

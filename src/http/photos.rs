@@ -48,7 +48,7 @@ pub(super) async fn check_photo(State(s): State<Shared>, Path(id): Path<i64>) ->
 }
 
 #[derive(Deserialize)]
-pub(super) struct RemoveBody {
+pub(super) struct RemoveQuery {
     /// "gallery": out of the gallery, the file stays; "disk": the file goes to the bin
     from: String,
     /// with "disk": delete for good when there is no bin to move the file to
@@ -63,7 +63,7 @@ pub(super) struct RemoveBody {
 pub(super) async fn remove_photo(
     State(s): State<Shared>,
     Path(id): Path<i64>,
-    Json(body): Json<RemoveBody>,
+    Query(body): Query<RemoveQuery>,
 ) -> ApiResult<Response> {
     use library::RemovePhoto;
     let from = match body.from.as_str() {
@@ -120,9 +120,13 @@ pub(super) fn jpeg(bytes: Vec<u8>, cache: &'static str) -> Response {
     ([(header::CONTENT_TYPE, "image/jpeg"), (header::CACHE_CONTROL, cache)], bytes).into_response()
 }
 
-pub(super) async fn thumb(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
+/// A photo's thumbnail at `/thumb/{id}/{version}`. The version in the address is what makes
+/// it safe to keep for good: a new version (the photo was rotated, or its file changed) has
+/// a new address. An address with another version gets the current picture, but not to keep.
+pub(super) async fn thumb(State(s): State<Shared>, Path((id, version)): Path<(i64, i64)>) -> ApiResult<Response> {
     let data = db(&s, move |conn| photos::thumbnail(conn, id)).await?;
-    data.map(|d| jpeg(d, IMMUTABLE)).ok_or_else(|| ApiError::not_found("picture"))
+    let (bytes, current) = data.ok_or_else(|| ApiError::not_found("picture"))?;
+    Ok(jpeg(bytes, if current == version { IMMUTABLE } else { "no-cache" }))
 }
 
 pub(super) async fn face_thumb(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {

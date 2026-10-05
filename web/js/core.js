@@ -121,9 +121,17 @@ export function photoDetail(id, version) {
   }
   return details.get(key);
 }
-export const post = (url, body) => {
+/** A request that changes something (POST, PATCH, DELETE), with a JSON body. */
+const send = (method, url, body) => {
   details.clear();
-  return api(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+  return api(url, { method, headers: { "content-type": "application/json" }, body: JSON.stringify(body ?? {}) });
+};
+export const post = (url, body) => send("POST", url, body);
+export const patch = (url, body) => send("PATCH", url, body);
+/** DELETE: what to delete goes in the address (`params`), not in a body. */
+export const del = (url, params) => {
+  details.clear();
+  return api(params ? `${url}?${new URLSearchParams(params)}` : url, { method: "DELETE" });
 };
 
 export async function loadMeta() {

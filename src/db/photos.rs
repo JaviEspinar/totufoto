@@ -246,10 +246,13 @@ pub fn photo_path(conn: &Connection, id: i64) -> Result<Option<String>> {
 }
 
 /// A photo's thumbnail (JPEG).
-pub fn thumbnail(conn: &Connection, photo: i64) -> Result<Option<Vec<u8>>> {
+/// A photo's thumbnail (JPEG) and the photo's current version.
+pub fn thumbnail(conn: &Connection, photo: i64) -> Result<Option<(Vec<u8>, i64)>> {
     Ok(conn
-        .prepare_cached("SELECT data FROM thumbs WHERE photo_id = ?")?
-        .query_row([photo], |r| r.get(0))
+        .prepare_cached(
+            "SELECT t.data, p.version FROM thumbs t JOIN photos p ON p.id = t.photo_id WHERE t.photo_id = ?",
+        )?
+        .query_row([photo], |r| Ok((r.get(0)?, r.get(1)?)))
         .optional()?)
 }
 

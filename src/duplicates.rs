@@ -129,6 +129,8 @@ pub struct DupFile {
     /// file modification time, unix seconds
     pub mtime: i64,
     pub size: i64,
+    /// for the thumbnail's address (`/thumb/{id}/{version}`)
+    pub version: i64,
 }
 
 #[derive(Serialize)]
@@ -142,13 +144,16 @@ pub struct DupGroup {
 pub fn report(conn: &Connection) -> Result<Vec<DupGroup>> {
     let rows: Vec<(String, DupFile)> = conn
         .prepare(
-            "SELECT content_hash, id, path, mtime, size FROM photos
+            "SELECT content_hash, id, path, mtime, size, version FROM photos
              WHERE content_hash IN (SELECT content_hash FROM photos WHERE content_hash IS NOT NULL
                                     GROUP BY content_hash HAVING COUNT(*) > 1)
              ORDER BY content_hash, mtime, path",
         )?
         .query_map([], |r| {
-            Ok((r.get(0)?, DupFile { id: r.get(1)?, path: r.get(2)?, mtime: r.get(3)?, size: r.get(4)? }))
+            Ok((
+                r.get(0)?,
+                DupFile { id: r.get(1)?, path: r.get(2)?, mtime: r.get(3)?, size: r.get(4)?, version: r.get(5)? },
+            ))
         })?
         .collect::<Result<_, _>>()?;
     let mut by_hash: Vec<(String, Vec<DupFile>)> = Vec::new();

@@ -31,23 +31,24 @@ mod serde_with_null {
     }
 }
 
+/// Renames or hides a person, and answers with them as they are now. Names are kept unique,
+/// so the name saved may have a number added ("Ana (1)").
 pub(super) async fn update_person(
     State(s): State<Shared>,
     Path(id): Path<i64>,
     Json(body): Json<PersonUpdate>,
-) -> ApiResult<Response> {
-    let saved = db(&s, move |conn| {
+) -> ApiResult<Json<PersonSummary>> {
+    let person = db(&s, move |conn| {
         if let Some(hidden) = body.hidden {
             crate::db::set_hidden(conn, id, hidden)?;
         }
-        // Names are kept unique; the response says which name was saved.
-        body.name.map(|name| crate::db::rename_person(conn, id, name.as_deref())).transpose()
+        if let Some(name) = body.name {
+            crate::db::rename_person(conn, id, name.as_deref())?;
+        }
+        crate::db::person(conn, id)
     })
     .await?;
-    Ok(match saved {
-        Some(name) => Json(json!({ "name": name })).into_response(),
-        None => StatusCode::NO_CONTENT.into_response(),
-    })
+    person.map(Json).ok_or_else(|| ApiError::not_found("person"))
 }
 
 #[derive(Deserialize)]

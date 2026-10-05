@@ -50,7 +50,8 @@ for (const type of ["load", "error"]) {
 }
 /** Picture URLs with the photo's version: a rotated photo gets new ones, so browsers don't
  *  show the old (cached) picture. */
-export const thumbUrl = (id, v) => v ? `/thumb/${id}?v=${v}` : `/thumb/${id}`;
+/** A thumbnail's address, with the photo's version (a new version is a new address). */
+export const thumbUrl = (id, v = 0) => `/thumb/${id}/${v}`;
 export const originalUrl = (id, v) => v ? `/original/${id}?v=${v}` : `/original/${id}`;
 export const versionOf = id => photos.find(p => p.id === id)?.version ?? 0;
 const tile = p => `<a class="tile" data-id="${p.id}" style="--r:${(p.width / p.height).toFixed(3)}" href="${originalUrl(p.id, p.version)}">` +

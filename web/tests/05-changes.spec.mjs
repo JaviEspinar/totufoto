@@ -15,7 +15,7 @@ test("rotating turns the photo and its thumbnail", async ({ page }) => {
   await tile.click();
   await page.locator('#viewer [data-rotate="1"]').click();
   await expect.poll(ratio, { timeout: 10_000 }).toBeCloseTo(1 / before, 2);
-  await expect(page.locator(`.tile[data-id="${id}"] img`)).toHaveAttribute("src", /\?v=1$/);
+  await expect(page.locator(`.tile[data-id="${id}"] img`)).toHaveAttribute("src", new RegExp(`/thumb/${id}/1$`));
 });
 
 test("removing from the gallery, then showing it again from Settings", async ({ page }) => {

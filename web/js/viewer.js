@@ -1,6 +1,6 @@
 // The photo viewer: details, faces, sharing, rotating, deleting, zoom and swipe.
 // One of the page's modules; main.js starts the page.
-import { $, api, esc, fmtFull, icon, loadMeta, personById, personName, photoDetail, post, pref, regionName, state } from "./core.js";
+import { $, api, del, esc, fmtFull, icon, loadMeta, personById, personName, photoDetail, post, pref, regionName, state } from "./core.js";
 import { renderPeopleList } from "./sidebar.js";
 import { onePhotoLess, originalUrl, photos, thumbUrl, versionOf } from "./photos.js";
 import { openAssign, refreshPeopleViews, renamePerson, toast } from "./people.js";
@@ -239,7 +239,7 @@ async function flushRotation() {
     t.href = originalUrl(r.id, res.version);
   }
   for (const im of document.querySelectorAll("img")) {
-    if (im.src && new URL(im.src).pathname === `/thumb/${r.id}`) im.src = thumb.src;
+    if (im.src && new URL(im.src).pathname.startsWith(`/thumb/${r.id}/`)) im.src = thumb.src;
   }
   if (!here()) return;
   const img = $(".frame img", viewer);
@@ -286,7 +286,7 @@ async function deleteViewerPhoto() {
     </div>
     <div class="dlg-actions"><button class="btn" data-choice="cancel">Cancel</button></div>`, "Delete this photo?");
   if (choice === "cancel") return;
-  const remove = (from, permanently = false) => post(`/api/photos/${id}/remove`, { from, permanently })
+  const remove = (from, permanently = false) => del(`/api/photos/${id}`, permanently ? { from, permanently } : { from })
     .then(body => ({ ok: true, status: 200, body }))
     .catch(err => ({ ok: false, status: err.status, body: err.body ?? { error: err.message } }));
   let result = await remove(choice);

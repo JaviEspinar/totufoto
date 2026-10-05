@@ -1,6 +1,6 @@
 // Settings: photo folders, browsing for one, the library status and About.
 // One of the page's modules; main.js starts the page.
-import { $, api, esc, icon, loadMeta, plural, post } from "./core.js";
+import { $, api, del, esc, icon, loadMeta, plural, post } from "./core.js";
 import { photos } from "./photos.js";
 import { toast } from "./people.js";
 import { render } from "./views.js";
@@ -193,14 +193,14 @@ $("#settingsDlg").addEventListener("click", async e => {
   if (e.target.closest("[data-logs]")) {
     return post("/api/logs/reveal").catch(err => toast(`Couldn't open the log folder: ${err.message}`, true));
   }
-  const start = async (button, url) => {
+  const start = async (button, url, method = "POST") => {
     button.disabled = true;
     button.textContent = "Starting…";
-    await post(url).catch(err => renderSettings(err.message));
+    await (method === "DELETE" ? del(url) : post(url)).catch(err => renderSettings(err.message));
     setTimeout(pollStatus, 300);
   };
   if (e.target.dataset.regroup != null) return start(e.target, "/api/regroup");
-  if (e.target.dataset.showExcluded != null) return start(e.target, "/api/excluded/clear");
+  if (e.target.dataset.showExcluded != null) return start(e.target, "/api/excluded", "DELETE");
   if (e.target.dataset.retry != null) return start(e.target, "/api/failures/retry");
   if (e.target.dataset.rescan != null) {
     e.target.disabled = true;
@@ -230,7 +230,7 @@ $("#settingsDlg").addEventListener("click", async e => {
         updateIndexPill(st);
       }, 500);
       let r;
-      try { r = await post("/api/folders/remove", { path }); }
+      try { r = await del("/api/folders", { path }); }
       finally {
         clearInterval(watch);
         setLastStatus({ ...lastStatus, removing: null });

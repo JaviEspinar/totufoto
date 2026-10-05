@@ -86,7 +86,7 @@ impl Drop for RemovalGuard {
     }
 }
 
-pub(super) async fn remove_folder(State(s): State<Shared>, Json(body): Json<FolderBody>) -> ApiResult<Response> {
+pub(super) async fn remove_folder(State(s): State<Shared>, Query(body): Query<FolderBody>) -> ApiResult<Response> {
     use std::sync::atomic::Ordering::{Relaxed, SeqCst};
     if s.scan.is_fixed(std::path::Path::new(&body.path)) {
         return Err(ApiError::conflict("this folder is given on the command line; remove it there"));

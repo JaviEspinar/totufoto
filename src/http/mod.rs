@@ -12,7 +12,7 @@ use anyhow::Result;
 use axum::http::{StatusCode, header};
 use axum::middleware;
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{delete, get, patch, post};
 use axum::{Json, Router};
 use rusqlite::Connection;
 use serde_json::json;
@@ -187,19 +187,17 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
         .route("/api/regroup", post(system::regroup))
         .route("/api/failures", get(system::failures))
         .route("/api/failures/retry", post(system::retry_failures))
-        .route("/api/folders", get(folders::folders).post(folders::add_folder))
+        .route("/api/folders", get(folders::folders).post(folders::add_folder).delete(folders::remove_folder))
         .route("/api/folders/pick", post(folders::pick_folder))
-        .route("/api/folders/remove", post(folders::remove_folder))
         .route("/api/folders/browse", get(folders::browse_folders))
         .route("/api/open", post(system::open_url))
         .route("/api/logs/reveal", post(system::reveal_logs))
         .route("/api/photos", get(photos::photos))
-        .route("/api/photos/{id}", get(photos::photo_detail))
+        .route("/api/photos/{id}", get(photos::photo_detail).delete(photos::remove_photo))
         .route("/api/photos/{id}/check", post(photos::check_photo))
-        .route("/api/photos/{id}/remove", post(photos::remove_photo))
         .route("/api/photos/{id}/reveal", post(photos::reveal_photo))
         .route("/api/photos/{id}/rotate", post(photos::rotate_photo))
-        .route("/api/excluded/clear", post(system::clear_excluded))
+        .route("/api/excluded", delete(system::clear_excluded))
         .route("/api/duplicates", get(system::duplicates_report))
         .route("/api/duplicates/search", post(system::duplicates_search))
         .route("/api/duplicates/delete", post(system::duplicates_delete))
@@ -207,12 +205,12 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
         .route("/api/groups", get(photos::groups))
         .route("/api/places", get(photos::places))
         .route("/api/people", get(people::people))
-        .route("/api/people/{id}", post(people::update_person))
+        .route("/api/people/{id}", patch(people::update_person))
         .route("/api/people/{id}/merge", post(people::merge_person))
         .route("/api/faces/{id}/reject", post(people::reject_face))
         .route("/api/faces/{id}/cover", post(people::cover_face))
         .route("/api/faces/{id}/assign", post(people::assign_face))
-        .route("/thumb/{id}", get(photos::thumb))
+        .route("/thumb/{id}/{version}", get(photos::thumb))
         .route("/face/{id}", get(photos::face_thumb))
         .route("/original/{id}", get(photos::original))
         .layer(CompressionLayer::new())
@@ -369,10 +367,12 @@ mod tests {
         assert_eq!(keys(&v[0]), ["error", "path"]);
 
         // People updates answer as the page expects.
-        let (status, v) = call(&app, "POST", "/api/people/2", Some(json!({ "name": "ana" }))).await;
+        // An update answers with the person as they are now.
+        let (status, v) = call(&app, "PATCH", "/api/people/2", Some(json!({ "name": "ana" }))).await;
         assert_eq!((status, &v["name"]), (StatusCode::OK, &json!("ana (1)")));
-        let (status, _) = call(&app, "POST", "/api/people/2", Some(json!({ "hidden": true }))).await;
-        assert_eq!(status, StatusCode::NO_CONTENT);
+        assert_eq!(keys(&v), ["count", "face", "hidden", "id", "name"]);
+        let (status, v) = call(&app, "PATCH", "/api/people/2", Some(json!({ "hidden": true }))).await;
+        assert_eq!((status, &v["hidden"], &v["name"]), (StatusCode::OK, &json!(true), &json!("ana (1)")));
         let (status, v) = call(&app, "POST", "/api/faces/2/cover", None).await;
         assert_eq!((status, &v["person"]), (StatusCode::OK, &json!(2)));
         let (status, _) = call(&app, "POST", "/api/people/2/merge", Some(json!({ "into": 1 }))).await;
@@ -381,7 +381,18 @@ mod tests {
         assert_eq!(v.as_array().unwrap().len(), 1);
         assert_eq!((&v[0]["name"], &v[0]["count"]), (&json!("Ana"), &json!(1)));
         assert_eq!(get("/face/1".into()).await.0, StatusCode::OK);
-        assert_eq!(get(format!("/thumb/{madrid}")).await.0, StatusCode::OK);
+        // Thumbnails are kept for good only at their current version.
+        let cache = |uri: String| {
+            let app = app.clone();
+            async move {
+                use tower::ServiceExt;
+                let req = axum::http::Request::builder().uri(uri).header("host", "127.0.0.1:7878");
+                let res = app.oneshot(req.body(axum::body::Body::empty()).unwrap()).await.unwrap();
+                (res.status(), res.headers()[header::CACHE_CONTROL].to_str().unwrap().to_string())
+            }
+        };
+        assert_eq!(cache(format!("/thumb/{madrid}/0")).await, (StatusCode::OK, IMMUTABLE.to_string()));
+        assert_eq!(cache(format!("/thumb/{madrid}/7")).await, (StatusCode::OK, "no-cache".to_string()));
     }
 
     #[tokio::test]
@@ -430,7 +441,7 @@ mod tests {
             error(call(&app, "GET", "/api/photos/9999", None).await),
             (StatusCode::NOT_FOUND, "no such photo".into())
         );
-        assert_eq!(call(&app, "GET", "/thumb/9999", None).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(call(&app, "GET", "/thumb/9999/0", None).await.0, StatusCode::NOT_FOUND);
         assert_eq!(call(&app, "GET", "/api/groups", None).await.0, StatusCode::BAD_REQUEST);
         let (status, msg) =
             error(call(&app, "POST", &format!("/api/photos/{id}/rotate"), Some(json!({ "turns": 1 }))).await);
@@ -463,11 +474,9 @@ mod tests {
     async fn removing_from_the_gallery_keeps_the_file_and_disk_stays_inside_the_folders() {
         let (lib, id) = library_with_a_photo();
         let app = app(&lib);
-        let (status, body) =
-            call(&app, "POST", &format!("/api/photos/{id}/remove"), Some(json!({ "from": "nowhere" }))).await;
+        let (status, body) = call(&app, "DELETE", &format!("/api/photos/{id}?from=nowhere"), None).await;
         assert_eq!((status, body["error"].as_str()), (StatusCode::BAD_REQUEST, Some("from must be gallery or disk")));
-        let (status, body) =
-            call(&app, "POST", &format!("/api/photos/{id}/remove"), Some(json!({ "from": "gallery" }))).await;
+        let (status, body) = call(&app, "DELETE", &format!("/api/photos/{id}?from=gallery"), None).await;
         assert_eq!((status, body["status"].as_str()), (StatusCode::OK, Some("removed")));
         assert!(lib.root().join("a.jpg").exists());
         assert_eq!(lib.scan().total, 0, "it stays out of the gallery");
@@ -482,13 +491,7 @@ mod tests {
         )
         .unwrap();
         let b = conn.last_insert_rowid();
-        let (status, _) = call(
-            &app,
-            "POST",
-            &format!("/api/photos/{b}/remove"),
-            Some(json!({ "from": "disk", "permanently": true })),
-        )
-        .await;
+        let (status, _) = call(&app, "DELETE", &format!("/api/photos/{b}?from=disk&permanently=true"), None).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert!(outside.exists());
     }
@@ -520,7 +523,7 @@ mod tests {
 
         // One folder removal at a time.
         *status.removing.lock().unwrap() = Some("/elsewhere".into());
-        let (code, body) = call(&app, "POST", "/api/folders/remove", Some(json!({ "path": "/saved/folder" }))).await;
+        let (code, body) = call(&app, "DELETE", "/api/folders?path=%2Fsaved%2Ffolder", None).await;
         assert_eq!(code, StatusCode::CONFLICT);
         assert!(body["error"].as_str().unwrap().contains("being removed"), "{body}");
     }

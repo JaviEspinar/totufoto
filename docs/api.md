@@ -2,12 +2,23 @@
 
 The gallery's page talks to the program through this API, and scripts can use it too. It is served on the same address as the page (`http://127.0.0.1:7878` by default).
 
-**Stability**: before version 1.0 the API can change in any release; the page in `web/` is the client it is written for. Changes are listed in the release notes.
+**Stability**: before version 1.0 the API can change in a minor release (0.2, 0.3...), never in a patch release; the page in `web/` is the client it is written for. Changes are listed below and in the release notes.
+
+## Changes in 0.2
+
+| Before (0.1) | Now |
+|---|---|
+| `POST /api/photos/{id}/remove` with `{"from", "permanently"}` | `DELETE /api/photos/{id}?from=gallery` (or `from=disk`, `&permanently=true`) |
+| `POST /api/folders/remove` with `{"path"}` | `DELETE /api/folders?path=...` |
+| `POST /api/excluded/clear` | `DELETE /api/excluded` |
+| `POST /api/people/{id}`, answering `{"name"}` or nothing | `PATCH /api/people/{id}`, always answering with the person |
+| `GET /thumb/{id}?v={version}` | `GET /thumb/{id}/{version}` |
+| | `version` on each file of `GET /api/duplicates` |
 
 ## Conventions
 
 - Requests and answers are JSON. An error is a status code with `{"error": "message"}`.
-- Requests that change something (`POST`) must come from the gallery's own page or from a program that isn't a browser: browsers send `Sec-Fetch-Site`, and only `same-origin` or `none` are accepted (or else an `Origin` matching the address). `curl` and scripts send neither, so they work.
+- Requests that change something (`POST`, `PATCH`, `DELETE`) must come from the gallery's own page or from a program that isn't a browser: browsers send `Sec-Fetch-Site`, and only `same-origin` or `none` are accepted (or else an `Origin` matching the address). `curl` and scripts send neither, so they work.
 - The `Host` header must be an IP address, `localhost`, the computer's own name or a name given with `--allow-host`. Otherwise, and for refused cross-site requests, the answer is `403` with a plain-text message.
 - There is no login: anyone who can reach the address can use every endpoint.
 - Ids are integers. Dates are `YYYY-MM-DD`; capture times are `YYYY-MM-DD HH:MM:SS` in the photo's local time.
@@ -73,11 +84,11 @@ A face's `box` is `[x, y, width, height]` as fractions of the photo as shown.
 
 | | |
 |---|---|
-| `GET /thumb/{id}?v={version}` | the thumbnail, JPEG |
+| `GET /thumb/{id}/{version}` | the thumbnail, JPEG |
 | `GET /face/{id}` | a face's picture, JPEG |
 | `GET /original/{id}` | the file itself (HEIC and TIFF converted to JPEG); `?download=1` to save it with its own name |
 
-Thumbnails and faces are cached for good by browsers (`immutable`): the `v` query changes when a photo is rotated or its file changes.
+Thumbnails and faces are cached for good by browsers (`immutable`). A photo's version goes up when it is rotated or its file changes, so its thumbnail gets a new address; an address with an old version still answers with the current picture, but marked not to be kept (`no-cache`).
 
 ### `POST /api/photos/{id}/rotate`
 
@@ -85,15 +96,15 @@ Thumbnails and faces are cached for good by browsers (`immutable`): the `v` quer
 
 `409` while a scan runs or when the file changed since it was indexed; `415` for formats other than JPEG and PNG.
 
-### `POST /api/photos/{id}/remove`
+### `DELETE /api/photos/{id}`
 
-| Body | |
+| Query | |
 |---|---|
-| `{"from": "gallery"}` | leave the photo out of the gallery; the file stays |
-| `{"from": "disk"}` | move the file to the bin |
-| `{"from": "disk", "permanently": true}` | delete it for good if there is no bin |
+| `from=gallery` | leave the photo out of the gallery; the file stays |
+| `from=disk` | move the file to the bin |
+| `from=disk&permanently=true` | delete it for good if there is no bin |
 
-Answers `{"status": "removed" or "binned" or "deleted", "path": ...}`. When the file can't go to a bin, the answer is `409` with `{"status": "no-bin", ...}`, and nothing is deleted until asked again with `permanently`.
+Answers `{"status": "removed" or "binned" or "deleted", "path": ...}`. When the file can't go to a bin, the answer is `409` with `{"status": "no-bin", ...}`, and nothing is deleted until asked again with `permanently=true`.
 
 ### `POST /api/photos/{id}/check`
 
@@ -108,7 +119,7 @@ Shows the file in the file manager. Desktop app only (`501` otherwise).
 | | |
 |---|---|
 | `GET /api/people` | `[{"id", "name", "hidden", "count", "face"}]`: everyone with a face, named people first. `face` is the face on their card |
-| `POST /api/people/{id}` | `{"name": "Ana"}` renames (`null` forgets the name), `{"hidden": true}` hides. Names are kept unique: the answer `{"name": ...}` is the name saved, which may have a number added |
+| `PATCH /api/people/{id}` | `{"name": "Ana"}` renames (`null` forgets the name), `{"hidden": true}` hides; both at once work too. Answers with the person, as in `/api/people`. Names are kept unique, so the name saved may have a number added ("Ana (1)") |
 | `POST /api/people/{id}/merge` | `{"into": 5}`: this person's faces go to person 5 |
 | `POST /api/faces/{id}/assign` | `{"person": 5}`: this one face goes to person 5 |
 | `POST /api/faces/{id}/reject` | "Not them": the face gets a new unnamed person, answered as `{"person": id}` |
@@ -137,7 +148,7 @@ Progress of the current or last scan, cheap enough to poll. `phase` is `listing 
 | `POST /api/regroup` | scan, then regroup every face from scratch (`202`) |
 | `GET /api/failures` | files that could not be read: `[{"path", "error"}]` (the first 500) |
 | `POST /api/failures/retry` | forget them and scan, so they are tried again (`202`) |
-| `POST /api/excluded/clear` | bring back the photos removed from the gallery (`202`) |
+| `DELETE /api/excluded` | bring back the photos removed from the gallery (`202`) |
 
 ### Folders
 
@@ -146,7 +157,7 @@ Progress of the current or last scan, cheap enough to poll. `phase` is `listing 
 | `GET /api/folders` | `{"folders": [{"path", "available", "photos", "fixed"}], "desktop": bool}`. `fixed`: given on the command line. `desktop`: running in the desktop app |
 | `POST /api/folders` | `{"path": "/home/ana/Pictures"}` adds a folder and scans it. `409` when it is already in, or inside a folder that is |
 | `POST /api/folders/pick` | opens the folder picker and adds the folder chosen (desktop app only; `204` when cancelled) |
-| `POST /api/folders/remove` | `{"path": ...}` takes the folder's photos out of the gallery (the files stay), and answers `{"removed", "kept"}` when done; `kept` are photos another folder still includes. One at a time (`409`) |
+| `DELETE /api/folders?path=...` | takes the folder's photos out of the gallery (the files stay), and answers `{"removed", "kept"}` when done; `kept` are photos another folder still includes. One at a time (`409`) |
 | `GET /api/folders/browse?path=` | the folders inside `path` on the computer running Imadive: `{"path", "parent", "dirs": [{"name", "path"}]}`. Without `path`: next to the first photo folder |
 
 ### Identical files

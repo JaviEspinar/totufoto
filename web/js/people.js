@@ -1,6 +1,6 @@
 // The People view, the merge dialog, and changes to people (shown at once, saved after).
 // One of the page's modules; main.js starts the page.
-import { $, esc, loadMeta, onPeopleLoaded, people, personById, personName, plural, post, pref, setPeople, state } from "./core.js";
+import { $, esc, loadMeta, onPeopleLoaded, patch, people, personById, personName, plural, post, pref, setPeople, state } from "./core.js";
 import { matchPeople, peopleOrder, peopleSort, renderPeopleList, resetPeopleOrder, restorePeopleOrder, setPeopleSort } from "./sidebar.js";
 import { render } from "./views.js";
 import { openViewer, viewerIndex } from "./viewer.js";
@@ -431,7 +431,7 @@ export function toggleHidden(id) {
   if (!p) return;
   p.hidden = !p.hidden;
   refreshPeopleViews();
-  post(`/api/people/${id}`, { hidden: p.hidden })
+  patch(`/api/people/${id}`, { hidden: p.hidden })
     .catch(err => { toast(`Couldn't save: ${err.message}`, true); resync(); });
 }
 
@@ -487,8 +487,8 @@ export async function renamePerson(id, value) {
   alphabeticalCache = null;
   refreshPeopleViews({ animate: false });
   for (const label of document.querySelectorAll(`[data-person-chip="${id}"] .label`)) label.textContent = personName(p);
-  return post(`/api/people/${id}`, { name: name ?? "" })
-    .then(saved => { if (saved && saved.name !== p.name) toast(`Saved as "${saved.name}", a name that was free`); })
+  return patch(`/api/people/${id}`, { name: name ?? "" })
+    .then(saved => { if (saved?.name && saved.name !== p.name) toast(`Saved as "${saved.name}", a name that was free`); })
     .then(resync)
     .catch(err => { toast(`Couldn't save the name: ${err.message}`, true); resync(); });
 }
