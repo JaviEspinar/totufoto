@@ -29,10 +29,12 @@ dev *folders="fixtures/photos":
     cargo run --release -- --data "$data" {{folders}}
 
 # Formatting and lints, as CI checks them
+[unix]
 lint:
     cargo fmt --all --check
     cargo clippy --locked --all-targets -- -D warnings
-    node --check web/app.js
+    for f in web/js/*.js; do node --check "$f" || exit 1; done
+    cd web/tests && npm ci --silent && npm run check-scripts
 
 # Format the code
 fmt:
@@ -52,6 +54,7 @@ deny:
     cargo deny check
 
 # Everything CI runs, except the other systems and the minimum Rust version
+[unix]
 check: lint test deny ui-test
 
 # Build the desktop app (Linux: AppImage; Windows: exe), after `just fetch`

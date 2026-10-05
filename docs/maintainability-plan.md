@@ -450,4 +450,6 @@ Still open from phase 4: README screenshots. They need photos that may be publis
 
 Smaller points from sections 4.2, 4.5, 4.7 and 4.8, done on the way: photo rows read by name instead of by position; a danger colour token with a readable dark-mode value; a notice when the server can't be reached; a details cache and prefetch in the viewer; light progress polling in Optimization; a retry button on a view that failed to load (`6d18e40`, `a4b933c`, `0232356`).
 
-Left for later, each a larger change worth doing with the owner: 26 (ES modules), 28 (macOS build, which needs signing and notarization to be usable, and `cargo xtask fetch`), 29 (API cleanup before 1.0, breaking).
+26, first step: `app.js` split by area into ten files in `web/js/`, served from a table in `src/http/mod.rs` and linked by one content hash. They are plain scripts loaded in order, sharing their top-level names, not ES modules. About 40 module-level variables are assigned from several areas, so modules would first need them gathered into a shared state object; the split gives the navigation benefit now with no change in behaviour (the files joined are the old script, line for line), and modules can follow file by file. `web/tests/script-order.mjs` (acorn) checks in CI that nothing a file runs while loading uses a later file's names.
+
+Left for later, each a larger change worth doing with the owner: 26's ES modules, 28 (macOS build, which needs signing and notarization to be usable, and `cargo xtask fetch`), 29 (API cleanup before 1.0, breaking).

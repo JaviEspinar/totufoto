@@ -12,7 +12,7 @@ A tour of the code for people who want to change it. For using the gallery, see 
              │       duplicates (identical files) │                       │
              │                                    │                       │
              │  http (axum) ── guard ── library ──┘                       │
-             │    └ serves web/ (index.html, app.css, app.js, embedded)   │
+             │    └ serves web/ (index.html, app.css, js/, embedded)      │
              └────────────────────────────▲───────────────────────────────┘
                                           │ http://127.0.0.1:<port>
             src/main.rs (command line) ───┤
@@ -45,7 +45,7 @@ src/guard.rs       request checks (DNS rebinding, cross-site requests)
 src/db/            the SQLite index: schema and migrations (mod.rs), photos, people, filters
 src/http/          the HTTP API: router, errors and pool (mod.rs), then one file per area
 src/testutil.rs    test helpers: temporary libraries with generated JPEGs and EXIF
-web/               the UI: index.html, app.css, app.js, built into the binary
+web/               the UI: index.html, app.css and js/ (the script, by area), built into the binary
 web/tests/         browser tests (Playwright) on a fixture library
 desktop/           the Tauri desktop app
 fixtures/photos/   a public-domain photo for the desktop self-test
@@ -98,7 +98,9 @@ Plain HTML, one stylesheet and one script, with no build step and no dependencie
 - **Viewer**: a modal dialog with focus kept inside, zoom and swipe, the details panel and the face tools.
 - **Accessibility**: cards and candidates are buttons, names and faces can be reached from the keyboard, and animations follow `prefers-reduced-motion`.
 
-Small helpers at the top of `app.js` (`api()` with typed errors, `icon()` for the SVG sprite in `index.html`, `plural()`, `pref` for remembered settings, `askChoice()` for questions) keep the rest short.
+Small helpers in `js/core.js` (`api()` with typed errors, `icon()` for the SVG sprite in `index.html`, `plural()`, `pref` for remembered settings) and `askChoice()` for questions keep the rest short.
+
+**The script's files.** `web/js/` holds one file per area (`core`, `sidebar`, `photos`, `optimization`, `people`, `views`, `viewer`, `settings`, `status`, `main`). They are plain scripts, loaded one after the other in the order of `SCRIPTS` in `src/http/mod.rs`, and share their top-level names as if they were one file, so there are no imports. One rule follows: what runs while a file loads (top-level statements and the functions they call) may only use names from that file or earlier ones. Event handlers can use anything, since they run later. `web/tests/script-order.mjs` checks this, in CI and in `just lint`. A new file goes into `SCRIPTS`, where its position is its load order.
 
 ## The desktop app (`desktop/`)
 

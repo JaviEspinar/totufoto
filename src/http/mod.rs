@@ -25,24 +25,50 @@ const INDEX_HTML: &str = include_str!("../../web/index.html");
 
 const APP_CSS: &str = include_str!("../../web/app.css");
 
-const APP_JS: &str = include_str!("../../web/app.js");
+/// The page's script, split by area, in the order the page loads it: as each file loads it
+/// may use what the earlier ones define, but not the later ones.
+const SCRIPTS: [(&str, &str); 10] = [
+    ("core", include_str!("../../web/js/core.js")),
+    ("sidebar", include_str!("../../web/js/sidebar.js")),
+    ("photos", include_str!("../../web/js/photos.js")),
+    ("optimization", include_str!("../../web/js/optimization.js")),
+    ("people", include_str!("../../web/js/people.js")),
+    ("views", include_str!("../../web/js/views.js")),
+    ("viewer", include_str!("../../web/js/viewer.js")),
+    ("settings", include_str!("../../web/js/settings.js")),
+    ("status", include_str!("../../web/js/status.js")),
+    ("main", include_str!("../../web/js/main.js")),
+];
 
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 /// The project's pages, linked from Settings. Update it when the repository moves.
 const PROJECT_URL: &str = "https://github.com/JaviEspinar/totufoto";
 
-/// The page, with its stylesheet and script linked by a hash of their contents
-/// (`/app.js?v=...`): browsers may keep them for good, and still fetch the new ones after an
-/// upgrade, since the hash changes with them.
+/// The page, with its stylesheet and scripts linked by a hash of their contents
+/// (`/js/core.js?v=...`): browsers may keep them for good, and still fetch the new ones
+/// after an upgrade, since the hash changes with them.
 fn index_html() -> &'static str {
     static PAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     PAGE.get_or_init(|| {
         let mut hasher = blake3::Hasher::new();
         hasher.update(APP_CSS.as_bytes());
-        hasher.update(APP_JS.as_bytes());
+        for (_, script) in SCRIPTS {
+            hasher.update(script.as_bytes());
+        }
         let hash = hasher.finalize().to_hex();
-        INDEX_HTML.replace("{{assets}}", &hash[..12])
+        let hash = &hash[..12];
+        let scripts: String =
+            SCRIPTS.iter().map(|(name, _)| format!("<script src=\"/js/{name}.js?v={hash}\"></script>\n")).collect();
+        INDEX_HTML.replace("{{scripts}}", &scripts).replace("{{assets}}", hash)
     })
+}
+
+async fn script(axum::extract::Path(file): axum::extract::Path<String>) -> Response {
+    let name = file.strip_suffix(".js").unwrap_or(&file);
+    match SCRIPTS.iter().find(|(n, _)| *n == name) {
+        Some((_, body)) => asset("text/javascript; charset=utf-8", body),
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
 }
 
 fn asset(content_type: &'static str, body: &'static str) -> Response {
@@ -155,7 +181,7 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
     let router = Router::new()
         .route("/", get(|| async { Html(index_html()) }))
         .route("/app.css", get(|| async { asset("text/css; charset=utf-8", APP_CSS) }))
-        .route("/app.js", get(|| async { asset("text/javascript; charset=utf-8", APP_JS) }))
+        .route("/js/{file}", get(script))
         .route("/api/status", get(system::status))
         .route("/api/scan", post(system::start_scan))
         .route("/api/regroup", post(system::regroup))
@@ -373,13 +399,20 @@ mod tests {
         let page = app.clone().oneshot(get("/")).await.unwrap();
         let page = String::from_utf8(axum::body::to_bytes(page.into_body(), 1 << 20).await.unwrap().to_vec()).unwrap();
         assert!(!page.contains("{{assets}}"));
-        let js = page.split("src=\"").nth(1).unwrap().split('"').next().unwrap().to_string();
-        assert!(js.starts_with("/app.js?v=") && js.len() == "/app.js?v=".len() + 12, "{js}");
-        for (uri, kind) in [(js.as_str(), "text/javascript"), ("/app.css", "text/css")] {
+        let scripts: Vec<&str> = page.split("<script src=\"").skip(1).map(|s| s.split('"').next().unwrap()).collect();
+        let order: Vec<String> = SCRIPTS.iter().map(|(n, _)| format!("/js/{n}.js")).collect();
+        assert_eq!(scripts.iter().map(|s| s.split('?').next().unwrap()).collect::<Vec<_>>(), order, "all, in order");
+        let hash = scripts[0].split("?v=").nth(1).unwrap();
+        assert_eq!(hash.len(), 12);
+        assert!(page.contains(&format!("/app.css?v={hash}")), "the stylesheet has the same hash");
+        let mut uris: Vec<(&str, &str)> = scripts.iter().map(|s| (*s, "text/javascript")).collect();
+        uris.push(("/app.css", "text/css"));
+        for (uri, kind) in uris {
             let res = app.clone().oneshot(get(uri)).await.unwrap();
-            assert_eq!(res.status(), StatusCode::OK);
+            assert_eq!(res.status(), StatusCode::OK, "{uri}");
             assert!(res.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with(kind));
         }
+        assert_eq!(app.clone().oneshot(get("/js/nothing.js")).await.unwrap().status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
