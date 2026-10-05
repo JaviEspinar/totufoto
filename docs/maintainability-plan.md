@@ -439,7 +439,7 @@ Corrections on the way:
 - `cargo-deny` needed the Unlicense (through `reverse_geocoder`); CC-BY-4.0 is not a crate license here (GeoNames data), so it isn't listed.
 - The plan wanted the desktop build only for tags. A change in `src/` can break the desktop crate, which `ci.yml` can't build without the models, so pushes that touch Rust code or packaging still build it.
 
-Still open from phase 4: README screenshots. They need photos that may be published (the fixture images are flat colours, and the test photos used during development are not redistributable).
+README screenshots, done after phase 5: `web/tests/screenshots.mjs` takes them of a demo library of 77 public-domain colour photos from the Library of Congress (FSA/OWI, 1940 to 1943), described with their sources in `docs/screenshots/README.md`.
 
 ### Phase 5: partly done
 

@@ -6,6 +6,19 @@ A fast local photo gallery written in Rust. Point it at your photo folders and i
 
 It comes as a desktop app for Windows and Linux, and as a command-line app that serves the gallery to your browser. It is free for personal and other non-commercial use, and its source code is available ([license](#license)).
 
+![The timeline: photos in a justified grid, with the people found in them in the sidebar](docs/screenshots/photos.jpg)
+
+<p>
+<img src="docs/screenshots/viewer.jpg" width="49%" alt="The viewer: a photo with its faces outlined and named, and its date, place and people beside it">
+<img src="docs/screenshots/people.jpg" width="49%" alt="The People tab: one card per person found">
+</p>
+<p>
+<img src="docs/screenshots/places.jpg" width="74%" alt="Photos grouped by place, one card per town">
+<img src="docs/screenshots/phone.jpg" width="24%" alt="The gallery on a phone">
+</p>
+
+<sub>Photos: Library of Congress, FSA/OWI colour collection, 1940 to 1943, public domain ([about the screenshots](docs/screenshots/README.md)).</sub>
+
 ## Features
 
 - **Timeline** sorted by capture date (EXIF `DateTimeOriginal`, falling back to the file date), newest or oldest first, grouped by day, month, year or place.
