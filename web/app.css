@@ -2,6 +2,7 @@
   --bg: #f6f5f2; --panel: #ffffff; --ink: #1c1b19; --muted: #6d6a64; --line: #e4e1da;
   --accent: #2f6fdf; --accent-ink: #ffffff; --chip: #eceae4; --hover: #efede8;
   --danger: #c2410c; --danger-ink: #ffffff;
+  --brand-ink: #0b1a3d; /* the "Ima" of the name; "Dive" keeps its gradient */
   --row: 200px; --gap: 4px;
   color-scheme: light;
 }
@@ -11,6 +12,7 @@
     --accent: #6b9cff; --accent-ink: #0d0d0c; --chip: #262523; --hover: #232321;
     /* lighter than in the light scheme, so small red text stays readable on the dark panel */
     --danger: #f08a5d; --danger-ink: #121211;
+    --brand-ink: var(--ink);
     color-scheme: dark;
   }
 }
@@ -31,7 +33,12 @@ header {
   padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 5;
 }
-.brand { font-weight: 700; font-size: 17px; letter-spacing: -0.02em; margin-right: 8px; }
+.brand { display: flex; align-items: center; margin-right: 8px; flex: none; }
+.brand svg { display: block; }
+.brand-name { height: 21px; width: auto; }
+.brand-name .ima { fill: var(--brand-ink); }
+/* phones show the icon instead of the name (see the Phones section) */
+.brand .brand-icon { display: none; height: 30px; width: auto; }
 nav { display: flex; gap: 2px; }
 nav button, .seg button {
   border: 0; background: transparent; padding: 6px 12px; border-radius: 8px; color: var(--muted);
@@ -516,6 +523,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
   body, body.aside-collapsed { grid-template-columns: minmax(0, 1fr); }
   header { flex-wrap: wrap; gap: 6px 8px; padding: 8px 12px 6px; }
   .brand { order: 1; }
+  .brand .brand-name { display: none; }
+  .brand .brand-icon { display: block; }
   .spacer { display: none; }
   .head-buttons { order: 2; margin-left: auto; }
   nav { order: 3; flex: 1 1 100%; }

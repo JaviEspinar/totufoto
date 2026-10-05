@@ -25,6 +25,9 @@ const INDEX_HTML: &str = include_str!("../../web/index.html");
 
 const APP_CSS: &str = include_str!("../../web/app.css");
 
+/// The tab's icon: docs/brand/imadive-icon.svg, framed for small sizes (scripts/icons.py).
+const FAVICON_SVG: &str = include_str!("../../web/favicon.svg");
+
 /// The page's script: ES modules, one per area. The page loads main.js, which imports the
 /// others (see web/tests/script-order.mjs for the order they run in).
 const SCRIPTS: [(&str, &str); 10] = [
@@ -53,6 +56,7 @@ fn index_html() -> &'static str {
     PAGE.get_or_init(|| {
         let mut hasher = blake3::Hasher::new();
         hasher.update(APP_CSS.as_bytes());
+        hasher.update(FAVICON_SVG.as_bytes());
         for (_, script) in SCRIPTS {
             hasher.update(script.as_bytes());
         }
@@ -181,6 +185,7 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
     let router = Router::new()
         .route("/", get(|| async { Html(index_html()) }))
         .route("/app.css", get(|| async { asset("text/css; charset=utf-8", APP_CSS) }))
+        .route("/favicon.svg", get(|| async { asset("image/svg+xml", FAVICON_SVG) }))
         .route("/js/{hash}/{file}", get(script))
         .route("/api/status", get(system::status))
         .route("/api/scan", post(system::start_scan))
@@ -418,6 +423,8 @@ mod tests {
         let mut uris: Vec<(String, &str)> =
             SCRIPTS.iter().map(|(n, _)| (format!("/js/{hash}/{n}.js"), "text/javascript")).collect();
         uris.push(("/app.css".into(), "text/css"));
+        uris.push(("/favicon.svg".into(), "image/svg+xml"));
+        assert!(page.contains(&format!("/favicon.svg?v={hash}")), "the favicon has the same hash");
         for (uri, kind) in uris {
             let res = app.clone().oneshot(get(&uri)).await.unwrap();
             assert_eq!(res.status(), StatusCode::OK, "{uri}");
