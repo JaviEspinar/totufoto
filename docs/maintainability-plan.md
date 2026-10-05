@@ -1,6 +1,6 @@
 # Imadive: code quality and open-source readiness plan
 
-Review of the whole project at commit `17002fc` (release 0.1.9): the Rust service (`src/`, about 3,300 lines), the web UI (`web/index.html`, 2,890 lines), the desktop shell (`desktop/`), CI, scripts and repository hygiene. Nothing has been changed; this document is the plan.
+Review of the whole project at commit `fe8a5b7` (release 0.1.9): the Rust service (`src/`, about 3,300 lines), the web UI (`web/index.html`, 2,890 lines), the desktop shell (`desktop/`), CI, scripts and repository hygiene. Nothing has been changed; this document is the plan.
 
 Line numbers refer to the files as they are at that commit.
 
@@ -389,14 +389,14 @@ Updated as the roadmap is worked through.
 
 | # | Result | Commit |
 |---|---|---|
-| 1-2 | PolyForm Noncommercial `LICENSE`, `THIRD_PARTY.md`, License section; workspace version and metadata; published as waiting4timeout | `d78434b`, `c640959` |
-| 3 | Guard on every address. Correction to 3.3: `Sec-Fetch-Site`/`Origin` stop cross-site requests but not DNS rebinding (a rebinding page is same-origin), so the Host check now applies everywhere, accepting IP addresses, `localhost`, the machine's names and `--allow-host` names | `94106c0` |
-| 4 | Decided against restricting folder management; documented in README and `SECURITY.md` | `1274110` |
-| 5 | Busy flags cleared by guards; a crashing file is a failed file | `bb9c8d1` |
-| 6 | `ci.yml` (fmt, clippy with annotations, tests on three systems, MSRV). Found on the way: the real MSRV was 1.93, not 1.88 | `557fb89`, `dd99581` |
-| 7 | `rustfmt.toml`, `.editorconfig`, one reformat commit | `31d7b15`, `a261357` |
-| 8 | Privacy and security section, `--host` warning, `SECURITY.md` | `94106c0` |
-| 9 | SHA-256 pins in the fetch scripts. Found on the way: ONNX Runtime 1.28.2 has no Intel Mac build | `d8d3a8c` |
+| 1-2 | PolyForm Noncommercial `LICENSE`, `THIRD_PARTY.md`, License section; workspace version and metadata; published as waiting4timeout | `7114c59`, `dc78fd1` |
+| 3 | Guard on every address. Correction to 3.3: `Sec-Fetch-Site`/`Origin` stop cross-site requests but not DNS rebinding (a rebinding page is same-origin), so the Host check now applies everywhere, accepting IP addresses, `localhost`, the machine's names and `--allow-host` names | `a71845a` |
+| 4 | Decided against restricting folder management; documented in README and `SECURITY.md` | `d3dd4e3` |
+| 5 | Busy flags cleared by guards; a crashing file is a failed file | `cec8ee6` |
+| 6 | `ci.yml` (fmt, clippy with annotations, tests on three systems, MSRV). Found on the way: the real MSRV was 1.93, not 1.88 | `cf641a5`, `9509202` |
+| 7 | `rustfmt.toml`, `.editorconfig`, one reformat commit | `07d6635`, `eb8fde8` |
+| 8 | Privacy and security section, `--host` warning, `SECURITY.md` | `a71845a` |
+| 9 | SHA-256 pins in the fetch scripts. Found on the way: ONNX Runtime 1.28.2 has no Intel Mac build | `ca94e8f` |
 
 Still open from phase 1: the donation platform (`FUNDING.yml`, About entry) and the GitHub settings only the owner can change.
 
@@ -404,23 +404,23 @@ Still open from phase 1: the donation platform (`FUNDING.yml`, About entry) and 
 
 | # | Result | Commit |
 |---|---|---|
-| 10 | `db::init`, `open_in_memory`, table-driven migrations, `src/testutil.rs` (temporary libraries, generated JPEGs with real EXIF) | `da9cfea` |
-| 11 | Typed `ApiError` with JSON bodies; missing photo and deleted file are 404s | `040cac7` |
-| 12 | `src/library.rs` (roots, `root_of`, folder add/remove, check and remove photo). Its tests found a regression from 0.1.8: removing a saved folder that contained a command-line one also removed that folder's photos | `2db578e` |
-| 13 | Tests for every destructive path: 48 in total, passing on Linux, macOS and Windows | `da9cfea`, `e3cec9e`, `9c90ffb` |
-| 14 | Empty photo folders count as unplugged; changed photos keep their id | `95f1ccf` |
-| 15 | Bounded pool, one scan thread at a time, scans survive panics, stop on save failure | `cb7f9b3` |
-| 16 | `fixtures/photos` (public-domain portrait with date and GPS) used by the CI self-test | `7edb6e9` |
+| 10 | `db::init`, `open_in_memory`, table-driven migrations, `src/testutil.rs` (temporary libraries, generated JPEGs with real EXIF) | `702abd9` |
+| 11 | Typed `ApiError` with JSON bodies; missing photo and deleted file are 404s | `48681d7` |
+| 12 | `src/library.rs` (roots, `root_of`, folder add/remove, check and remove photo). Its tests found a regression from 0.1.8: removing a saved folder that contained a command-line one also removed that folder's photos | `ded90c7` |
+| 13 | Tests for every destructive path: 48 in total, passing on Linux, macOS and Windows | `702abd9`, `adf4c78`, `d0087b4` |
+| 14 | Empty photo folders count as unplugged; changed photos keep their id | `ef83258` |
+| 15 | Bounded pool, one scan thread at a time, scans survive panics, stop on save failure | `66b6b16` |
+| 16 | `fixtures/photos` (public-domain portrait with date and GPS) used by the CI self-test | `838a04d` |
 
 ### Phase 3: done
 
 | # | Result | Commit |
 |---|---|---|
-| 17 | `server.rs` split into `src/http/` (pure move), then the SQL moved out of the handlers into typed queries in `src/db/` (`photos.rs`, `people.rs`, `filters.rs`); a test pins the JSON shapes the page reads | `30ee4c2`, `1779cd4`, `202d78e` |
-| 18 | `web/index.html` split into `index.html`, `app.css`, `app.js`, linked by content hash; CI checks that the script parses | `87aed19` |
-| 19 | `peopleById`, `askChoice`/`#choiceDlg`, `ApiError` in `api()`, four silent failures fixed, About section in Settings | `ac28b81` |
-| 20 | Cards and candidates are buttons, focusable names and faces, the viewer is a modal dialog with focus handling, labels, reduced motion. The keyboard test found that Escape didn't close the viewer from its checkbox | `da95296` |
-| 21 | Icon sprite, `plural()`, `pref`, `parseDay()`, people grid sizes set only by the script, one render `job` (`alive()`, `signal`) instead of hand-written token checks | `9c9fa6a`, `c0f226f`, this commit |
+| 17 | `server.rs` split into `src/http/` (pure move), then the SQL moved out of the handlers into typed queries in `src/db/` (`photos.rs`, `people.rs`, `filters.rs`); a test pins the JSON shapes the page reads | `c7e20bf`, `888f27e`, `e0386a5` |
+| 18 | `web/index.html` split into `index.html`, `app.css`, `app.js`, linked by content hash; CI checks that the script parses | `6878659` |
+| 19 | `peopleById`, `askChoice`/`#choiceDlg`, `ApiError` in `api()`, four silent failures fixed, About section in Settings | `67ef418` |
+| 20 | Cards and candidates are buttons, focusable names and faces, the viewer is a modal dialog with focus handling, labels, reduced motion. The keyboard test found that Escape didn't close the viewer from its checkbox | `e597133` |
+| 21 | Icon sprite, `plural()`, `pref`, `parseDay()`, people grid sizes set only by the script, one render `job` (`alive()`, `signal`) instead of hand-written token checks | `a8c9a08`, `c2dbfe8`, this commit |
 
 Not done on purpose: folding the People and Optimization views into `beginViewLoad`. Their loading is deliberately different (the keyed people grid that doesn't flicker, the progress screens), and the render job already gives them the same cancellation as the other views.
 
@@ -428,10 +428,10 @@ Not done on purpose: folding the People and Optimization views into `beginViewLo
 
 | # | Result | Commit |
 |---|---|---|
-| 22 | `web/tests`: Playwright on a generated fixture library, with people written into the index (the tests run without face recognition). 19 tests across the first scenarios of 6.3: groups and filters, the viewer and its keyboard handling, people, optimization, folders, rotate and remove, the phone layout. A `ui` job in CI | `60738fe` |
-| 23 | Tag and version checked against `Cargo.toml` and the notes before building; `SHA256SUMS` and build provenance on every release; prebuilt tauri-cli; write permissions only in the release job; concurrency, timeouts, artifact retention; desktop builds only for tags, by hand, or Rust and packaging changes; every action pinned to a SHA; Dependabot for actions, cargo and npm | `6771aa1` |
+| 22 | `web/tests`: Playwright on a generated fixture library, with people written into the index (the tests run without face recognition). 19 tests across the first scenarios of 6.3: groups and filters, the viewer and its keyboard handling, people, optimization, folders, rotate and remove, the phone layout. A `ui` job in CI | `6b2ddd5` |
+| 23 | Tag and version checked against `Cargo.toml` and the notes before building; `SHA256SUMS` and build provenance on every release; prebuilt tauri-cli; write permissions only in the release job; concurrency, timeouts, artifact retention; desktop builds only for tags, by hand, or Rust and packaging changes; every action pinned to a SHA; Dependabot for actions, cargo and npm | `50715c6` |
 | 24 | `justfile`, `scripts/release.sh`, `CONTRIBUTING.md` (with the contribution licensing note), `CODE_OF_CONDUCT.md`, issue forms, `docs/user-guide.md`, `docs/architecture.md`, `docs/api.md`, `docs/releasing.md`, `docs/server.md`; README with a short tour, Limitations, Troubleshooting, Documentation and Contributing | this commit |
-| 25 | `cargo-deny` job and `deny.toml`; `clap` behind a default `cli` feature; chrono without `serde`; stripped release binaries (the MSRV job came with phase 1) | `6771aa1` |
+| 25 | `cargo-deny` job and `deny.toml`; `clap` behind a default `cli` feature; chrono without `serde`; stripped release binaries (the MSRV job came with phase 1) | `50715c6` |
 
 Corrections on the way:
 
@@ -445,12 +445,12 @@ README screenshots, done after phase 5: `web/tests/screenshots.mjs` takes them o
 
 | # | Result | Commit |
 |---|---|---|
-| 27 | Desktop app: log file in the data folder (`logs/imadive.log`, the previous run's kept) with "Open log folder" in Settings; older `runtime/<version>` folders deleted on start; unpacked files checked byte for byte; the self-test fails when it can't write its report; one shared `DEFAULT_FACE_THRESHOLD`. Not done: the window before extraction (it only matters on the first start, for a second or two) | `4039886` |
-| 30 | Tests for face grouping (6.2 item 10) and for busy work refusing a second start (item 12); EXIF reading moved to `metadata.rs` with tests; the concurrency model in `scan.rs`'s module doc. Not done on purpose: migrations through `user_version`; the table of added columns works and is tested, and changing it only adds risk to existing indexes | `c74d43f`, `bec3fcf`, `6d18e40` |
+| 27 | Desktop app: log file in the data folder (`logs/imadive.log`, the previous run's kept) with "Open log folder" in Settings; older `runtime/<version>` folders deleted on start; unpacked files checked byte for byte; the self-test fails when it can't write its report; one shared `DEFAULT_FACE_THRESHOLD`. Not done: the window before extraction (it only matters on the first start, for a second or two) | `07c9b92` |
+| 30 | Tests for face grouping (6.2 item 10) and for busy work refusing a second start (item 12); EXIF reading moved to `metadata.rs` with tests; the concurrency model in `scan.rs`'s module doc. Not done on purpose: migrations through `user_version`; the table of added columns works and is tested, and changing it only adds risk to existing indexes | `d98f4a9`, `6518558`, `b943014` |
 
-Smaller points from sections 4.2, 4.5, 4.7 and 4.8, done on the way: photo rows read by name instead of by position; a danger colour token with a readable dark-mode value; a notice when the server can't be reached; a details cache and prefetch in the viewer; light progress polling in Optimization; a retry button on a view that failed to load (`6d18e40`, `a4b933c`, `0232356`).
+Smaller points from sections 4.2, 4.5, 4.7 and 4.8, done on the way: photo rows read by name instead of by position; a danger colour token with a readable dark-mode value; a notice when the server can't be reached; a details cache and prefetch in the viewer; light progress polling in Optimization; a retry button on a view that failed to load (`b943014`, `6bf7e55`, `55ea93a`).
 
-26, done in two steps. First `app.js` was split by area into ten files in `web/js/` (`4cb76cc`), then they became ES modules (this commit). On the way: the 12 variables assigned from other files now change only in their own module (through small setters where needed); `loadMeta` no longer reaches into the sidebar and the People view (they register with `onPeopleLoaded`), so `core` imports nothing and runs first; the inline `onload`/`onerror` handlers became one capturing listener per image kind; the modules live under a hashed path so their imports are cached per version. `web/tests/script-order.mjs` (acorn) checks the order the modules run in, a new browser test fails on any script error in any tab, and Escape no longer depends on which listener was added first. The flaky viewer keyboard test turned out to be a test problem (eight Tabs could go round the viewer before its details loaded) and was fixed, along with focus being lost when the details panel redraws.
+26, done in two steps. First `app.js` was split by area into ten files in `web/js/` (`15d4512`), then they became ES modules (this commit). On the way: the 12 variables assigned from other files now change only in their own module (through small setters where needed); `loadMeta` no longer reaches into the sidebar and the People view (they register with `onPeopleLoaded`), so `core` imports nothing and runs first; the inline `onload`/`onerror` handlers became one capturing listener per image kind; the modules live under a hashed path so their imports are cached per version. `web/tests/script-order.mjs` (acorn) checks the order the modules run in, a new browser test fails on any script error in any tab, and Escape no longer depends on which listener was added first. The flaky viewer keyboard test turned out to be a test problem (eight Tabs could go round the viewer before its details loaded) and was fixed, along with focus being lost when the details panel redraws.
 
 29, the API cleanup, for 0.2: `DELETE` for removing a photo (`?from=gallery|disk`), a folder (`?path=`) and the list of photos removed from the gallery; `PATCH /api/people/{id}`, which always answers with the person; the thumbnail's version in its path (`/thumb/{id}/{version}`), so an address with an old version is never cached; each duplicate file carries its version. Actions stay `POST` (scan, rotate, merge, "Not them", deleting duplicates, which can name thousands of ids). Photo rows stay arrays (`[id, width, height, taken, place, version]`): at 100,000 photos the keys would about triple the answer, and the page turns them into objects as it loads them. The changes are listed in `docs/api.md`.
 
