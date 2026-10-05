@@ -3,8 +3,8 @@
 How the gallery works, tab by tab. To install it, see the [README](../README.md).
 
 - [Photos](#photos)
-- [Upcoming](#upcoming)
 - [People](#people)
+- [Upcoming](#upcoming)
 - [The sidebar: people in the photo](#the-sidebar-people-in-the-photo)
 - [Dates and filter chips](#dates-and-filter-chips)
 - [The viewer](#the-viewer)
@@ -27,10 +27,6 @@ The timeline, sorted by capture date: the EXIF `DateTimeOriginal`, or the file d
 
 Every filter lives in the address, so a view can be bookmarked or shared with someone on the same network.
 
-## Upcoming
-
-Memories from past years whose anniversary falls in the next 7 to 90 days ("2 years ago today").
-
 ## People
 
 Faces are found in every photo and grouped into people automatically.
@@ -44,6 +40,10 @@ Faces are found in every photo and grouped into people automatically.
 Names are unique: using a name someone already has asks whether they are the same person (*Merge them*) or not (*Keep separate* adds a number, like "Ana (1)").
 
 After each scan only the new faces are placed into people, which is fast even with hundreds of thousands of faces. Regrouping everything from scratch is slower, and only happens on the first index or when you ask for it in Settings. Automatic grouping never moves a face you placed yourself.
+
+## Upcoming
+
+Memories from past years whose anniversary falls in the next 7 to 90 days ("2 years ago today").
 
 ## The sidebar: people in the photo
 

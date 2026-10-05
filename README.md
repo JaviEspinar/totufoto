@@ -163,8 +163,8 @@ Only photos stored on the Mac are found. Photos kept only in iCloud ("Optimize M
 ## Using the gallery
 
 - **Photos**: the timeline, as cards per month (or year, day or place); open a card to see its photos.
-- **Upcoming**: photos taken on the coming days in earlier years.
 - **People**: the faces found, grouped into people. Name them, merge two groups of the same person, hide the ones you don't care about.
+- **Upcoming**: photos taken on the coming days in earlier years.
 - **The sidebar**: tick people to see only their photos, together, any of them, or only them.
 - **The viewer**: arrow keys to move, a click to zoom, the details and the people on the side, and buttons to rotate, download or delete a photo.
 - **Optimization**: identical files, and how much space deleting the copies frees.
