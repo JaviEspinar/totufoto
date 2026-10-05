@@ -206,6 +206,34 @@ export function openSettings() {
   const dlg = $("#settingsDlg");
   if (!dlg.open) dlg.showModal();
 }
+// ---- the About dialog, opened from the logo -------------------------------------------
+/** The icon, the name, the version, and an invitation to support the project. The logos are
+ *  copies of the top bar's with their own ids: one of the bar's is always hidden, and a
+ *  gradient defined in a hidden SVG doesn't draw. */
+async function openAbout() {
+  const dlg = $("#aboutDlg"), art = $(".about-art", dlg);
+  if (!art.firstChild) {
+    art.innerHTML = [".brand-icon", ".brand-name"].map(s => $(s).outerHTML.replaceAll("brand-", "about-")).join("");
+  }
+  const st = lastStatus?.version ? lastStatus : await api("/api/status").catch(() => null);
+  $(".about-version", dlg).textContent = st?.version ? `Imadive v${st.version}` : "Imadive";
+  const coffee = st?.donate
+    ? `<a href="${esc(st.donate)}" target="_blank" rel="noopener">${t("buying me a coffee")}</a>`
+    : t("buying me a coffee");
+  $(".about-coffee", dlg).innerHTML = t("ImaDive is free. If you like it and find it useful, please consider {coffee} ☕", { coffee });
+  if (!dlg.open) dlg.showModal();
+}
+$("#brandBtn").onclick = openAbout;
+$("#aboutDlg").addEventListener("click", e => {
+  const dlg = $("#aboutDlg");
+  if (e.target === dlg || e.target.closest("[data-close]")) return dlg.close();
+  // The desktop app opens links in the system browser.
+  const link = e.target.closest("a[target=_blank]");
+  if (link && folderInfo.desktop) {
+    e.preventDefault();
+    post("/api/open", { url: link.href }).catch(err => toast(t("Couldn't open the link: {error}", { error: err.message }), true));
+  }
+});
 $("#settingsBtn").onclick = () => { openSettings(); loadFolders().then(() => { if ($("#settingsDlg").open) renderSettings(); }); };
 $("#settingsDlg").addEventListener("click", async e => {
   const dlg = $("#settingsDlg");

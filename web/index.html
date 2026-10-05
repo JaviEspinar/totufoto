@@ -24,7 +24,7 @@
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
 </svg>
 <header>
-  <div class="brand" role="img" aria-label="Imadive" title="Imadive">
+  <button type="button" class="brand" id="brandBtn" aria-label="About Imadive" title="About Imadive">
     <!-- docs/brand/imadive-name.svg (the "Ima" coloured by the theme) and imadive-icon.svg -->
     <svg class="brand-name" viewBox="158 846 944 178" aria-hidden="true">
 <defs>
@@ -80,7 +80,7 @@
     <path fill="url(#brand-hill-front)" d="M505 616C565 612 610 572 660 563C690 558 720 565 760 576V660H505Z"/>
   </g>
     </svg>
-  </div>
+  </button>
   <nav id="tabs">
     <button data-view="photos" class="on">Photos</button>
     <button data-view="people">People</button>
@@ -197,6 +197,15 @@
     <div class="browse-list"></div>
     <div class="err"></div>
     <div class="dlg-actions"><button class="btn" data-close>Cancel</button><button class="btn primary" data-add-here>Add this folder</button></div>
+  </div>
+</dialog>
+
+<dialog id="aboutDlg" class="about-dlg" aria-label="About Imadive">
+  <div class="dlg-head"><button data-close title="Close">✕</button></div>
+  <div class="dlg-body">
+    <div class="about-art"></div>
+    <p class="about-version"></p>
+    <p class="about-coffee"></p>
   </div>
 </dialog>
 

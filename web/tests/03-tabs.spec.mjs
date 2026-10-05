@@ -46,3 +46,16 @@ test("Settings: About, adding and removing a folder", async ({ page }) => {
   await expect(settings.locator(".folder")).toHaveCount(1);
   await expect(page.locator("#toast")).toContainText("1 photo removed from the gallery");
 });
+
+test("the logo opens About: the icon, the name, the version and the coffee", async ({ page }) => {
+  await page.goto("/");
+  const { version } = await (await page.request.get("/api/status")).json();
+  await page.locator("#brandBtn").click();
+  const about = page.locator("#aboutDlg");
+  await expect(about).toHaveAttribute("open");
+  await expect(about.locator(".about-art svg")).toHaveCount(2);
+  await expect(about.locator(".about-version")).toHaveText(`Imadive v${version}`);
+  await expect(about.locator(".about-coffee")).toContainText("buying me a coffee");
+  await about.locator("[data-close]").click();
+  await expect(about).not.toHaveAttribute("open");
+});

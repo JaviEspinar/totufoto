@@ -44,6 +44,7 @@ header {
   position: sticky; top: 0; z-index: 5;
 }
 .brand { display: flex; align-items: center; margin-right: 8px; flex: none; }
+button.brand { border: 0; background: none; padding: 2px; margin-left: -2px; border-radius: 8px; color: inherit; cursor: pointer; }
 .brand svg { display: block; }
 .brand-name { height: 21px; width: auto; }
 .brand-name .ima { fill: var(--brand-ink); }
@@ -491,6 +492,18 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 .folder.removing { flex-wrap: wrap; }
 .folder .remove-progress { flex: 1 1 180px; font-size: 12px; color: var(--muted); }
 .folder .remove-progress progress { width: 100%; height: 8px; margin-top: 4px; accent-color: var(--accent); }
+/* The About dialog (the logo): the icon, the name, the version and the coffee. */
+.about-dlg { width: min(380px, calc(100vw - 32px)); text-align: center; }
+.about-dlg .dlg-head { justify-content: flex-end; padding-bottom: 0; }
+.about-dlg .dlg-body { padding: 0 28px 28px; }
+.about-art { display: flex; flex-direction: column; align-items: center; gap: 16px; margin-bottom: 18px; }
+.about-art svg { display: block; width: auto; }
+.about-art .about-icon { height: 128px; }
+.about-art .about-name { height: 34px; }
+.about-name .ima { fill: var(--brand-ink); }
+.about-version { margin: 0 0 14px; font-weight: 600; }
+.about-coffee { margin: 0; color: var(--muted); line-height: 1.55; }
+.about-coffee a { color: var(--accent); }
 .prefs { display: flex; flex-wrap: wrap; gap: 10px 24px; margin: 6px 0 4px; }
 .prefs label { display: flex; align-items: center; gap: 8px; }
 .about p { margin: 0 0 6px; font-size: 13px; color: var(--muted); }

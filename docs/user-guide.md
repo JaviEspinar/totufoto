@@ -104,7 +104,7 @@ After each scan, Imadive looks in the background for identical photo files (the 
 
 ## Settings: photo folders and the library
 
-Settings is the gear at the top right.
+Settings is the gear at the top right. (The ImaDive logo at the top left shows the version, and how to support the project.)
 
 **Photo folders**
 

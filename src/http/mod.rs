@@ -48,6 +48,9 @@ const SCRIPTS: [(&str, &str); 12] = [
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 /// The project's pages, linked from Settings. Update it when the repository moves.
 const PROJECT_URL: &str = "https://github.com/JaviEspinar/totufoto";
+/// Where people can support the project ("buy me a coffee" in the About dialog). None hides
+/// the link and keeps the sentence.
+const DONATE_URL: Option<&str> = None;
 
 /// The page, with its stylesheet and scripts linked by a hash of their contents
 /// (`/app.css?v=<hash>`, `/js/<hash>/main.js`): browsers may keep them for good, and still
@@ -366,7 +369,9 @@ mod tests {
         assert_eq!((&v[0]["name"], &v[1]["name"]), (&json!("Ana"), &JsonValue::Null), "named first");
 
         let (_, v) = get("/api/status".into()).await;
-        for k in ["excluded", "failed", "phase", "running", "total", "done", "faces", "removing", "version", "logs"] {
+        for k in [
+            "excluded", "failed", "phase", "running", "total", "done", "faces", "removing", "version", "logs", "donate",
+        ] {
             assert!(v.get(k).is_some(), "status.{k}");
         }
         assert_eq!(v["failed"], 1);

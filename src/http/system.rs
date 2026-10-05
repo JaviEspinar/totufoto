@@ -21,6 +21,7 @@ pub(super) async fn status(State(s): State<Shared>) -> ApiResult<Json<JsonValue>
     value["excluded"] = excluded.into();
     value["version"] = env!("CARGO_PKG_VERSION").into();
     value["project"] = super::PROJECT_URL.into();
+    value["donate"] = super::DONATE_URL.into();
     // The desktop app keeps a log file, which Settings can show (see /api/logs/reveal).
     value["logs"] = s.host.as_ref().is_some_and(|h| h.log_file().is_some()).into();
     Ok(Json(value))
@@ -56,18 +57,19 @@ pub(super) struct OpenBody {
 }
 
 /// Opens a link in the system browser (desktop app only). Limited to the sites the UI links
-/// to (maps, and the project's pages from Settings), so the endpoint can't be used to launch
-/// arbitrary URLs.
+/// to (maps, the project's pages, the donation page), so the endpoint can't be used to
+/// launch arbitrary URLs.
 pub(super) async fn open_url(State(s): State<Shared>, Json(body): Json<OpenBody>) -> ApiResult<StatusCode> {
     match &s.host {
         Some(host)
             if body.url.starts_with("https://www.openstreetmap.org/")
-                || body.url.starts_with(&format!("{}/", super::PROJECT_URL)) =>
+                || body.url.starts_with(&format!("{}/", super::PROJECT_URL))
+                || super::DONATE_URL.is_some_and(|donate| body.url == donate) =>
         {
             host.open_url(&body.url);
             Ok(StatusCode::NO_CONTENT)
         }
-        Some(_) => Err(ApiError::forbidden("only map links can be opened")),
+        Some(_) => Err(ApiError::forbidden("only the gallery's own links can be opened")),
         None => Err(ApiError::desktop_only("open links")),
     }
 }
