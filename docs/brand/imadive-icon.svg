@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="350 254 552 550" role="img" aria-label="ImaDive">
+  <defs>
+    <linearGradient id="br-tl" x1="0" y1="262" x2="0" y2="445" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#05A3FA"/><stop offset="1" stop-color="#1062F5"/>
+    </linearGradient>
+    <linearGradient id="br-tr" x1="0" y1="262" x2="0" y2="445" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00E0B2"/><stop offset="1" stop-color="#00C6C8"/>
+    </linearGradient>
+    <linearGradient id="br-b" x1="0" y1="616" x2="0" y2="795" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2A58E2"/><stop offset="1" stop-color="#1B37B8"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="824" y1="335" x2="430" y2="730" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00D4B6"/>
+      <stop offset="0.42" stop-color="#0A8DFF"/>
+      <stop offset="0.75" stop-color="#1446EC"/>
+      <stop offset="1" stop-color="#1C33C4"/>
+    </linearGradient>
+    <linearGradient id="sky" x1="540" y1="440" x2="720" y2="590" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4AB8F6"/><stop offset="1" stop-color="#46E6EC"/>
+    </linearGradient>
+    <linearGradient id="hill-back" x1="0" y1="520" x2="0" y2="645" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1E8CF0"/><stop offset="1" stop-color="#0D6CE0"/>
+    </linearGradient>
+    <linearGradient id="hill-front" x1="520" y1="560" x2="737" y2="645" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0C66D4"/><stop offset="1" stop-color="#0784BE"/>
+    </linearGradient>
+    <clipPath id="lens"><circle cx="627" cy="535" r="110"/></clipPath>
+  </defs>
+
+  <g fill="none" stroke-width="55" stroke-linecap="round">
+    <path stroke="url(#br-tl)" d="M386 418V376a86 86 0 0 1 86-86h36"/>
+    <path stroke="url(#br-tr)" d="M745 290h36a86 86 0 0 1 86 86v42"/>
+    <path stroke="url(#br-b)" d="M386 644v36a86 86 0 0 0 86 86h37"/>
+    <path stroke="url(#br-b)" d="M744 766h37a86 86 0 0 0 86-86v-36"/>
+  </g>
+
+  <path fill="none" stroke="url(#ring)" stroke-width="57" stroke-linecap="round"
+        d="M690 688A168 168 0 1 1 765 628C750 652 756 670 790 694"/>
+
+  <g clip-path="url(#lens)">
+    <rect x="510" y="420" width="240" height="240" fill="url(#sky)"/>
+    <circle cx="668" cy="488" r="22" fill="#fff"/>
+    <path fill="url(#hill-back)" d="M505 562L578 522Q590 515 602 522L668 566L760 576V660H505Z"/>
+    <path fill="url(#hill-front)" d="M505 616C565 612 610 572 660 563C690 558 720 565 760 576V660H505Z"/>
+  </g>
+</svg>
