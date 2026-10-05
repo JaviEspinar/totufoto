@@ -13,9 +13,15 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["appimage"],
+    "targets": ["appimage", "deb"],
     "category": "Photography",
     "shortDescription": "Fast local photo gallery with places and people",
+    "longDescription": "Imadive indexes your photo folders and shows them as a timeline, by place, with upcoming anniversaries and the people found by face recognition. Everything runs on your computer; nothing is uploaded.",
+    "linux": {
+      "deb": {
+        "section": "graphics"
+      }
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

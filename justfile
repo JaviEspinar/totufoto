@@ -56,12 +56,12 @@ deny:
 [unix]
 check: lint test deny ui-test
 
-# Build the desktop app (Linux: AppImage; Windows: exe), after `just fetch`
+# Build the desktop app (Linux: AppImage and .deb; Windows: exe), after `just fetch`
 [linux]
 desktop:
-    cd desktop && cargo tauri build --bundles appimage
+    cd desktop && cargo tauri build --bundles appimage,deb
 
-# Build the desktop app (Linux: AppImage; Windows: exe), after `just fetch`
+# Build the desktop app (Linux: AppImage and .deb; Windows: exe), after `just fetch`
 [windows]
 desktop:
     cargo build --release -p imadive-desktop --features custom-protocol

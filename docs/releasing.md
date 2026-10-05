@@ -24,7 +24,7 @@ There is one version for both packages, in `[workspace.package]` in `Cargo.toml`
    The script checks that you are on a clean `main`, that the notes exist, have a Downloads section and name this version's files, then sets the version, updates `Cargo.lock`, commits "Release X.Y.Z" and tags `vX.Y.Z`. It doesn't push.
 4. **Publish**: `git push origin main vX.Y.Z`.
 5. **Watch the Desktop apps run**. It fails before building anything if the tag doesn't match `Cargo.toml` or the notes are missing.
-6. **Check the release page**: both files, `SHA256SUMS`, and the notes.
+6. **Check the release page**: the three files (exe, AppImage, .deb), `SHA256SUMS`, and the notes.
 
 If something goes wrong after pushing the tag, fix it on `main` and release the next patch version rather than moving the tag: people may already have downloaded the files.
 
@@ -38,7 +38,8 @@ One or two sentences: what this version is about.
 ## Downloads
 
 - **Windows 10/11**: `Imadive-X.Y.Z-windows-x64.exe`. Double-click it. It is not signed, so the first time Windows may show "Windows protected your PC": click **More info**, then **Run anyway**.
-- **Linux (x86-64)**: `Imadive-X.Y.Z-linux-x86_64.AppImage`. Run `chmod +x Imadive-*.AppImage`, then start it. If it says FUSE is missing, install `libfuse2` or run it with `--appimage-extract-and-run`.
+- **Debian, Ubuntu and Linux Mint** (Debian 12 or Ubuntu 22.04 and newer): `Imadive-X.Y.Z-linux-amd64.deb`. Install it with `sudo apt install ./Imadive-X.Y.Z-linux-amd64.deb`, then start Imadive from the applications menu.
+- **Other Linux distributions (x86-64)**: `Imadive-X.Y.Z-linux-x86_64.AppImage`. Run `chmod +x Imadive-*.AppImage`, then start it. If it says FUSE is missing, install `libfuse2` or run it with `--appimage-extract-and-run`.
 
 Your folders, people names and index carry over from earlier versions; nothing is indexed again.
 

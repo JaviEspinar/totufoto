@@ -1,6 +1,7 @@
 name: Desktop apps
 
-# Builds the Windows and Linux desktop apps and checks each one with its self-test. For a
+# Builds the Windows and Linux desktop apps (an exe; an AppImage for any distribution and a
+# .deb for Debian and Ubuntu) and checks each one with its self-test. For a
 # version tag (v*) it also publishes them as a GitHub Release, with checksums and build
 # provenance. A push to main builds them when Rust code, dependencies or packaging change,
 # not for documentation, UI or test changes (ci.yml covers those); it can also be run by
@@ -91,13 +92,15 @@ jobs:
         with:
           tool: tauri-cli@2
 
-      - name: Build AppImage
+      - name: Build AppImage and .deb
         if: runner.os == 'Linux'
         working-directory: desktop
         run: |
-          cargo tauri build --bundles appimage
+          cargo tauri build --bundles appimage,deb
           mkdir -p ../dist
           cp ../target/release/bundle/appimage/*.AppImage "../dist/Imadive-${VERSION}-linux-x86_64.AppImage"
+          cp ../target/release/bundle/deb/*.deb "../dist/Imadive-${VERSION}-linux-amd64.deb"
+          dpkg-deb --info ../dist/*.deb
 
       - name: Build exe
         if: runner.os == 'Windows'
@@ -130,6 +133,23 @@ jobs:
           # Also as an annotation, which shows on the run page without opening the log.
           level=$([ $code -eq 0 ] && echo notice || echo error)
           echo "::$level title=Self-test (Linux)::$(tail -n 60 out.txt | sed 's/\x1b\[[0-9;]*m//g' | awk '{printf "%s%%0A", $0}')"
+          exit $code
+
+      # In a clean Debian 12, the oldest system the package is for: installing it must bring
+      # everything it needs, and the program it installs must pass the self-test.
+      - name: Self-test (.deb on Debian 12)
+        if: runner.os == 'Linux'
+        run: |
+          set +e
+          docker run --rm -v "$PWD:/w" -w /w debian:12 bash -c '
+            apt-get update -qq && apt-get install -y -qq ./dist/*.deb > /dev/null || exit 3
+            bin=$(dpkg -L imadive | grep "^/usr/bin/" | head -1)
+            echo "installed: $bin"
+            "$bin" --self-test /w/fixtures/photos' > out-deb.txt 2>&1
+          code=$?
+          cat out-deb.txt
+          level=$([ $code -eq 0 ] && echo notice || echo error)
+          echo "::$level title=Self-test (.deb on Debian 12)::$(tail -n 40 out-deb.txt | sed 's/\x1b\[[0-9;]*m//g' | awk '{printf "%s%%0A", $0}')"
           exit $code
 
       - name: Self-test (Windows)

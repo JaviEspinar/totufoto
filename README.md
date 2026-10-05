@@ -41,15 +41,20 @@ To report a security problem, see [SECURITY.md](SECURITY.md).
 
 ## Desktop app (Windows and Linux)
 
-Download the file for your system from the [latest release](https://github.com/JaviEspinar/totufoto/releases/latest) and run it. There is nothing to install: face recognition and everything it needs are built in.
+Download the file for your system from the [latest release](https://github.com/JaviEspinar/totufoto/releases/latest). Face recognition and everything it needs are built in.
 
 - **Windows 10/11**: `Imadive-<version>-windows-x64.exe`. Double-click it. It is not signed, so the first time Windows SmartScreen may say "Windows protected your PC": click **More info** → **Run anyway**.
-- **Linux (x86-64)**: `Imadive-<version>-linux-x86_64.AppImage`. Make it executable and run it:
+- **Debian, Ubuntu and Linux Mint** (Debian 12 or Ubuntu 22.04 and newer, x86-64): `Imadive-<version>-linux-amd64.deb`, the smaller download. Install it, then start **Imadive** from the applications menu:
+  ```sh
+  sudo apt install ./Imadive-*-linux-amd64.deb
+  ```
+  Installing a newer version the same way updates it; `sudo apt remove imadive` removes it (your library stays in its data folder).
+- **Other Linux distributions** (x86-64): `Imadive-<version>-linux-x86_64.AppImage`, which brings everything it needs, so it runs on most distributions without installing anything. Make it executable and run it:
   ```sh
   chmod +x Imadive-*.AppImage
   ./Imadive-*.AppImage
   ```
-  If it says FUSE is missing, install it (`sudo apt install libfuse2` on Ubuntu/Debian) or run it with `--appimage-extract-and-run`.
+  If it says FUSE is missing, install it (`libfuse2` on most distributions) or run it with `--appimage-extract-and-run`.
 
 On first start, click **Add folder…** and pick a folder with photos. Add more folders, or remove them, in **Settings** (the gear at the top right). A second launch brings the open window to the front.
 
@@ -74,7 +79,7 @@ Releases are built by GitHub Actions (`.github/workflows/desktop.yml`) when a `v
 ```sh
 # Linux (needs: libwebkit2gtk-4.1-dev libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev patchelf)
 cargo install tauri-cli --version "^2" --locked
-cd desktop && cargo tauri build --bundles appimage
+cd desktop && cargo tauri build --bundles appimage,deb
 
 # Windows: a single portable exe in target\release\imadive-desktop.exe
 cargo build --release -p imadive-desktop --features custom-protocol
