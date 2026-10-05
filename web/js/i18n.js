@@ -8,16 +8,15 @@ import es from "./i18n_es.js";
 export const languages = { en: "English", es: "Español" };
 const dictionaries = { es };
 
-/** The page's language: the one chosen in Settings, else the browser's, else English. */
+/** The page's language: the one chosen in Settings, else the browser's own language when
+ *  the page has it, else English. Only the browser's first language counts: one set to
+ *  French with Spanish as a second choice gets English. */
 export const lang = (() => {
   let chosen = null;
   try { chosen = localStorage.getItem("imadive.lang"); } catch {}
   if (chosen in languages) return chosen;
-  for (const l of navigator.languages ?? [navigator.language]) {
-    const code = String(l).slice(0, 2).toLowerCase();
-    if (code in languages) return code;
-  }
-  return "en";
+  const browser = String(navigator.languages?.[0] ?? navigator.language ?? "").slice(0, 2).toLowerCase();
+  return browser in languages ? browser : "en";
 })();
 document.documentElement.lang = lang;
 const dict = dictionaries[lang] ?? {};

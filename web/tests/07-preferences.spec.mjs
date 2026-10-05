@@ -43,3 +43,23 @@ test("Spanish: the page, its numbers and the server's messages", async ({ page }
   await browse.locator("[data-add-here]").click();
   await expect(browse.locator(".err")).toContainText("ya está en la galería");
 });
+
+test("without a choice: the browser's language if the page has it, else English", async ({ browser, baseURL }) => {
+  const tabs = async languages => {
+    const context = await browser.newContext({ baseURL });
+    await context.addInitScript(list => {
+      Object.defineProperty(navigator, "languages", { get: () => list });
+      Object.defineProperty(navigator, "language", { get: () => list[0] });
+    }, languages);
+    const page = await context.newPage();
+    await page.goto("/");
+    const text = await page.locator('nav [data-view="people"]').innerText();
+    await context.close();
+    return text;
+  };
+  expect(await tabs(["es-ES", "en"])).toBe("Personas");
+  expect(await tabs(["es-MX"])).toBe("Personas");
+  expect(await tabs(["fr-FR", "es-ES"])).toBe("People"); // Spanish only as a second choice
+  expect(await tabs(["de-DE"])).toBe("People");
+  expect(await tabs(["en-GB", "es-ES"])).toBe("People");
+});
