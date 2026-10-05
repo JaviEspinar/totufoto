@@ -62,9 +62,17 @@ test("keyboard: focus goes into the viewer and back to the photo", async ({ page
   await tile.focus();
   await page.keyboard.press("Enter");
   await expect(page.locator("#viewer .close")).toBeFocused();
-  for (let i = 0; i < 8; i++) {
+  // With the details in, so there is more to go through than the photo's buttons.
+  await expect(page.locator("#viewer .info-body h3")).toBeVisible();
+  for (let i = 0; i < 12; i++) {
     await page.keyboard.press("Tab");
-    await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest("#viewer"))).toBe(true);
+    // Inside the viewer, or for one step at the end of the round on the page itself (the
+    // browser's stop before going back to the first button): never anything behind it.
+    const where = await page.evaluate(() => {
+      const a = document.activeElement;
+      return a === document.body ? "page" : a?.closest("#viewer") ? "viewer" : a?.outerHTML.slice(0, 80);
+    });
+    expect(["viewer", "page"]).toContain(where);
   }
   await page.keyboard.press("Escape");
   await expect(tile).toBeFocused();

@@ -34,7 +34,7 @@ just ui-test   # the browser tests (builds the release binary, installs Chromium
 CI runs the same checks, the tests on Linux, macOS and Windows, a build with the minimum Rust version, and `cargo deny` on the dependencies.
 
 - **Rust**: `cargo fmt` formats the code (`rustfmt.toml`); clippy must be clean.
-- **Web UI**: plain HTML, CSS and JavaScript in `web/`, with no build step and no dependencies; keep it that way. The script is split by area into `web/js/`, plain scripts loaded in a fixed order (see [How it works](docs/architecture.md#the-page-web)). Match the style of the code around your change. For a change visible in the page, a browser test in `web/tests` helps, and a screenshot in the pull request helps more.
+- **Web UI**: plain HTML, CSS and JavaScript in `web/`, with no build step and no dependencies; keep it that way. The script is split by area into ES modules in `web/js/` (see [How it works](docs/architecture.md#the-page-web)). Match the style of the code around your change. For a change visible in the page, a browser test in `web/tests` helps, and a screenshot in the pull request helps more.
 - **Tests**: a fix comes with a test that fails without it when that is practical. `src/testutil.rs` makes temporary libraries with real JPEG files and EXIF data, so most of the gallery can be tested without face models.
 - **Anything that deletes or changes photo files** needs a test, and must only touch files inside the photo folders.
 - **The index**: new columns go through the migrations in `src/db/mod.rs`, and an index made by an older version must keep working.

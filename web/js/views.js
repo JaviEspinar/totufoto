@@ -1,9 +1,17 @@
-"use strict";
 // render(): one job per view; and the clicks in the main area.
-// Part of the page's script, split by area; see web/index.html for the order.
+// One of the page's modules; main.js starts the page.
+import { $, esc, saveHash, state } from "./core.js";
+import { renderPeopleList, setDrawer, updateRailCount } from "./sidebar.js";
+import { onChipClick, photos, rememberCards, renderPhotos, renderUpcoming } from "./photos.js";
+import { renderOptimization } from "./optimization.js";
+import { openMerge, renamePerson, renderPeople, toggleHidden, unmountPeopleGrid } from "./people.js";
+import { openViewer } from "./viewer.js";
 
+let renderToken = 0;
+/** The render job of the view on screen: { token, signal, alive() } (see render()). */
+export let currentJob = { token: 0, signal: undefined, alive: () => true };
 let viewRequest = null; // the current view's request, cancelled when another view replaces it
-async function render() {
+export async function render() {
   saveHash();
   for (const b of $("#tabs").children) {
     b.classList.toggle("on", b.dataset.view === state.view);
@@ -23,8 +31,7 @@ async function render() {
   viewRequest?.abort();
   viewRequest = new AbortController();
   const job = currentJob = { token, signal: viewRequest.signal, alive: () => token === renderToken };
-  peopleGrid?.destroy();
-  peopleGrid = null;
+  unmountPeopleGrid();
   main.scrollTop = 0;
   try {
     if (state.view === "photos") await renderPhotos(main, job);
@@ -46,7 +53,7 @@ $("#main").addEventListener("click", e => {
   if (t) { e.preventDefault(); return openViewer(photos.findIndex(p => p.id === +t.dataset.id)); }
   const group = e.target.closest("[data-group]");
   if (group) {
-    cardsReturn = { key: cardsViewKey(), scroll: $("#main").scrollTop };
+    rememberCards();
     const key = group.dataset.group;
     if (state.groupBy === "place") state.place = +key;
     else state.date = key;
@@ -65,7 +72,7 @@ $("#main").addEventListener("change", e => {
 $("#main").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset.rename) e.target.blur(); });
 
 // Date range: either end may be empty; each picker can't go past the other.
-function syncRangeInputs() {
+export function syncRangeInputs() {
   const from = $("#fromDate"), to = $("#toDate");
   from.value = state.from || "";
   to.value = state.to || "";

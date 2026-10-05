@@ -1,6 +1,11 @@
-"use strict";
-// The Back button, and startup. Loaded last: everything it starts is defined by now.
-// Part of the page's script, split by area; see web/index.html for the order.
+// The Back button, and startup. The page's entry point: the modules it imports (and
+// theirs) run first, so everything it starts is ready.
+import { loadHash, loadMeta, saveHash, state } from "./core.js";
+import { renderPeopleList, setDrawer, setViewPanel } from "./sidebar.js";
+import { render, syncRangeInputs } from "./views.js";
+import { askChoice, closeViewer, viewer } from "./viewer.js";
+import { folderInfo, loadFolders } from "./settings.js";
+import { pollStatus } from "./status.js";
 
 // ---- the Back button ------------------------------------------------------------------
 // The page keeps one entry of its own above the one it was opened with. Back lands on the

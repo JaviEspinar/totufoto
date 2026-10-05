@@ -1,19 +1,35 @@
-"use strict";
 // The People view, the merge dialog, and changes to people (shown at once, saved after).
-// Part of the page's script, split by area; see web/index.html for the order.
+// One of the page's modules; main.js starts the page.
+import { $, esc, loadMeta, onPeopleLoaded, people, personById, personName, plural, post, pref, setPeople, state } from "./core.js";
+import { matchPeople, peopleOrder, peopleSort, renderPeopleList, resetPeopleOrder, restorePeopleOrder, setPeopleSort } from "./sidebar.js";
+import { render } from "./views.js";
+import { openViewer, viewerIndex } from "./viewer.js";
 
 // ---- people grid ---------------------------------------------------------------------
 // Libraries can have tens of thousands of people, so only the cards on screen exist in the
 // page. Everything else (opening dialogs, merging, searching) stays cheap because of that.
 const CARD_MIN_W = 150, GRID_GAP = 14, OVERSCAN_ROWS = 2;
 let peopleGrid = null, peopleQuery = "";
+// The People tab opened before there was anyone: show them once there are.
+onPeopleLoaded(() => {
+  if (state.view === "people" && !peopleGrid && people.length && $("#peopleHost .blank, #peopleHost .skeleton")) render();
+});
+export function unmountPeopleGrid() {
+  peopleGrid?.destroy();
+  peopleGrid = null;
+}
 
 // Faces fade in the first time they load; after that they show at once.
 const loadedFaces = new Set();
 function faceLoaded(img) { loadedFaces.add(img.dataset.face); img.classList.add("ok"); }
+// Loaded or failed, a face picture stops shimmering. (Load events don't bubble, so this
+// listens on the way down.)
+for (const type of ["load", "error"]) {
+  document.addEventListener(type, e => { if (e.target.matches?.("img[data-face]")) faceLoaded(e.target); }, true);
+}
 const faceImg = id => loadedFaces.has(String(id))
   ? `<img src="/face/${id}" alt="" data-face="${id}" class="ok">`
-  : `<img src="/face/${id}" alt="" data-face="${id}" decoding="async" onload="faceLoaded(this)" onerror="faceLoaded(this)">`;
+  : `<img src="/face/${id}" alt="" data-face="${id}" decoding="async">`;
 const faceCard = p => `
   <div class="card face-card ${p.hidden ? "hidden-person" : ""}" data-person="${p.id}">
     <div class="avatar" title="Show photos" tabindex="0" role="button" aria-label="Show ${esc(personName(p))}'s photos">${faceImg(p.face)}</div>
@@ -172,7 +188,7 @@ function peopleCountText(n) {
 }
 /** Redraws everything that shows people from the in-memory list (cheap). `animate` makes
  *  cards slide to their new places, for changes like a merge. */
-function refreshPeopleViews({ animate = true } = {}) {
+export function refreshPeopleViews({ animate = true } = {}) {
   renderPeopleList();
   if (!peopleGrid) return;
   const items = matchPeople(peopleQuery);
@@ -181,7 +197,7 @@ function refreshPeopleViews({ animate = true } = {}) {
 }
 
 const SKELETON_DELAY = 150;
-async function renderPeople(main, job) {
+export async function renderPeople(main, job) {
   main.innerHTML = `<div class="people-bar">
       <input class="search" id="peopleSearch" type="search" placeholder="Search people" autocomplete="off" value="${esc(peopleQuery)}">
       <span id="peopleCount"></span>
@@ -232,8 +248,7 @@ async function renderPeople(main, job) {
     remount();
   });
   $("#peopleSort").addEventListener("change", e => {
-    peopleSort = e.target.value;
-    pref.set("peopleSort", peopleSort);
+    setPeopleSort(e.target.value);
     resetPeopleOrder();
     main.scrollTop = 0;
     refreshPeopleViews({ animate: false });
@@ -288,13 +303,13 @@ function openPicker() {
     if (mergeFrom === opened.mergeFrom && assignFace === opened.assignFace && $("#mergeDlg").open) renderMergeCandidates();
   });
 }
-function openMerge(id) {
+export function openMerge(id) {
   mergeFrom = id;
   assignFace = null;
   openPicker();
 }
 /** Picks who a single face in a photo is. `current` is the face's person, if any. */
-function openAssign(face, current) {
+export function openAssign(face, current) {
   mergeFrom = current;
   assignFace = face;
   openPicker();
@@ -329,9 +344,9 @@ function showMergeStep(into) {
 }
 // The picker lists people A to Z (accents and case ignored, "Person 2" before "Person 10"),
 // with unnamed people last. Sorted once per people list.
-const nameCollator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
+export const nameCollator = new Intl.Collator(undefined, { sensitivity: "base", numeric: true });
 let alphabeticalCache = null;
-function peopleAlphabetical() {
+export function peopleAlphabetical() {
   if (alphabeticalCache?.source === people) return alphabeticalCache.out;
   const out = [...people].sort((a, b) =>
     !a.name !== !b.name ? (a.name ? -1 : 1)
@@ -366,7 +381,7 @@ $("#mergeDlg").addEventListener("click", e => {
 
 // ---- people changes: shown at once, saved in the background ---------------------------
 let toastTimer = 0;
-function toast(message, error = false) {
+export function toast(message, error = false) {
   const el = $("#toast");
   el.textContent = message;
   el.classList.toggle("error", error);
@@ -392,8 +407,7 @@ function mergePeople(from, into) {
     .then(resync)
     .catch(err => {
       toast(`Couldn't merge ${label}: ${err.message}`, true);
-      peopleOrder = orderBefore;
-      orderedCache = null;
+      restorePeopleOrder(orderBefore);
       resync();
     });
 }
@@ -412,7 +426,7 @@ async function assignFaceTo(face, person) {
   if (viewerIndex >= 0) openViewer(viewerIndex);
 }
 
-function toggleHidden(id) {
+export function toggleHidden(id) {
   const p = personById(id);
   if (!p) return;
   p.hidden = !p.hidden;
@@ -457,7 +471,7 @@ function askSameName(p, other, name, keepName) {
   });
 }
 
-async function renamePerson(id, value) {
+export async function renamePerson(id, value) {
   const p = personById(id);
   let name = value.trim() || null;
   if (!p || p.name === name) return;

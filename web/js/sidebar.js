@@ -1,22 +1,31 @@
-"use strict";
 // The People in the photo column, and the panels that replace it on small screens.
-// Part of the page's script, split by area; see web/index.html for the order.
+// One of the page's modules; main.js starts the page.
+import { $, onPeopleLoaded, people, personById, personName, pref, saveHash, state } from "./core.js";
+import { nameCollator, peopleAlphabetical, renamePerson } from "./people.js";
+import { render } from "./views.js";
+import { viewer } from "./viewer.js";
 
 // ---- sidebar ---------------------------------------------------------------
 // People keep their place on screen while you work: renaming someone (named people sort
 // first) or refreshing counts must not reshuffle the list under you. The order is taken
 // fresh from the server when the People tab is opened; new people are added at the end.
-let peopleOrder = [], orderedCache = null;
+export let peopleOrder = [], orderedCache = null;
 // The People tab's sort: "count" (most photos first) or "name" (A to Z, unnamed last).
-let peopleSort = "count";
+export let peopleSort = "count";
 if (pref.get("peopleSort") === "name") peopleSort = "name";
+export function setPeopleSort(sort) {
+  peopleSort = sort;
+  pref.set("peopleSort", sort);
+}
 function sortedPeople() {
   if (peopleSort === "name") return peopleAlphabetical();
   return [...people].sort((a, b) => b.count - a.count
     || (!a.name !== !b.name ? (a.name ? -1 : 1) : a.name ? nameCollator.compare(a.name, b.name) : 0)
     || a.id - b.id);
 }
-function resetPeopleOrder() { peopleOrder = sortedPeople().map(p => p.id); orderedCache = null; }
+export function resetPeopleOrder() { restorePeopleOrder(sortedPeople().map(p => p.id)); }
+/** Puts back an order saved before (after a change that failed, say). */
+export function restorePeopleOrder(order) { peopleOrder = order; orderedCache = null; }
 function orderedPeople() {
   if (!peopleOrder.length && people.length) resetPeopleOrder();
   // Recomputed only when the people list or the order changed.
@@ -31,7 +40,7 @@ function orderedPeople() {
 }
 
 /** People whose name matches `query`, in display order. */
-function matchPeople(query, list = orderedPeople()) {
+export function matchPeople(query, list = orderedPeople()) {
   const q = query.trim().toLowerCase();
   return q ? list.filter(p => personName(p).toLowerCase().includes(q)) : list;
 }
@@ -75,12 +84,12 @@ const isPhone = () => matchMedia("(max-width: 639px)").matches;
 $("#asideToggle").addEventListener("click", () => isPhone() ? setDrawer(false) : setAsideCollapsed(!document.body.classList.contains("aside-collapsed")));
 
 // ---- small screens: the people panel and the View panel --------------------------------
-function setDrawer(open) {
+export function setDrawer(open) {
   document.body.classList.toggle("drawer-open", open);
   $("#peopleBtn").setAttribute("aria-expanded", String(open));
   if (open) setViewPanel(false);
 }
-function setViewPanel(open) {
+export function setViewPanel(open) {
   document.body.classList.toggle("view-open", open);
   $("#viewBtn").setAttribute("aria-expanded", String(open));
 }
@@ -103,7 +112,7 @@ document.addEventListener("click", e => {
   e.stopPropagation();
 }, true);
 document.addEventListener("keydown", e => {
-  if (e.key !== "Escape" || document.querySelector("dialog[open]") || viewer.classList.contains("open")) return;
+  if (e.key !== "Escape" || e.defaultPrevented || document.querySelector("dialog[open]") || viewer.classList.contains("open")) return;
   setDrawer(false); setViewPanel(false);
 });
 // The top bar's height (two rows on phones), for placing the View panel under it.
@@ -112,7 +121,7 @@ if (pref.get("asideCollapsed") === "1") setAsideCollapsed(true);
 
 let sidebarEditing = false;
 /** How many people are selected, on the collapsed column's strip. */
-function updateRailCount() {
+export function updateRailCount() {
   const btnCount = $("#peopleBtnCount");
   btnCount.hidden = !state.people.size;
   btnCount.textContent = state.people.size;
@@ -122,7 +131,7 @@ function updateRailCount() {
   railCount.textContent = state.people.size;
   railCount.title = `${state.people.size} ${state.people.size === 1 ? "person" : "people"} selected`;
 }
-function renderPeopleList() {
+export function renderPeopleList() {
   updateRailCount();
   const list = $("#peopleList");
   if (sidebarEditing) return; // redrawn when the edit ends
@@ -150,6 +159,7 @@ function renderPeopleList() {
   const keep = new Set(shown.map(p => p.id));
   for (const id of sidebarRows.keys()) if (!keep.has(id) && sidebarRows.size > 600) sidebarRows.delete(id);
 }
+onPeopleLoaded(renderPeopleList);
 $("#peopleFilter").addEventListener("input", renderPeopleList);
 $("#peopleList").addEventListener("change", e => {
   if (e.target.type !== "checkbox") return;

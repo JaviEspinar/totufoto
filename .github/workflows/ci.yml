@@ -32,8 +32,6 @@ jobs:
           toolchain: stable
           components: rustfmt
       - run: cargo fmt --all --check
-      # The UI's scripts, built into the binary as they are: at least they must parse.
-      - run: for f in web/js/*.js; do node --check "$f" || exit 1; done
 
   clippy:
     name: Lints
@@ -118,7 +116,8 @@ jobs:
           cache: npm
           cache-dependency-path: web/tests/package-lock.json
       - run: npm ci
-      # The page's scripts use each other's names only in an order that works.
+      # The page's modules parse, are all reached from main.js, and use nothing at startup
+      # before it is set.
       - run: npm run check-scripts
       - run: npx playwright install --with-deps chromium
       - run: npx playwright test

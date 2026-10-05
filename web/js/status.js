@@ -1,12 +1,19 @@
-"use strict";
 // The scan status: polling it, and the progress shown outside Settings.
-// Part of the page's script, split by area; see web/index.html for the order.
+// One of the page's modules; main.js starts the page.
+import { $, api, esc, loadMeta, state } from "./core.js";
+import { indexedAtRender, shownPhotoCount } from "./photos.js";
+import { toast } from "./people.js";
+import { render } from "./views.js";
+import { viewer } from "./viewer.js";
+import { excludedHtml, failureCount, loadFailures, loadFolders, openSettings, removeProgressHtml, renderSettings, scanStateHtml } from "./settings.js";
 
 // ---- scan status -----------------------------------------------------------------
+/** The last /api/status answer (or what a change on this page made of it). */
+export let lastStatus = null;
+export function setLastStatus(st) { lastStatus = st; }
 let wasRunning = false;
 // ---- indexing progress outside Settings ---------------------------------------------
 let firstPhotosCheck = 0; // last look for the first photos while the library is still empty
-let indexedAtRender = 0; // photos indexed (this scan) when the Photos view was last drawn
 let pillHiddenUntilIdle = false, pillDoneTimer = 0, pillWasBusy = false;
 /** What the library is doing, for the card and the first-index screen; null when idle or
  *  only checking for changes (that is quick and needs no attention). */
@@ -31,14 +38,14 @@ function indexWork(s) {
   if (s.phase === "listing files" && !shownPhotoCount) return { title: "Looking for photos…", detail: "Listing the files in your folders" };
   return null;
 }
-function firstIndexHtml(s) {
+export function firstIndexHtml(s) {
   const w = indexWork(s) ?? { title: "Getting ready…", detail: "" };
   return `<h2>Indexing your photos</h2>
     <p>Photos appear here as they are indexed. You can close the app; it continues where it left off.</p>
     <progress ${w.total ? `max="${w.total}" value="${w.done}"` : ""}></progress>
     <div class="n">${esc(w.title)}${w.detail ? ` · ${esc(w.detail)}` : ""}</div>`;
 }
-function updateIndexPill(s) {
+export function updateIndexPill(s) {
   const pill = $("#indexPill"), w = indexWork(s);
   if (!s.running) pillHiddenUntilIdle = false;
   if (w) {
@@ -77,7 +84,7 @@ $("#indexPill").addEventListener("click", e => {
 });
 
 let pollFailures = 0;
-async function pollStatus() {
+export async function pollStatus() {
   let s;
   try { s = await api("/api/status"); } catch {
     // Otherwise the page just stops changing when the program is closed or the network drops.

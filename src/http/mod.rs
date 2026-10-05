@@ -25,8 +25,8 @@ const INDEX_HTML: &str = include_str!("../../web/index.html");
 
 const APP_CSS: &str = include_str!("../../web/app.css");
 
-/// The page's script, split by area, in the order the page loads it: as each file loads it
-/// may use what the earlier ones define, but not the later ones.
+/// The page's script: ES modules, one per area. The page loads main.js, which imports the
+/// others (see web/tests/script-order.mjs for the order they run in).
 const SCRIPTS: [(&str, &str); 10] = [
     ("core", include_str!("../../web/js/core.js")),
     ("sidebar", include_str!("../../web/js/sidebar.js")),
@@ -45,8 +45,9 @@ const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 const PROJECT_URL: &str = "https://github.com/JaviEspinar/totufoto";
 
 /// The page, with its stylesheet and scripts linked by a hash of their contents
-/// (`/js/core.js?v=...`): browsers may keep them for good, and still fetch the new ones
-/// after an upgrade, since the hash changes with them.
+/// (`/app.css?v=<hash>`, `/js/<hash>/main.js`): browsers may keep them for good, and still
+/// fetch the new ones after an upgrade, since the hash changes with them. The modules are
+/// under the hash as a folder, so the ones main.js imports (`./core.js`) carry it too.
 fn index_html() -> &'static str {
     static PAGE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     PAGE.get_or_init(|| {
@@ -56,14 +57,13 @@ fn index_html() -> &'static str {
             hasher.update(script.as_bytes());
         }
         let hash = hasher.finalize().to_hex();
-        let hash = &hash[..12];
-        let scripts: String =
-            SCRIPTS.iter().map(|(name, _)| format!("<script src=\"/js/{name}.js?v={hash}\"></script>\n")).collect();
-        INDEX_HTML.replace("{{scripts}}", &scripts).replace("{{assets}}", hash)
+        INDEX_HTML.replace("{{assets}}", &hash[..12])
     })
 }
 
-async fn script(axum::extract::Path(file): axum::extract::Path<String>) -> Response {
+/// A module, whatever hash its path carries: an old page asking after an upgrade gets the
+/// current files, as it would after a reload.
+async fn script(axum::extract::Path((_hash, file)): axum::extract::Path<(String, String)>) -> Response {
     let name = file.strip_suffix(".js").unwrap_or(&file);
     match SCRIPTS.iter().find(|(n, _)| *n == name) {
         Some((_, body)) => asset("text/javascript; charset=utf-8", body),
@@ -181,7 +181,7 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
     let router = Router::new()
         .route("/", get(|| async { Html(index_html()) }))
         .route("/app.css", get(|| async { asset("text/css; charset=utf-8", APP_CSS) }))
-        .route("/js/{file}", get(script))
+        .route("/js/{hash}/{file}", get(script))
         .route("/api/status", get(system::status))
         .route("/api/scan", post(system::start_scan))
         .route("/api/regroup", post(system::regroup))
@@ -399,20 +399,21 @@ mod tests {
         let page = app.clone().oneshot(get("/")).await.unwrap();
         let page = String::from_utf8(axum::body::to_bytes(page.into_body(), 1 << 20).await.unwrap().to_vec()).unwrap();
         assert!(!page.contains("{{assets}}"));
-        let scripts: Vec<&str> = page.split("<script src=\"").skip(1).map(|s| s.split('"').next().unwrap()).collect();
-        let order: Vec<String> = SCRIPTS.iter().map(|(n, _)| format!("/js/{n}.js")).collect();
-        assert_eq!(scripts.iter().map(|s| s.split('?').next().unwrap()).collect::<Vec<_>>(), order, "all, in order");
-        let hash = scripts[0].split("?v=").nth(1).unwrap();
+        let main = page.split("<script type=\"module\" src=\"").nth(1).unwrap().split('"').next().unwrap();
+        let hash = main.strip_prefix("/js/").and_then(|m| m.strip_suffix("/main.js")).expect(main);
         assert_eq!(hash.len(), 12);
         assert!(page.contains(&format!("/app.css?v={hash}")), "the stylesheet has the same hash");
-        let mut uris: Vec<(&str, &str)> = scripts.iter().map(|s| (*s, "text/javascript")).collect();
-        uris.push(("/app.css", "text/css"));
+        // Every module, where main.js's relative imports find it.
+        let mut uris: Vec<(String, &str)> =
+            SCRIPTS.iter().map(|(n, _)| (format!("/js/{hash}/{n}.js"), "text/javascript")).collect();
+        uris.push(("/app.css".into(), "text/css"));
         for (uri, kind) in uris {
-            let res = app.clone().oneshot(get(uri)).await.unwrap();
+            let res = app.clone().oneshot(get(&uri)).await.unwrap();
             assert_eq!(res.status(), StatusCode::OK, "{uri}");
             assert!(res.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with(kind));
         }
-        assert_eq!(app.clone().oneshot(get("/js/nothing.js")).await.unwrap().status(), StatusCode::NOT_FOUND);
+        let missing = app.clone().oneshot(get(&format!("/js/{hash}/nothing.js"))).await.unwrap();
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

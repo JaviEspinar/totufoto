@@ -1,9 +1,24 @@
-"use strict";
 // The photo viewer: details, faces, sharing, rotating, deleting, zoom and swipe.
-// Part of the page's script, split by area; see web/index.html for the order.
+// One of the page's modules; main.js starts the page.
+import { $, api, esc, fmtFull, icon, loadMeta, personById, personName, photoDetail, post, pref, regionName, state } from "./core.js";
+import { renderPeopleList } from "./sidebar.js";
+import { onePhotoLess, originalUrl, photos, thumbUrl, versionOf } from "./photos.js";
+import { openAssign, refreshPeopleViews, renamePerson, toast } from "./people.js";
+import { render } from "./views.js";
+import { folderInfo } from "./settings.js";
 
 // ---- viewer ----------------------------------------------------------------
-const viewer = $("#viewer");
+export const viewer = $("#viewer");
+/** The photo open in the viewer, as an index into `photos`; -1 when it is closed. */
+export let viewerIndex = -1;
+/** Replaces the details panel. Focus inside it would fall out of the viewer with the old
+ *  content, so it moves to the button that folds the details, next to them. */
+function setDetails(html) {
+  const body = $(".info-body", viewer);
+  const hadFocus = body.contains(document.activeElement);
+  body.innerHTML = html;
+  if (hadFocus) $("#infoToggle").focus();
+}
 /** Sizes the photo to its final on-screen size from its known dimensions, so the thumbnail
  *  shown first and the full photo that replaces it occupy exactly the same box. */
 /** Sizes the viewer's photo to fit; `sideways` while it shows turned a quarter (rotating). */
@@ -49,7 +64,7 @@ async function showViewerImage(i, id, w, h, v) {
   }
 }
 /** `keepImage`: only refresh the details and face boxes (the photo shown is already right). */
-async function openViewer(i, { keepImage = false } = {}) {
+export async function openViewer(i, { keepImage = false } = {}) {
   if (i < 0 || i >= photos.length) return;
   if (rotation && rotation.id !== photos[i].id) flushRotation();
   viewerIndex = i;
@@ -68,7 +83,7 @@ async function openViewer(i, { keepImage = false } = {}) {
     if (viewerIndex !== i) return;
     // Not the previous photo's details: say what happened.
     $(".boxes", viewer).innerHTML = "";
-    $(".info-body", viewer).innerHTML = `<div class="s">Couldn't load this photo's details: ${esc(err.message)}</div>`;
+    setDetails(`<div class="s">Couldn't load this photo's details: ${esc(err.message)}</div>`);
     return;
   }
   if (viewerIndex !== i) return;
@@ -79,7 +94,7 @@ async function openViewer(i, { keepImage = false } = {}) {
   }).join("");
   viewerPath = d.path;
   const place = d.city ? `${d.city}${d.region ? ", " + d.region : ""}, ${regionName(d.country)}` : null;
-  $(".info-body", viewer).innerHTML = `
+  setDetails(`
     <h3>${esc(fmtFull(d.taken))}</h3>
     <div class="s">${d.dateFromExif ? "" : "Date from file (no EXIF) · "}${d.width} × ${d.height}</div>
     <div class="photo-acts">
@@ -106,7 +121,7 @@ async function openViewer(i, { keepImage = false } = {}) {
         </span></span></div>`;
     }).join("") : `<div class="s">No faces detected.</div>`}
     <label><input type="checkbox" id="showBoxes" ${viewer.classList.contains("boxes") ? "checked" : ""}> Show face boxes</label>
-    <h5>File</h5><div class="s">${esc(d.path)}</div>`;
+    <h5>File</h5><div class="s">${esc(d.path)}</div>`);
 }
 /** The full photo couldn't be loaded: ask the server why. A file that is gone (its folder
  *  still there) is removed from the gallery; an unreachable folder removes nothing. */
@@ -135,7 +150,7 @@ function dropPhotoFromView(id) {
   $(`.tile[data-id="${id}"]`)?.remove();
   const count = $(".view-head .count");
   if (count && /^[\d,]+ photos$/.test(count.textContent)) count.textContent = `${Math.max(0, parseInt(count.textContent.replace(/,/g, "")) - 1).toLocaleString()} photos`;
-  shownPhotoCount = Math.max(0, shownPhotoCount - 1);
+  onePhotoLess();
   if (photos.length && viewer.classList.contains("open")) openViewer(Math.min(Math.max(index, 0), photos.length - 1));
   else closeViewer();
   loadMeta().then(() => refreshPeopleViews({ animate: false })).catch(() => {});
@@ -241,7 +256,7 @@ async function flushRotation() {
 /** Asks something in the app's own dialog (deleting a photo, removing a folder, leaving the
  *  gallery...). `body` is HTML whose buttons carry `data-choice`; resolves to the chosen
  *  value, or "cancel" when the dialog is closed. */
-function askChoice(body, title) {
+export function askChoice(body, title) {
   const dlg = $("#choiceDlg");
   $("#choiceTitle").textContent = title;
   $(".dlg-body", dlg).innerHTML = body;
@@ -333,7 +348,7 @@ function startViewerRename(label) {
   input.addEventListener("blur", () => finish(true));
 }
 
-function closeViewer() {
+export function closeViewer() {
   flushRotation();
   resetZoom();
   viewer.classList.remove("open");
@@ -482,11 +497,14 @@ $(".prev", viewer).onclick = () => openViewer(viewerIndex - 1);
 $(".next", viewer).onclick = () => openViewer(viewerIndex + 1);
 $(".stage", viewer).addEventListener("click", e => { if (e.target.classList.contains("stage")) closeViewer(); });
 // The details can fold away, leaving the photo more room; remembered in this browser.
-function setInfoCollapsed(collapsed) {
+function showInfoCollapsed(collapsed) {
   viewer.classList.toggle("info-collapsed", collapsed);
   const b = $("#infoToggle");
   b.setAttribute("aria-expanded", String(!collapsed));
   b.title = collapsed ? "Show the details (I)" : "Hide the details (I)";
+}
+function setInfoCollapsed(collapsed) {
+  showInfoCollapsed(collapsed);
   pref.set("infoCollapsed", collapsed ? "1" : "");
   // The photo fits the room it has now.
   if (viewerIndex >= 0) {
@@ -496,7 +514,7 @@ function setInfoCollapsed(collapsed) {
   }
 }
 $("#infoToggle").addEventListener("click", e => { e.stopPropagation(); setInfoCollapsed(!viewer.classList.contains("info-collapsed")); });
-if (pref.get("infoCollapsed") === "1") setInfoCollapsed(true);
+if (pref.get("infoCollapsed") === "1") showInfoCollapsed(true);
 $(".info", viewer).addEventListener("change", e => { if (e.target.id === "showBoxes") viewer.classList.toggle("boxes", e.target.checked); });
 $(".info", viewer).addEventListener("click", async e => {
   const link = e.target.closest("a[target=_blank]");
@@ -546,7 +564,8 @@ document.addEventListener("keydown", e => {
   const typing = e.target.matches('input:not([type="checkbox"]):not([type="range"]), textarea, select');
   if (!viewer.classList.contains("open") || typing) return;
   if (document.querySelector("dialog[open]")) return;
-  if (e.key === "Escape") closeViewer();
+  // Handled here: other Escape handlers (the side panels') leave it alone.
+  if (e.key === "Escape") { e.preventDefault(); closeViewer(); }
   else if (e.key === "Delete") deleteViewerPhoto();
   else if (e.key === "r" || e.key === "R") { if ($("#viewer [data-rotate]")) rotateViewer(e.shiftKey ? -1 : 1); }
   else if (e.key === "i" || e.key === "I") setInfoCollapsed(!viewer.classList.contains("info-collapsed"));

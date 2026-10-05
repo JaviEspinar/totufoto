@@ -1,16 +1,21 @@
-"use strict";
 // Settings: photo folders, browsing for one, the library status and About.
-// Part of the page's script, split by area; see web/index.html for the order.
+// One of the page's modules; main.js starts the page.
+import { $, api, esc, icon, loadMeta, plural, post } from "./core.js";
+import { photos } from "./photos.js";
+import { toast } from "./people.js";
+import { render } from "./views.js";
+import { askChoice } from "./viewer.js";
+import { lastStatus, pollStatus, setLastStatus, updateIndexPill } from "./status.js";
 
 // ---- folders -----------------------------------------------------------------------
-let folderInfo = { folders: [], desktop: false };
-async function loadFolders() {
+export let folderInfo = { folders: [], desktop: false };
+export async function loadFolders() {
   folderInfo = await api("/api/folders");
   return folderInfo;
 }
 /** Picks a folder on the server by browsing its folders (the browser has no picker for
  *  those). Resolves to true once one was added. */
-function browseForFolder() {
+export function browseForFolder() {
   const dlg = $("#browseDlg"), list = $(".browse-list", dlg), input = $("#browsePath"), err = $(".err", dlg);
   const folderIcon = icon("folder", 16);
   let here = null, token = 0;
@@ -62,7 +67,7 @@ function browseForFolder() {
     open(null);
   });
 }
-async function addFolder(path) {
+export async function addFolder(path) {
   const added = await post(path == null ? "/api/folders/pick" : "/api/folders", path == null ? {} : { path });
   if (added === null) return false; // picker cancelled
   await loadFolders();
@@ -70,8 +75,7 @@ async function addFolder(path) {
   return true;
 }
 // ---- settings: photo folders and indexing -------------------------------------------
-let lastStatus = null;
-function scanStateHtml(st) {
+export function scanStateHtml(st) {
   if (!st) return `<div class="what">Checking…</div>`;
   const rescan = `<button class="btn" data-rescan title="${st.running ? "Scan again when this one ends" : "Look for new, changed or deleted photos"}">Rescan</button>`;
   if (st.running && st.phase === "grouping faces") {
@@ -88,7 +92,7 @@ function scanStateHtml(st) {
 }
 
 // Photos removed from the gallery (their files kept), with a way to bring them back.
-function excludedHtml(st) {
+export function excludedHtml(st) {
   const n = st?.excluded ?? 0;
   if (!n) return "";
   return `<div class="scan-state"><div class="what">${plural(n, "photo")} removed from the gallery
@@ -97,8 +101,8 @@ function excludedHtml(st) {
 }
 
 // Files that could not be indexed, with the reason.
-let failureCount = null, failureList = [];
-async function loadFailures() {
+export let failureCount = null, failureList = [];
+export async function loadFailures() {
   const count = lastStatus?.failed ?? 0;
   failureList = count ? await api("/api/failures").catch(() => []) : [];
   failureCount = count;
@@ -117,14 +121,14 @@ function failuresHtml() {
   </div>`;
 }
 /** "Removing 1,200 of 40,000 photos", or waiting for a scan to stop first. */
-function removeProgressHtml(st) {
+export function removeProgressHtml(st) {
   if (!st?.remove_total) {
     return `<div>${st?.running ? "Stopping the scan first…" : "Removing its photos…"}</div><progress></progress>`;
   }
   return `<div>Removing ${st.remove_done.toLocaleString()} of ${st.remove_total.toLocaleString()} photos</div>
     <progress max="${st.remove_total}" value="${st.remove_done}"></progress>`;
 }
-function renderSettings(error = "") {
+export function renderSettings(error = "") {
   const dlg = $("#settingsDlg"), body = $(".dlg-body", dlg);
   const { folders, desktop } = folderInfo;
   const removing = lastStatus?.removing ?? null;
@@ -161,11 +165,11 @@ function aboutHtml(st) {
       ${link("releases", "Releases")}</p>
     ${st.logs ? `<p><button class="btn" data-logs>Open log folder</button> <small>For reporting a problem: the log of this run, and of the one before.</small></p>` : ""}</div>`;
 }
-function openSettings() {
+export function openSettings() {
   renderSettings();
   // Fresh status for the Library part (it is otherwise polled only every few seconds).
   api("/api/status").then(st => {
-    lastStatus = st;
+    setLastStatus(st);
     if (!$("#settingsDlg").open) return;
     $("#settingsScan").innerHTML = scanStateHtml(st);
     $("#settingsAbout").innerHTML = aboutHtml(st);
@@ -215,12 +219,12 @@ $("#settingsDlg").addEventListener("click", async e => {
         "Remove this folder from the gallery?");
       if (choice !== "remove") return;
       // Progress in the folder's row at once; the status polling keeps it current.
-      lastStatus = { ...lastStatus, removing: path, remove_done: 0, remove_total: 0 };
+      setLastStatus({ ...lastStatus, removing: path, remove_done: 0, remove_total: 0 });
       renderSettings();
       const watch = setInterval(async () => {
         const st = await api("/api/status").catch(() => null);
         if (!st?.removing) return;
-        lastStatus = st;
+        setLastStatus(st);
         const el = $("#removeProgress");
         if (el) el.innerHTML = removeProgressHtml(st);
         updateIndexPill(st);
@@ -229,7 +233,7 @@ $("#settingsDlg").addEventListener("click", async e => {
       try { r = await post("/api/folders/remove", { path }); }
       finally {
         clearInterval(watch);
-        lastStatus = { ...lastStatus, removing: null };
+        setLastStatus({ ...lastStatus, removing: null });
       }
       toast(`${plural(r.removed, "photo")} removed from the gallery`
         + (r.kept ? `; ${r.kept.toLocaleString()} stay, as another folder includes them` : ""));

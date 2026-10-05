@@ -1,13 +1,16 @@
-"use strict";
 // The Optimization view: identical files and deleting the copies.
-// Part of the page's script, split by area; see web/index.html for the order.
+// One of the page's modules; main.js starts the page.
+import { $, api, esc, loadMeta, plural, post, state } from "./core.js";
+import { toast } from "./people.js";
+import { render } from "./views.js";
+import { askChoice } from "./viewer.js";
 
 // ---- optimization: identical files ------------------------------------------------------
 const fmtBytes = n => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB`
   : n < 1073741824 ? `${(n / 1048576).toFixed(1)} MB` : `${(n / 1073741824).toFixed(2)} GB`;
 const fmtFileDate = secs => new Date(secs * 1000).toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 const DUP_BATCH = 100;
-async function renderOptimization(main, job) {
+export async function renderOptimization(main, job) {
   const report = await api("/api/duplicates", { signal: job.signal });
   if (!job.alive()) return;
   const intro = `<h2>Duplicate photos</h2><p class="lead">Identical files (the very same bytes) take space twice. Of each set, the copy with the oldest file date is kept. Nothing is deleted until you click <b>Delete duplicates</b>.</p>`;

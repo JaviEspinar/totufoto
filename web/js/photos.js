@@ -1,6 +1,11 @@
-"use strict";
 // The Photos and Upcoming views: the justified grid, group cards, and progressive loading.
-// Part of the page's script, split by area; see web/index.html for the order.
+// One of the page's modules; main.js starts the page.
+import { $, MONTHS, api, dateLabel, esc, fmtDate, fmtDay, personById, personName, photoQuery, placeById, placeLabel, plural, regionName, state } from "./core.js";
+import { renderPeopleList } from "./sidebar.js";
+import { toast } from "./people.js";
+import { currentJob, render, syncRangeInputs } from "./views.js";
+import { addFolder, browseForFolder, folderInfo } from "./settings.js";
+import { firstIndexHtml, lastStatus } from "./status.js";
 
 // ---- photo grid ------------------------------------------------------------
 /** A photo as /api/photos sends it (an array, to keep large libraries small), with names. */
@@ -38,15 +43,20 @@ function groupPhotos(list, keyFn) {
 // Thumbnails load lazily with a shimmer behind them and fade in the first time only.
 const loadedThumbs = new Set();
 function thumbLoaded(img) { loadedThumbs.add(img.dataset.thumb); img.classList.add("ok"); }
+// Loaded or failed, a thumbnail fades in. (Load events don't bubble, so this listens on the
+// way down.)
+for (const type of ["load", "error"]) {
+  document.addEventListener(type, e => { if (e.target.matches?.("img[data-thumb]")) thumbLoaded(e.target); }, true);
+}
 /** Picture URLs with the photo's version: a rotated photo gets new ones, so browsers don't
  *  show the old (cached) picture. */
-const thumbUrl = (id, v) => v ? `/thumb/${id}?v=${v}` : `/thumb/${id}`;
-const originalUrl = (id, v) => v ? `/original/${id}?v=${v}` : `/original/${id}`;
-const versionOf = id => photos.find(p => p.id === id)?.version ?? 0;
+export const thumbUrl = (id, v) => v ? `/thumb/${id}?v=${v}` : `/thumb/${id}`;
+export const originalUrl = (id, v) => v ? `/original/${id}?v=${v}` : `/original/${id}`;
+export const versionOf = id => photos.find(p => p.id === id)?.version ?? 0;
 const tile = p => `<a class="tile" data-id="${p.id}" style="--r:${(p.width / p.height).toFixed(3)}" href="${originalUrl(p.id, p.version)}">` +
   (loadedThumbs.has(String(p.id))
     ? `<img src="${thumbUrl(p.id, p.version)}" loading="lazy" alt="" data-thumb="${p.id}" class="ok"></a>`
-    : `<img src="${thumbUrl(p.id, p.version)}" loading="lazy" decoding="async" alt="" data-thumb="${p.id}" onload="thumbLoaded(this)" onerror="thumbLoaded(this)"></a>`);
+    : `<img src="${thumbUrl(p.id, p.version)}" loading="lazy" decoding="async" alt="" data-thumb="${p.id}"></a>`);
 
 // ---- loading views: filters change at once, results follow --------------------------
 const LOADING_DELAY = 150;
@@ -167,7 +177,7 @@ function filterChips() {
   if (count) parts.push(`<button class="clear-all" data-clear="all">Clear all</button>`);
   return `<div class="filters">${parts.join("")}</div>`;
 }
-function onChipClick(e) {
+export function onChipClick(e) {
   const k = e.target.dataset.clear;
   if (!k) return;
   if (k.startsWith("person:")) state.people.delete(+k.slice(7));
@@ -180,8 +190,13 @@ function onChipClick(e) {
   render();
 }
 
-let shownPhotoCount = 0; // photos the Photos tab shows (as cards or tiles)
-async function renderPhotos(main, job) {
+/** The photos of the view on screen, in order (the viewer moves through them). */
+export let photos = [];
+export let shownPhotoCount = 0; // photos the Photos tab shows (as cards or tiles)
+export let indexedAtRender = 0; // photos indexed (this scan) when the Photos view was last drawn
+/** A photo left the view (deleted, or removed from the gallery). */
+export function onePhotoLess() { shownPhotoCount = Math.max(0, shownPhotoCount - 1); }
+export async function renderPhotos(main, job) {
   indexedAtRender = lastStatus?.running ? lastStatus.done : 0;
   const shape = photosShape();
   const load = beginViewLoad(main, "photos", filterChips() + `<div class="count">Loading photos…</div>`,
@@ -251,6 +266,8 @@ function photosShape() {
 /** Filters as a key, to come back to the same scroll position when a group is closed. */
 const cardsViewKey = () => JSON.stringify([state.groupBy, state.sort, [...state.people].sort(), state.match, state.place, state.date, state.from, state.to]);
 let cardsReturn = null; // { key, scroll } of the cards view left by opening a group
+/** Opening a group: the cards view to come back to, and where it was scrolled. */
+export function rememberCards() { cardsReturn = { key: cardsViewKey(), scroll: $("#main").scrollTop }; }
 /** Cards from the server's group summaries: `{ key, count, cover }` per group. */
 function renderGroupCards(container, groups, mode) {
   const title = key => mode === "place" ? (key === 0 ? "No location" : placeById.get(key)?.city ?? "Unknown place")
@@ -288,7 +305,7 @@ function renderGroupCards(container, groups, mode) {
   if (next < groups.length) observer.observe(sentinel);
 }
 
-async function renderUpcoming(main, job) {
+export async function renderUpcoming(main, job) {
   const opts = [7, 14, 30, 60, 90].map(d => `<button data-d="${d}" class="${d === state.upcoming ? "on" : ""}">${d} days</button>`).join("");
   const load = beginViewLoad(main, "upcoming",
     `<div class="upbar">Memories from past years for the next <div class="seg" id="days">${opts}</div></div>` + filterChips(),
