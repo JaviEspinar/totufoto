@@ -224,12 +224,17 @@ pub(super) struct OriginalQuery {
 
 impl OriginalQuery {
     fn download(&self) -> bool {
-        self.download.as_deref().is_some_and(|v| !matches!(v, "0" | "false"))
+        is_on(&self.download)
     }
 
     fn silent(&self) -> bool {
-        self.silent.as_deref().is_some_and(|v| !matches!(v, "0" | "false"))
+        is_on(&self.silent)
     }
+}
+
+/// A flag in the query: on when present, unless it is `0` or `false`.
+fn is_on(flag: &Option<String>) -> bool {
+    flag.as_deref().is_some_and(|v| !matches!(v, "0" | "false"))
 }
 
 /// `attachment; filename=...` with the file's own name (ASCII fallback plus UTF-8).
