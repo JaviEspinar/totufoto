@@ -34,6 +34,12 @@ test("videos: thumbnails made by the page, playing or offered for download", asy
   // The MOV has no playable media: it keeps the page's own picture.
   await expect(page.locator(`.tile[data-id="${mov}"] img`)).toHaveAttribute("src", /^data:image\/svg\+xml/);
 
+  // A video that can play starts at once when opened.
+  await page.locator(`.tile[data-id="${webm}"]`).click();
+  await expect.poll(() => page.locator("#viewer .frame video").evaluate(v => !v.paused && v.currentTime > 0)).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect.poll(() => page.locator("#viewer .frame video").evaluate(v => v.paused)).toBe(true);
+
   await page.locator(`.tile[data-id="${mov}"]`).click();
   const video = page.locator("#viewer .frame video");
   const info = page.locator("#viewer .info-body");

@@ -62,6 +62,9 @@ function showViewerVideo(i, id, w, h, v) {
   };
   probe.src = video.poster;
   video.src = originalUrl(id, v);
+  // Plays at once: opening it was the click (or key) that browsers want before playing with
+  // sound. If one refuses anyway (some phones), the player waits for a tap as before.
+  video.play().catch(() => {});
   video.onerror = () => {
     if (viewerIndex !== i) return;
     // The player would spin for ever: the video's picture instead, and the way to get it.
