@@ -1,7 +1,7 @@
 // The Photos and Upcoming views: the justified grid, group cards, and progressive loading.
 // One of the page's modules; main.js starts the page.
 import { lang, num, t, tn } from "./i18n.js";
-import { $, api, dateLabel, esc, fmtDate, fmtDay, fmtMonth, personById, personName, photoQuery, placeById, placeLabel, plural, regionName, state } from "./core.js";
+import { $, api, dateLabel, esc, fmtDate, fmtDay, fmtMonth, icon, personById, personName, photoQuery, placeById, placeLabel, plural, regionName, state } from "./core.js";
 import { renderPeopleList } from "./sidebar.js";
 import { toast } from "./people.js";
 import { currentJob, render, syncRangeInputs } from "./views.js";
@@ -9,8 +9,19 @@ import { addFolder, browseForFolder, folderInfo } from "./settings.js";
 import { firstIndexHtml, lastStatus } from "./status.js";
 
 // ---- photo grid ------------------------------------------------------------
-/** A photo as /api/photos sends it (an array, to keep large libraries small), with names. */
-const photoRow = ([id, width, height, taken, place, version]) => ({ id, width, height, taken, place, version });
+/** A photo as /api/photos sends it (an array, to keep large libraries small), with names.
+ *  `duration` is null for photos, and a video's length in seconds (0 when unknown). */
+const photoRow = ([id, width, height, taken, place, version, duration]) => ({ id, width, height, taken, place, version, duration });
+export const isVideo = p => p?.duration != null;
+/** "0:42", "12:05", "1:02:33"; empty when unknown. */
+export function fmtDuration(seconds) {
+  if (!seconds) return "";
+  const s = Math.round(seconds), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = String(s % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${r}` : `${m}:${r}`;
+}
+/** "12 photos", "3 videos", or "10 photos, 2 videos". */
+export const mediaCount = (total, videos) =>
+  !videos ? plural(total, "photo") : videos === total ? plural(videos, "video") : `${plural(total - videos, "photo")}, ${plural(videos, "video")}`;
 
 function groupKey(p, mode = state.groupBy) {
   const taken = p.taken;
@@ -55,10 +66,11 @@ for (const type of ["load", "error"]) {
 export const thumbUrl = (id, v = 0) => `/thumb/${id}/${v}`;
 export const originalUrl = (id, v) => v ? `/original/${id}?v=${v}` : `/original/${id}`;
 export const versionOf = id => photos.find(p => p.id === id)?.version ?? 0;
-const tile = p => `<a class="tile" data-id="${p.id}" style="--r:${(p.width / p.height).toFixed(3)}" href="${originalUrl(p.id, p.version)}">` +
+const tile = p => `<a class="tile${isVideo(p) ? " video" : ""}" data-id="${p.id}" style="--r:${(p.width / p.height).toFixed(3)}" href="${originalUrl(p.id, p.version)}">` +
   (loadedThumbs.has(String(p.id))
-    ? `<img src="${thumbUrl(p.id, p.version)}" loading="lazy" alt="" data-thumb="${p.id}" class="ok"></a>`
-    : `<img src="${thumbUrl(p.id, p.version)}" loading="lazy" decoding="async" alt="" data-thumb="${p.id}"></a>`);
+    ? `<img src="${thumbUrl(p.id, p.version)}" loading="lazy" alt="" data-thumb="${p.id}" class="ok">`
+    : `<img src="${thumbUrl(p.id, p.version)}" loading="lazy" decoding="async" alt="" data-thumb="${p.id}">`) +
+  (isVideo(p) ? `<span class="vbadge">${icon("play", 11)}${fmtDuration(p.duration)}</span>` : "") + "</a>";
 
 // ---- loading views: filters change at once, results follow --------------------------
 const LOADING_DELAY = 150;
@@ -213,7 +225,7 @@ export async function renderPhotos(main, job) {
   shownPhotoCount = data.total ?? photos.length;
   load.finish();
   const count = load.head.querySelector(".count");
-  count.textContent = plural(shownPhotoCount, "photo");
+  count.textContent = mediaCount(shownPhotoCount, data.videos ?? photos.filter(isVideo).length);
   count.dataset.photos = ""; // a plain photo count, which removing a photo updates
   if (!shownPhotoCount) {
     const filtered = state.people.size || state.place != null || state.date || state.from || state.to;
@@ -240,7 +252,7 @@ export async function renderPhotos(main, job) {
     const n = groups.length;
     const groupCount = { year: () => plural(n, "year"), month: () => plural(n, "month"), day: () => plural(n, "day"), place: () => plural(n, "place") }[shape.cards]();
     delete count.dataset.photos;
-    count.textContent = `${groupCount}, ${plural(shownPhotoCount, "photo")}`;
+    count.textContent = `${groupCount}, ${mediaCount(shownPhotoCount, data.videos ?? 0)}`;
     renderGroupCards(load.area, groups, shape.cards);
     return;
   }
@@ -283,7 +295,7 @@ function renderGroupCards(container, groups, mode) {
     return `<button type="button" class="card group-card" data-group="${esc(String(g.key))}">
       <img src="${thumbUrl(g.cover, g.v)}" loading="lazy" decoding="async" alt="">
       <span class="meta"><span class="t">${esc(title(g.key))}</span>
-      <span class="s">${where}${plural(g.count, "photo")}</span></span>
+      <span class="s">${where}${mediaCount(g.count, g.videos ?? 0)}</span></span>
     </button>`;
   };
   const grid = document.createElement("div");

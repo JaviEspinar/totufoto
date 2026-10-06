@@ -258,6 +258,12 @@ main { overflow-y: auto; min-height: 0; padding: 0 16px 40px; overscroll-behavio
 }
 .tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .tile:hover img { filter: brightness(1.06); }
+/* A video's length, on its tile. */
+.tile .vbadge {
+  position: absolute; right: 6px; bottom: 6px; display: flex; align-items: center; gap: 3px;
+  padding: 2px 6px; border-radius: 6px; background: rgba(0, 0, 0, 0.55); color: #fff; font-size: 11px; pointer-events: none;
+}
+.tile .vbadge .icon { fill: currentColor; stroke: none; }
 #sentinel { height: 1px; }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; padding-top: 16px; }
@@ -401,6 +407,14 @@ button.candidate { background: none; border: 0; padding: 6px; }
 #viewer .stage { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; }
 #viewer .frame { position: relative; }
 #viewer .frame img { display: block; object-fit: contain; background: #111; }
+#viewer .frame video { display: block; background: #000; cursor: auto; }
+#viewer .frame [hidden] { display: none; }
+#viewer .frame img.generic { object-fit: cover; } /* a video's picture fills its frame */ /* the photo or the video, whichever isn't shown */
+#viewer .video-note {
+  position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); max-width: calc(100% - 32px);
+  padding: 8px 12px; border-radius: 8px; background: rgba(0, 0, 0, 0.75); color: #fff; font-size: 13px; text-align: center;
+}
+#viewer .video-note a { color: #9cc2ff; }
 /* Zoom: the frame (photo and face boxes) is scaled and moved from its fitted place */
 #viewer .frame { z-index: 1; transform-origin: 0 0; cursor: zoom-in; touch-action: none; }
 #viewer .frame.animate-zoom { transition: transform 0.25s ease; }

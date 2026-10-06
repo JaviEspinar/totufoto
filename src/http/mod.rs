@@ -17,6 +17,7 @@ use axum::{Json, Router};
 use rusqlite::Connection;
 use serde_json::json;
 use tower_http::compression::CompressionLayer;
+use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
 
 use crate::app::Host;
 use crate::scan::{ScanConfig, ScanStatus};
@@ -223,7 +224,11 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
         .route("/thumb/{id}/{version}", get(photos::thumb))
         .route("/face/{id}", get(photos::face_thumb))
         .route("/original/{id}", get(photos::original))
-        .layer(CompressionLayer::new())
+        // Not videos: they are already compressed, and range requests (seeking) need the
+        // bytes as they are on disk.
+        .layer(
+            CompressionLayer::new().compress_when(DefaultPredicate::new().and(NotForContentType::const_new("video/"))),
+        )
         .with_state(Arc::new(state));
     // On every address: no Host other than this server's, no changes from other sites.
     router.layer(middleware::from_fn_with_state(Arc::new(names), crate::guard::check))
@@ -322,17 +327,17 @@ mod tests {
         let rows = v["photos"].as_array().unwrap();
         assert_eq!(rows.len(), 2);
         let row = rows.iter().find(|r| r[0] == madrid).unwrap().as_array().unwrap();
-        assert_eq!(row.len(), 6, "[id, width, height, taken, place, version]");
+        assert_eq!(row.len(), 7, "[id, width, height, taken, place, version, duration]");
         assert_eq!(
-            (&row[1], &row[2], &row[3], &row[5]),
-            (&json!(64), &json!(48), &json!("2019-07-04 18:30:00"), &json!(0))
+            (&row[1], &row[2], &row[3], &row[5], &row[6]),
+            (&json!(64), &json!(48), &json!("2019-07-04 18:30:00"), &json!(0), &JsonValue::Null)
         );
         assert!(row[4].is_i64(), "a place");
 
         let (_, v) = get("/api/groups?by=month".into()).await;
-        assert_eq!(keys(&v), ["groups", "total"]);
-        assert_eq!(v["total"], 2);
-        assert_eq!(keys(&v["groups"][0]), ["count", "cover", "key", "v"]);
+        assert_eq!(keys(&v), ["groups", "total", "videos"]);
+        assert_eq!((&v["total"], &v["videos"]), (&json!(2), &json!(0)));
+        assert_eq!(keys(&v["groups"][0]), ["count", "cover", "key", "v", "videos"]);
         let (_, v) = get("/api/groups?by=place".into()).await;
         assert!(v["groups"].as_array().unwrap().iter().any(|g| g["key"] == 0), "no location is key 0");
 
@@ -343,6 +348,7 @@ mod tests {
                 "city",
                 "country",
                 "dateFromExif",
+                "duration",
                 "faces",
                 "height",
                 "id",
@@ -540,6 +546,44 @@ mod tests {
         let (code, body) = call(&app, "DELETE", "/api/folders?path=%2Fsaved%2Ffolder", None).await;
         assert_eq!(code, StatusCode::CONFLICT);
         assert!(body["error"].as_str().unwrap().contains("being removed"), "{body}");
+    }
+
+    #[tokio::test]
+    async fn videos_are_listed_drawn_and_streamed_in_parts() {
+        use tower::ServiceExt;
+        let (lib, _) = library_with_a_photo();
+        std::fs::write(lib.root().join("clip.mov"), crate::video::tests::sample(true, true)).unwrap();
+        lib.scan();
+        let app = app(&lib);
+        let (_, list) = call(&app, "GET", "/api/photos", None).await;
+        let rows = list["photos"].as_array().unwrap();
+        let video = rows.iter().find(|r| !r[6].is_null()).expect("the video is listed");
+        assert_eq!((&video[1], &video[2], &video[6]), (&json!(1080), &json!(1920), &json!(12.5)));
+        assert_eq!(video[3], json!("2024-10-05 18:22:01"));
+        assert!(rows.iter().any(|r| r[6].is_null()), "the photo has no duration");
+        let id = video[0].as_i64().unwrap();
+        let (_, detail) = call(&app, "GET", &format!("/api/photos/{id}"), None).await;
+        assert_eq!((&detail["duration"], &detail["rotatable"]), (&json!(12.5), &json!(false)));
+        let (_, groups) = call(&app, "GET", "/api/groups?by=year", None).await;
+        assert_eq!((&groups["total"], &groups["videos"]), (&json!(2), &json!(1)));
+
+        let get = |uri: String, range: Option<&str>| {
+            let mut b = axum::http::Request::builder().uri(uri).header("host", "127.0.0.1:7878");
+            if let Some(r) = range {
+                b = b.header(header::RANGE, r);
+            }
+            app.clone().oneshot(b.body(axum::body::Body::empty()).unwrap())
+        };
+        // A generic picture instead of a thumbnail.
+        let thumb = get(format!("/thumb/{id}/0"), None).await.unwrap();
+        assert_eq!(thumb.headers()[header::CONTENT_TYPE], "image/svg+xml");
+        // The file in parts, uncompressed, for the browser's player.
+        let part = get(format!("/original/{id}"), Some("bytes=0-99")).await.unwrap();
+        assert_eq!(part.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(part.headers()[header::CONTENT_TYPE], "video/quicktime");
+        assert!(part.headers().get(header::CONTENT_ENCODING).is_none());
+        let bytes = axum::body::to_bytes(part.into_body(), 1 << 20).await.unwrap();
+        assert_eq!(bytes.len(), 100);
     }
 
     #[tokio::test]

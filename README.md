@@ -29,6 +29,7 @@ It comes as a desktop app for Windows and Linux, and as a command-line app that 
   - *Together*: every selected person is in the photo,
   - *Any*: at least one of them,
   - *Only them*: all of them and no other known person.
+- **Videos** in the timeline, with their date, place and length, played in the viewer.
 - All filters combine (people + place + date range + upcoming) and live in the URL, so views can be bookmarked.
 - **In English or Spanish**, with a light or dark theme (or your system's), chosen in Settings.
 
@@ -191,11 +192,12 @@ Run `imadive --help` for the full list:
 
 When passing options through cargo, put them after `--`, for example `cargo run --release -- ~/Pictures --port 8080`.
 
-Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP, and HEIC/HEIF on macOS (decoded with `sips`).
+Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP, and HEIC/HEIF on macOS (decoded with `sips`); videos in MP4, MOV, M4V, 3GP, WebM, MKV, AVI, WMV, MPEG and MTS.
 
 ## Limitations
 
-- **Formats**: JPEG, PNG, WebP, TIFF, GIF and BMP everywhere, and HEIC/HEIF only on macOS. No RAW files and no videos.
+- **Formats**: JPEG, PNG, WebP, TIFF, GIF and BMP everywhere, and HEIC/HEIF only on macOS. No RAW files.
+- **Videos** show with a generic picture, not a frame of their own, and nobody is looked for in them. They play in the browser when it can play their format: MP4 (H.264) and WebM everywhere, iPhone videos (HEVC) on Apple devices and in Chrome on most recent computers; others (AVI, WMV, MPEG...) can be downloaded.
 - **Photos are tracked by path**: moving or renaming a photo folder makes its photos look new, so they are indexed again (named people are matched again automatically).
 - **No login**: anyone who can reach the gallery can use all of it (see [Privacy and security](#privacy-and-security)).
 - **Desktop app**: Windows and Linux only, not signed. On macOS use the command-line app.

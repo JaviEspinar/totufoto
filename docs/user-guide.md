@@ -9,6 +9,7 @@ How the gallery works, tab by tab. To install it, see the [README](../README.md)
 - [Dates and filter chips](#dates-and-filter-chips)
 - [The viewer](#the-viewer)
 - [Rotating, downloading and deleting](#rotating-downloading-and-deleting)
+- [Videos](#videos)
 - [Optimization: identical files](#optimization-identical-files)
 - [Settings: photo folders and the library](#settings-photo-folders-and-the-library)
 - [Phones and tablets](#phones-and-tablets)
@@ -95,6 +96,12 @@ The buttons under the photo's date in the viewer.
 - *Remove from disk* moves the file to the bin of the computer running Imadive. If its drive has no bin, it asks before deleting for good.
 
 Only files inside the photo folders can be deleted. The gallery has no login, so anyone who can open it on your network can delete photos too (see [Privacy and security](../README.md#privacy-and-security)).
+
+## Videos
+
+Videos are part of the timeline, places and Upcoming like photos: their date and place come from the file (MP4 and MOV, as phones and most cameras record them), or the file's date otherwise. In the grid they have a generic picture with a play sign and their length.
+
+The viewer plays them with your browser's player. Formats a browser can't play (AVI, WMV, MPEG, and iPhone HEVC videos in some browsers) show a note with a link to download the file instead. Videos have no people: faces are only looked for in photos.
 
 ## Optimization: identical files
 

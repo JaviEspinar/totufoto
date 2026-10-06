@@ -92,6 +92,8 @@ export default {
   "{n} months": "{n} meses",
   "{n} day": "{n} día",
   "{n} place": "{n} lugar",
+  "{n} video": "{n} vídeo",
+  "{n} videos": "{n} vídeos",
   "{n} places": "{n} lugares",
 
   // The sidebar
@@ -316,6 +318,10 @@ export default {
   "Remove from disk": "Quitar del disco",
   "Moves the file to the bin of the computer running Imadive.": "Mueve el archivo a la papelera del ordenador en el que funciona Imadive.",
   "Delete this photo?": "¿Borrar esta foto?",
+  "Delete this video?": "¿Borrar este vídeo?",
+  "Video": "Vídeo",
+  "This video can't be played here.": "Este vídeo no se puede reproducir aquí.",
+  "Download it": "Descárgalo",
   "This file can't be moved to a bin on its drive, so it can't be recovered once deleted.": "Este archivo no se puede mover a una papelera en su disco, así que no se podrá recuperar una vez borrado.",
   "Delete it permanently?": "¿Borrarla definitivamente?",
   "Couldn't delete the photo: {error}": "No se pudo borrar la foto: {error}",

@@ -21,6 +21,7 @@
   <symbol id="i-share" viewBox="0 0 24 24"><path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7"/><path d="M16 6l-4-4-4 4"/><path d="M12 2v13"/></symbol>
   <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></symbol>
   <symbol id="i-rotate" viewBox="0 0 24 24"><path d="M3 4v6h6"/><path d="M3.5 15a9 9 0 1 0 2.1-9.4L3 10"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12.5-7.5z"/></symbol>
   <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
 </svg>
 <header>
@@ -219,7 +220,7 @@
     <button class="close" title="Close (Esc)" aria-label="Close">✕</button>
     <button class="trash" title="Delete this photo (Delete key)" aria-label="Delete this photo"><svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><use href="#i-trash"/></svg></button>
     <button class="nav prev" title="Previous (←)">‹</button>
-    <div class="frame"><img alt=""><div class="boxes"></div></div>
+    <div class="frame"><img alt=""><video controls playsinline preload="metadata" hidden></video><div class="boxes"></div><div class="video-note" hidden></div></div>
     <button class="nav next" title="Next (→)">›</button>
   </div>
   <div class="info">

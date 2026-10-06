@@ -1,9 +1,9 @@
 // The photo viewer: details, faces, sharing, rotating, deleting, zoom and swipe.
 // One of the page's modules; main.js starts the page.
 import { t } from "./i18n.js";
-import { $, api, del, esc, fmtFull, icon, loadMeta, personById, personName, photoDetail, plural, post, pref, regionName, state } from "./core.js";
+import { $, api, del, esc, fmtFull, icon, loadMeta, personById, personName, photoDetail, post, pref, regionName, state } from "./core.js";
 import { renderPeopleList } from "./sidebar.js";
-import { onePhotoLess, originalUrl, photos, shownPhotoCount, thumbUrl, versionOf } from "./photos.js";
+import { fmtDuration, isVideo, mediaCount, onePhotoLess, originalUrl, photos, shownPhotoCount, thumbUrl, versionOf } from "./photos.js";
 import { openAssign, refreshPeopleViews, renamePerson, toast } from "./people.js";
 import { render } from "./views.js";
 import { folderInfo } from "./settings.js";
@@ -24,12 +24,46 @@ function setDetails(html) {
  *  shown first and the full photo that replaces it occupy exactly the same box. */
 /** Sizes the viewer's photo to fit; `sideways` while it shows turned a quarter (rotating). */
 function fitViewerImage(w, h, sideways = false) {
-  const stage = $(".stage", viewer), img = $(".frame img", viewer);
+  const stage = $(".stage", viewer);
   // Wide screens keep room for the ‹ › buttons beside the photo; on phones they float over it.
   const maxW = stage.clientWidth - (stage.clientWidth < 640 ? 16 : 120), maxH = stage.clientHeight - (stage.clientWidth < 640 ? 16 : 40);
   const scale = sideways ? Math.min(maxW / h, maxH / w, 1) : Math.min(maxW / w, maxH / h, 1);
-  img.style.width = `${Math.max(1, Math.round(w * scale))}px`;
-  img.style.height = `${Math.max(1, Math.round(h * scale))}px`;
+  for (const el of [$(".frame img", viewer), $(".frame video", viewer)]) {
+    el.style.width = `${Math.max(1, Math.round(w * scale))}px`;
+    el.style.height = `${Math.max(1, Math.round(h * scale))}px`;
+  }
+}
+const videoEl = () => $(".frame video", viewer);
+const showingVideo = () => viewerIndex >= 0 && isVideo(photos[viewerIndex]);
+/** Stops the video (and its download) when the viewer moves on or closes. */
+function stopVideo() {
+  const video = videoEl();
+  if (!video.getAttribute("src")) return;
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+}
+/** Plays video `i` with the browser's player; one it can't play offers its download. */
+function showViewerVideo(i, id, w, h, v) {
+  const img = $(".frame img", viewer), video = videoEl(), note = $(".video-note", viewer);
+  img.hidden = true;
+  img.removeAttribute("src");
+  note.hidden = true;
+  video.hidden = false;
+  fitViewerImage(w, h);
+  video.src = originalUrl(id, v);
+  video.onerror = () => {
+    if (viewerIndex !== i) return;
+    // The player would spin for ever: the video's picture instead, and the way to get it.
+    stopVideo();
+    video.hidden = true;
+    img.src = thumbUrl(id, v);
+    img.classList.add("generic");
+    img.hidden = false;
+    note.innerHTML = `${t("This video can't be played here.")} <a href="/original/${id}?download=1" download>${t("Download it")}</a>`;
+    note.hidden = false;
+    photoMissing(id); // says so if the file itself is gone
+  };
 }
 window.addEventListener("resize", () => {
   if (viewerIndex < 0) return;
@@ -40,7 +74,13 @@ window.addEventListener("resize", () => {
 
 /** Shows photo `i`: its thumbnail at the final size at once, then the full photo. */
 async function showViewerImage(i, id, w, h, v) {
+  stopVideo();
+  if (isVideo(photos[i])) return showViewerVideo(i, id, w, h, v);
+  videoEl().hidden = true;
+  $(".video-note", viewer).hidden = true;
   const img = $(".frame img", viewer);
+  img.hidden = false;
+  img.classList.remove("generic");
   // Keep the current photo until the next thumbnail is ready (they're cached, so this is
   // quick), then show it at the final size; the full photo sharpens it in place.
   const thumb = new Image();
@@ -60,7 +100,8 @@ async function showViewerImage(i, id, w, h, v) {
   // Ready for the arrows: neighbours' thumbnails, and the next photo in full size.
   for (const j of [i - 1, i + 1]) if (photos[j]) new Image().src = thumbUrl(photos[j].id, photos[j].version);
   if (photos[i + 1]) {
-    new Image().src = originalUrl(photos[i + 1].id, photos[i + 1].version);
+    // A video is only fetched when it is played.
+    if (!isVideo(photos[i + 1])) new Image().src = originalUrl(photos[i + 1].id, photos[i + 1].version);
     photoDetail(photos[i + 1].id, photos[i + 1].version).catch(() => {});
   }
 }
@@ -97,7 +138,7 @@ export async function openViewer(i, { keepImage = false } = {}) {
   const place = d.city ? `${d.city}${d.region ? ", " + d.region : ""}, ${regionName(d.country)}` : null;
   setDetails(`
     <h3>${esc(fmtFull(d.taken))}</h3>
-    <div class="s">${d.dateFromExif ? "" : `${t("Date from file (no EXIF)")} · `}${d.width} × ${d.height}</div>
+    <div class="s">${d.duration != null ? `${[t("Video"), fmtDuration(d.duration)].filter(Boolean).join(" · ")} · ` : ""}${d.dateFromExif ? "" : `${t("Date from file (no EXIF)")} · `}${d.width} × ${d.height}</div>
     <div class="photo-acts">
       ${folderInfo.desktop && canShareFiles
         ? `<button data-share-photo="${id}" title="${t("Send this photo with another app")}">${icon("share", 15)} ${t("Share")}</button>`
@@ -106,7 +147,7 @@ export async function openViewer(i, { keepImage = false } = {}) {
       ${folderInfo.desktop ? `<button data-reveal="${id}" title="${t("Show the file in its folder")}">${icon("folder", 15)} ${t("Open in folder")}</button>` : ""}
     </div>
     ${place ? `<h5>${t("Place")}</h5><div>${esc(place)}</div><div class="s"><a href="https://www.openstreetmap.org/?mlat=${d.lat}&mlon=${d.lon}#map=14/${d.lat}/${d.lon}" target="_blank" rel="noopener">${t("Open map")}</a></div>` : ""}
-    <h5>${t("People ({n})", { n: d.faces.length })}</h5>
+    ${d.duration != null ? "" : `<h5>${t("People ({n})", { n: d.faces.length })}</h5>
     ${d.faces.length ? d.faces.map(f => {
       const person = personById(f.person);
       return `<div class="vface"><img src="/face/${f.id}" alt="">
@@ -121,7 +162,7 @@ export async function openViewer(i, { keepImage = false } = {}) {
             : `<button data-cover="${f.id}" title="${t("Show this face on {name}'s card in People", { name: esc(personName(person)) })}">${t("Card photo")}</button>`}
         </span></span></div>`;
     }).join("") : `<div class="s">${t("No faces detected.")}</div>`}
-    <label><input type="checkbox" id="showBoxes" ${viewer.classList.contains("boxes") ? "checked" : ""}> ${t("Show face boxes")}</label>
+    <label><input type="checkbox" id="showBoxes" ${viewer.classList.contains("boxes") ? "checked" : ""}> ${t("Show face boxes")}</label>`}
     <h5>${t("File")}</h5><div class="s">${esc(d.path)}</div>`);
 }
 /** The full photo couldn't be loaded: ask the server why. A file that is gone (its folder
@@ -151,7 +192,7 @@ function dropPhotoFromView(id) {
   $(`.tile[data-id="${id}"]`)?.remove();
   onePhotoLess();
   const count = $(".view-head .count");
-  if (count?.dataset.photos != null) count.textContent = plural(shownPhotoCount, "photo");
+  if (count?.dataset.photos != null) count.textContent = mediaCount(shownPhotoCount, photos.filter(isVideo).length);
   if (photos.length && viewer.classList.contains("open")) openViewer(Math.min(Math.max(index, 0), photos.length - 1));
   else closeViewer();
   loadMeta().then(() => refreshPeopleViews({ animate: false })).catch(() => {});
@@ -285,7 +326,7 @@ async function deleteViewerPhoto() {
       <button class="btn" data-choice="gallery">${t("Remove from gallery")}<small>${t("The file stays on disk. It won't come back with the next scan (Settings can show it again).")}</small></button>
       <button class="btn danger" data-choice="disk">${t("Remove from disk")}<small>${t("Moves the file to the bin of the computer running Imadive.")}</small></button>
     </div>
-    <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button></div>`, t("Delete this photo?"));
+    <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button></div>`, isVideo(photos[viewerIndex]) ? t("Delete this video?") : t("Delete this photo?"));
   if (choice === "cancel") return;
   const remove = (from, permanently = false) => del(`/api/photos/${id}`, permanently ? { from, permanently } : { from })
     .then(body => ({ ok: true, status: 200, body }))
@@ -350,6 +391,7 @@ function startViewerRename(label) {
 }
 
 export function closeViewer() {
+  stopVideo();
   flushRotation();
   resetZoom();
   viewer.classList.remove("open");
@@ -426,6 +468,7 @@ function zoomAt(clientX, clientY, scale, animate = false) {
   const SWIPE = 60; // px sideways to go to the next or previous photo
   frame.addEventListener("pointerdown", e => {
     if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (e.target.closest("video, .video-note")) return; // the player's own controls
     e.preventDefault();
     frame.setPointerCapture(e.pointerId);
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -487,7 +530,7 @@ function zoomAt(clientX, clientY, scale, animate = false) {
   frame.addEventListener("pointerup", release);
   frame.addEventListener("pointercancel", release);
   $(".stage", viewer).addEventListener("wheel", e => {
-    if (viewerIndex < 0) return;
+    if (viewerIndex < 0 || showingVideo()) return;
     e.preventDefault();
     // Trackpad pinches come as wheel events with ctrlKey and small steps.
     zoomAt(e.clientX, e.clientY, zoom.s * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)));
@@ -565,6 +608,8 @@ document.addEventListener("keydown", e => {
   const typing = e.target.matches('input:not([type="checkbox"]):not([type="range"]), textarea, select');
   if (!viewer.classList.contains("open") || typing) return;
   if (document.querySelector("dialog[open]")) return;
+  // Arrows and Space on the player seek and pause it.
+  if (e.target.tagName === "VIDEO" && (e.key.startsWith("Arrow") || e.key === " ")) return;
   // Handled here: other Escape handlers (the side panels') leave it alone.
   if (e.key === "Escape") { e.preventDefault(); closeViewer(); }
   else if (e.key === "Delete") deleteViewerPhoto();

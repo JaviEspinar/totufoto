@@ -34,6 +34,12 @@ utimesSync(join(library, "plain.jpg"), twoYearsAgo, twoYearsAgo);
 // A second folder, to add and remove in Settings.
 mkdirSync(other);
 copyFileSync(join(library, "2025/city.jpg"), join(other, "street.jpg"));
+// A folder with a video, to add in the video test: a QuickTime file with a 12.5-second,
+// 1920x1080 track turned upright, recorded 2024-10-05 18:22 in Madrid. It has no playable
+// media, so the viewer's "can't be played here" path shows.
+const clips = join(dir, "clips");
+mkdirSync(clips);
+writeFileSync(join(clips, "clip.mov"), sampleMov());
 writeFileSync(join(dir, "README"), "Temporary library for Imadive's UI tests.\n");
 
 const index = spawnSync(bin, [library, "--data", data, "--no-faces", "--scan-only"], { stdio: "inherit" });
@@ -66,3 +72,23 @@ server.on("exit", code => {
   rmSync(dir, { recursive: true, force: true });
   process.exit(code ?? 0);
 });
+
+/** The same small movie as src/video.rs's tests build. */
+function sampleMov() {
+  const u32 = n => { const b = Buffer.alloc(4); b.writeUInt32BE(n >>> 0); return b; };
+  const i32 = n => { const b = Buffer.alloc(4); b.writeInt32BE(n); return b; };
+  const bx = (kind, ...parts) => { const body = Buffer.concat(parts); return Buffer.concat([u32(body.length + 8), Buffer.from(kind, "latin1"), body]); };
+  const created = 1_728_145_321 + 2_082_844_800;
+  const mvhd = bx("mvhd", Buffer.alloc(4), u32(created), u32(created), u32(1000), u32(12_500), Buffer.alloc(80));
+  const matrix = [0, 0x10000, 0, -0x10000, 0, 0, 0, 0, 0x4000_0000].map(i32);
+  const tkhd = bx("tkhd", Buffer.alloc(40), ...matrix, u32(1920 * 65536), u32(1080 * 65536));
+  const hdlr = bx("hdlr", Buffer.alloc(8), Buffer.from("vide"), Buffer.alloc(13));
+  const trak = bx("trak", tkhd, bx("mdia", hdlr));
+  const key = name => bx("mdta", Buffer.from(name));
+  const keys = bx("keys", Buffer.alloc(4), u32(2), key("com.apple.quicktime.creationdate"), key("com.apple.quicktime.location.ISO6709"));
+  const value = (index, text) => Buffer.concat([u32(Buffer.byteLength(text) + 24), u32(index), bx("data", u32(1), Buffer.alloc(4), Buffer.from(text))]);
+  const ilst = bx("ilst", value(1, "2024-10-05T18:22:01+0200"), value(2, "+40.4168-003.7038+654.000/"));
+  const meta = bx("meta", bx("hdlr", Buffer.alloc(8), Buffer.from("mdta"), Buffer.alloc(13)), keys, ilst);
+  return Buffer.concat([bx("ftyp", Buffer.from("qt  \0\0\0\0qt  ", "latin1")), bx("mdat", Buffer.alloc(64, 7)), bx("moov", mvhd, trak, meta)]);
+}
+

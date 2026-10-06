@@ -72,7 +72,9 @@ CREATE TABLE IF NOT EXISTS photos (
     -- BLAKE3 of the file, only for photos that share their size with another (duplicates)
     content_hash TEXT,
     -- goes up when the file is changed here (rotated), so browsers fetch the new thumbnail
-    version INTEGER NOT NULL DEFAULT 0
+    version INTEGER NOT NULL DEFAULT 0,
+    -- videos only: their length in seconds (0 when the file doesn't say); NULL for photos
+    duration  REAL
 );
 CREATE INDEX IF NOT EXISTS photos_taken ON photos(taken);
 CREATE INDEX IF NOT EXISTS photos_md ON photos(substr(taken, 6, 5));
@@ -156,6 +158,7 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("persons", "cover_face", "INTEGER"),
     ("photos", "version", "INTEGER NOT NULL DEFAULT 0"),
     ("photos", "content_hash", "TEXT"),
+    ("photos", "duration", "REAL"),
 ];
 
 /// Upgrades indexes created by older versions in place.

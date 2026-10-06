@@ -13,6 +13,7 @@ The gallery's page talks to the program through this API, and scripts can use it
 | `POST /api/excluded/clear` | `DELETE /api/excluded` |
 | `POST /api/people/{id}`, answering `{"name"}` or nothing | `PATCH /api/people/{id}`, always answering with the person |
 | `GET /thumb/{id}?v={version}` | `GET /thumb/{id}/{version}` |
+| | videos: `duration` as the seventh value of each row, `videos` in `/api/groups`, `duration` in `/api/photos/{id}` |
 | | `version` on each file of `GET /api/duplicates` |
 
 ## Conventions
@@ -45,14 +46,14 @@ The photos matching a filter.
 { "photos": [[42, 4032, 3024, "2024-10-05 18:22:01", 7, 0], ...], "days": [] }
 ```
 
-Each photo is an array, to keep large libraries small: `[id, width, height, taken, place_id or null, version]`. Width and height are as shown (after the EXIF orientation). `days` lists the days (`MM-DD`) that `upcoming` covers.
+Each photo or video is an array, to keep large libraries small: `[id, width, height, taken, place_id or null, version, duration]`. Width and height are as shown (after the EXIF orientation, or a video's rotation). `duration` is null for photos, and a video's length in seconds (0 when the file doesn't say). `days` lists the days (`MM-DD`) that `upcoming` covers.
 
 ### `GET /api/groups`
 
 The same filters plus `by` (`year`, `month`, `day` or `place`): one line per group, for the cards.
 
 ```json
-{ "groups": [{ "key": "2024-10", "count": 31, "cover": 42, "v": 0 }], "total": 31 }
+{ "groups": [{ "key": "2024-10", "count": 31, "cover": 42, "v": 0, "videos": 2 }], "total": 31, "videos": 2 }
 ```
 
 `key` is the date prefix, or the place id with `by=place`. `cover` is the newest photo of the group (the oldest with `sort=asc`), and `v` its version.
@@ -84,9 +85,9 @@ A face's `box` is `[x, y, width, height]` as fractions of the photo as shown.
 
 | | |
 |---|---|
-| `GET /thumb/{id}/{version}` | the thumbnail, JPEG |
+| `GET /thumb/{id}/{version}` | the thumbnail, JPEG; for a video, a generic picture (SVG) |
 | `GET /face/{id}` | a face's picture, JPEG |
-| `GET /original/{id}` | the file itself (HEIC and TIFF converted to JPEG); `?download=1` to save it with its own name |
+| `GET /original/{id}` | the file itself (HEIC and TIFF converted to JPEG); `?download=1` to save it with its own name. Videos are streamed and answer range requests (`Range: bytes=...`), for seeking |
 
 Thumbnails and faces are cached for good by browsers (`immutable`). A photo's version goes up when it is rotated or its file changes, so its thumbnail gets a new address; an address with an old version still answers with the current picture, but marked not to be kept (`no-cache`).
 

@@ -202,6 +202,8 @@ struct Processed {
     thumb: Vec<u8>,
     faces: Vec<FaceOut>,
     faces_scanned: bool,
+    /// Videos: their length in seconds (0 when unknown). They have no thumbnail and no faces.
+    duration: Option<f64>,
 }
 
 thread_local! {
@@ -402,7 +404,7 @@ fn list_files(roots: &[PathBuf]) -> Vec<FileEntry> {
                 .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
                 .filter_map(|e| e.ok())
                 .filter(|e| e.file_type().is_file())
-                .filter(|e| imaging::is_supported(e.path()))
+                .filter(|e| imaging::is_supported(e.path()) || crate::video::is_video(e.path()))
                 .filter_map(|e| {
                     let meta = e.metadata().ok()?;
                     let mtime = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
@@ -430,6 +432,9 @@ fn process(file: FileEntry, models: Option<&ModelPaths>) -> Result<Processed, (F
 }
 
 fn process_inner(file: FileEntry, models: Option<&ModelPaths>) -> Result<Processed> {
+    if crate::video::is_video(&file.path) {
+        return process_video(file);
+    }
     let bytes = std::fs::read(&file.path)?;
     let exif = exif::Reader::new().read_from_container(&mut Cursor::new(&bytes)).ok();
 
@@ -453,7 +458,43 @@ fn process_inner(file: FileEntry, models: Option<&ModelPaths>) -> Result<Process
     };
 
     let faces_scanned = models.is_some();
-    Ok(Processed { file, width, height, taken, from_exif: exif_date.is_some(), gps, thumb, faces, faces_scanned })
+    Ok(Processed {
+        file,
+        width,
+        height,
+        taken,
+        from_exif: exif_date.is_some(),
+        gps,
+        thumb,
+        faces,
+        faces_scanned,
+        duration: None,
+    })
+}
+
+/// A video: what its container says, without decoding it. The page shows a generic picture
+/// for it and the browser plays the file. Without a size it is taken as 16:9.
+fn process_video(file: FileEntry) -> Result<Processed> {
+    let info = crate::video::read(&file.path)?;
+    let (width, height) = if info.width > 0 && info.height > 0 { (info.width, info.height) } else { (1920, 1080) };
+    let from_container = info.taken.is_some();
+    let taken = info.taken.unwrap_or_else(|| {
+        let t = DateTime::from_timestamp(file.mtime, 0).unwrap_or_default().with_timezone(&Local);
+        t.format("%Y-%m-%d %H:%M:%S").to_string()
+    });
+    Ok(Processed {
+        file,
+        width,
+        height,
+        taken,
+        from_exif: from_container,
+        gps: info.gps,
+        thumb: Vec::new(),
+        faces: Vec::new(),
+        // nothing to look for faces in, so a later run with face recognition skips it
+        faces_scanned: true,
+        duration: Some(info.duration.unwrap_or(0.0)),
+    })
 }
 
 fn detect_faces(work: &image::RgbImage, paths: &ModelPaths) -> Result<Vec<FaceOut>> {
@@ -527,7 +568,8 @@ fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Outcome>, statu
                 Some(id) => {
                     tx.execute(
                         "UPDATE photos SET mtime = ?, size = ?, width = ?, height = ?, taken = ?, date_from_exif = ?,
-                             lat = ?, lon = ?, place_id = ?, faces_scanned = ?, content_hash = NULL, version = version + 1
+                             lat = ?, lon = ?, place_id = ?, faces_scanned = ?, duration = ?, content_hash = NULL,
+                             version = version + 1
                          WHERE id = ?",
                         params![
                             p.file.mtime,
@@ -540,6 +582,7 @@ fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Outcome>, statu
                             p.gps.map(|g| g.1),
                             place_id,
                             p.faces_scanned,
+                            p.duration,
                             id
                         ],
                     )?;
@@ -549,8 +592,9 @@ fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Outcome>, statu
                 }
                 None => {
                     tx.execute(
-                        "INSERT INTO photos (path, mtime, size, width, height, taken, date_from_exif, lat, lon, place_id, faces_scanned)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        "INSERT INTO photos (path, mtime, size, width, height, taken, date_from_exif, lat, lon, place_id,
+                             faces_scanned, duration)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         params![
                             p.file.path.to_string_lossy(),
                             p.file.mtime,
@@ -562,13 +606,16 @@ fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Outcome>, statu
                             p.gps.map(|g| g.0),
                             p.gps.map(|g| g.1),
                             place_id,
-                            p.faces_scanned
+                            p.faces_scanned,
+                            p.duration
                         ],
                     )?;
                     tx.last_insert_rowid()
                 }
             };
-            tx.execute("INSERT INTO thumbs (photo_id, data) VALUES (?, ?)", params![photo_id, p.thumb])?;
+            if !p.thumb.is_empty() {
+                tx.execute("INSERT INTO thumbs (photo_id, data) VALUES (?, ?)", params![photo_id, p.thumb])?;
+            }
             for f in &p.faces {
                 tx.execute(
                     "INSERT INTO faces (photo_id, x, y, w, h, score, embedding, thumb, grouped) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)",

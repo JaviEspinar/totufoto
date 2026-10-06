@@ -125,9 +125,19 @@ pub(super) fn jpeg(bytes: Vec<u8>, cache: &'static str) -> Response {
 /// a new address. An address with another version gets the current picture, but not to keep.
 pub(super) async fn thumb(State(s): State<Shared>, Path((id, version)): Path<(i64, i64)>) -> ApiResult<Response> {
     let data = db(&s, move |conn| photos::thumbnail(conn, id)).await?;
-    let (bytes, current) = data.ok_or_else(|| ApiError::not_found("picture"))?;
-    Ok(jpeg(bytes, if current == version { IMMUTABLE } else { "no-cache" }))
+    let (picture, current) = data.ok_or_else(|| ApiError::not_found("picture"))?;
+    let cache = if current == version { IMMUTABLE } else { "no-cache" };
+    Ok(match picture {
+        photos::Thumbnail::Jpeg(bytes) => jpeg(bytes, cache),
+        photos::Thumbnail::Video => {
+            ([(header::CONTENT_TYPE, "image/svg+xml"), (header::CACHE_CONTROL, cache)], VIDEO_THUMB).into_response()
+        }
+    })
 }
+
+/// The picture of a video in the grid, until videos get thumbnails of their own: a dark
+/// tile with a play sign, cropped to the shape of the tile.
+const VIDEO_THUMB: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b3a55"/><stop offset="1" stop-color="#151b28"/></linearGradient></defs><rect width="160" height="90" fill="url(#g)"/><circle cx="80" cy="45" r="17" fill="#fff" fill-opacity="0.16"/><path d="M74.5 36.5v17l14-8.5z" fill="#fff" fill-opacity="0.9"/></svg>"##;
 
 pub(super) async fn face_thumb(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
     let data = db(&s, move |conn| photos::face_picture(conn, id)).await?;
@@ -215,12 +225,16 @@ pub(super) async fn original(
     State(s): State<Shared>,
     Path(id): Path<i64>,
     Query(q): Query<OriginalQuery>,
+    request: axum::extract::Request,
 ) -> ApiResult<Response> {
     let path = db(&s, move |conn| photos::photo_path(conn, id)).await?;
     let Some(path) = path.map(PathBuf::from) else { return Err(ApiError::not_found("photo")) };
     if !path.is_file() {
         // Deleted outside the gallery (or its drive is unplugged): the page asks /check.
         return Err(ApiError::not_found("file in its folder"));
+    }
+    if crate::video::is_video(&path) {
+        return serve_video(&path, q.download(), request).await;
     }
     let ext = imaging::extension(&path);
     if imaging::BROWSER_EXTENSIONS.contains(&ext.as_str()) {
@@ -257,6 +271,20 @@ pub(super) async fn original(
     let mut response = jpeg(bytes, "public, max-age=3600");
     if q.download() {
         response.headers_mut().insert(header::CONTENT_DISPOSITION, attachment(&jpeg_name).parse()?);
+    }
+    Ok(response)
+}
+
+/// A video, streamed from disk with range requests: the browser's player asks for the parts
+/// it needs, so it can start at once and seek, and nothing is read into memory.
+async fn serve_video(path: &std::path::Path, download: bool, request: axum::extract::Request) -> ApiResult<Response> {
+    use tower::ServiceExt;
+    let service = tower_http::services::ServeFile::new_with_mime(path, &crate::video::mime(path).parse()?);
+    let mut response = service.oneshot(request).await?.map(axum::body::Body::new);
+    response.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=3600".parse()?);
+    if download {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "video".into());
+        response.headers_mut().insert(header::CONTENT_DISPOSITION, attachment(&name).parse()?);
     }
     Ok(response)
 }

@@ -7,10 +7,11 @@ use serde::Serialize;
 
 use super::filters::{PhotoQuery, date_range_filter, people_filter, photo_filters};
 
-/// A photo in a list: `[id, width, height, taken, place, version]`. An array rather than an
-/// object, since lists can have hundreds of thousands of photos.
+/// A photo or video in a list: `[id, width, height, taken, place, version, duration]`, where
+/// `duration` is null for photos and a video's length in seconds (0 when unknown). An array
+/// rather than an object, since lists can have hundreds of thousands of photos.
 #[derive(Serialize)]
-pub struct PhotoRow(pub i64, pub i64, pub i64, pub String, pub Option<i64>, pub i64);
+pub struct PhotoRow(pub i64, pub i64, pub i64, pub String, pub Option<i64>, pub i64, pub Option<f64>);
 
 #[derive(Serialize)]
 pub struct PhotoList {
@@ -23,12 +24,13 @@ pub struct PhotoList {
 pub fn list_photos(conn: &Connection, q: &PhotoQuery) -> Result<PhotoList> {
     let (filters, args, days) = photo_filters(q);
     let order = if newest_first(q) { "taken DESC, id DESC" } else { "taken ASC, id ASC" };
-    let sql =
-        format!("SELECT id, width, height, taken, place_id, version FROM photos WHERE 1 = 1{filters} ORDER BY {order}");
+    let sql = format!(
+        "SELECT id, width, height, taken, place_id, version, duration FROM photos WHERE 1 = 1{filters} ORDER BY {order}"
+    );
     let photos = conn
         .prepare_cached(&sql)?
         .query_map(params_from_iter(args), |r| {
-            Ok(PhotoRow(r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
+            Ok(PhotoRow(r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
         })?
         .collect::<Result<_, _>>()?;
     Ok(PhotoList { photos, days })
@@ -84,13 +86,17 @@ pub struct Group {
     /// The cover's version, for its thumbnail's URL.
     #[serde(rename = "v")]
     pub version: i64,
+    /// How many of `count` are videos.
+    pub videos: i64,
 }
 
 #[derive(Serialize)]
 pub struct Groups {
     pub groups: Vec<Group>,
-    /// Photos in all the groups.
+    /// Photos and videos in all the groups.
     pub total: i64,
+    /// How many of `total` are videos.
+    pub videos: i64,
 }
 
 /// One line per group of the photos matching the query, for the group cards. Dates follow
@@ -109,17 +115,19 @@ pub fn groups(conn: &Connection, q: &PhotoQuery, by: GroupBy) -> Result<Groups> 
     };
     let key = by.key();
     let sql = format!(
-        "SELECT {key} AS k, COUNT(*) AS n, id, {pick}, version FROM photos WHERE 1 = 1{filters} GROUP BY k ORDER BY {order}"
+        "SELECT {key} AS k, COUNT(*) AS n, id, {pick}, version, COUNT(duration) FROM photos WHERE 1 = 1{filters}
+         GROUP BY k ORDER BY {order}"
     );
     let groups: Vec<Group> = conn
         .prepare_cached(&sql)?
         .query_map(params_from_iter(args), |r| {
             let key = if by == GroupBy::Place { GroupKey::Place(r.get(0)?) } else { GroupKey::Date(r.get(0)?) };
-            Ok(Group { key, count: r.get(1)?, cover: r.get(2)?, version: r.get(4)? })
+            Ok(Group { key, count: r.get(1)?, cover: r.get(2)?, version: r.get(4)?, videos: r.get(5)? })
         })?
         .collect::<Result<_, _>>()?;
     let total = groups.iter().map(|g| g.count).sum();
-    Ok(Groups { groups, total })
+    let videos = groups.iter().map(|g| g.videos).sum();
+    Ok(Groups { groups, total, videos })
 }
 
 #[derive(Serialize)]
@@ -139,6 +147,8 @@ pub struct PhotoDetail {
     pub country: Option<String>,
     pub version: i64,
     pub rotatable: bool,
+    /// Videos: the length in seconds (0 when unknown); null for photos.
+    pub duration: Option<f64>,
     pub faces: Vec<FaceBox>,
 }
 
@@ -157,7 +167,7 @@ pub fn photo_detail(conn: &Connection, id: i64) -> Result<Option<PhotoDetail>> {
     let photo = conn
         .prepare_cached(
             "SELECT p.path, p.taken, p.date_from_exif, p.width, p.height, p.lat, p.lon, pl.city, pl.region,
-                    pl.country, p.version
+                    pl.country, p.version, p.duration
              FROM photos p LEFT JOIN places pl ON pl.id = p.place_id WHERE p.id = ?",
         )?
         .query_row([id], |r| {
@@ -176,6 +186,7 @@ pub fn photo_detail(conn: &Connection, id: i64) -> Result<Option<PhotoDetail>> {
                 region: r.get(8)?,
                 country: r.get(9)?,
                 version: r.get(10)?,
+                duration: r.get(11)?,
                 faces: Vec::new(),
             })
         })
@@ -245,15 +256,27 @@ pub fn photo_path(conn: &Connection, id: i64) -> Result<Option<String>> {
     Ok(conn.prepare_cached("SELECT path FROM photos WHERE id = ?")?.query_row([id], |r| r.get(0)).optional()?)
 }
 
-/// A photo's thumbnail (JPEG).
-/// A photo's thumbnail (JPEG) and the photo's current version.
-pub fn thumbnail(conn: &Connection, photo: i64) -> Result<Option<(Vec<u8>, i64)>> {
-    Ok(conn
+/// A picture for the grid: a photo's thumbnail, or the sign that it is a video (which has
+/// none; the server draws a generic one).
+pub enum Thumbnail {
+    Jpeg(Vec<u8>),
+    Video,
+}
+
+/// A photo's or video's picture for the grid, and its current version.
+pub fn thumbnail(conn: &Connection, photo: i64) -> Result<Option<(Thumbnail, i64)>> {
+    let row: Option<(Option<Vec<u8>>, i64, bool)> = conn
         .prepare_cached(
-            "SELECT t.data, p.version FROM thumbs t JOIN photos p ON p.id = t.photo_id WHERE t.photo_id = ?",
+            "SELECT t.data, p.version, p.duration IS NOT NULL FROM photos p
+             LEFT JOIN thumbs t ON t.photo_id = p.id WHERE p.id = ?",
         )?
-        .query_row([photo], |r| Ok((r.get(0)?, r.get(1)?)))
-        .optional()?)
+        .query_row([photo], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .optional()?;
+    Ok(row.and_then(|(data, version, video)| match (data, video) {
+        (Some(jpeg), _) => Some((Thumbnail::Jpeg(jpeg), version)),
+        (None, true) => Some((Thumbnail::Video, version)),
+        (None, false) => None,
+    }))
 }
 
 /// A face's picture (JPEG).
