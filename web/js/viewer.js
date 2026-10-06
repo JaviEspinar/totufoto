@@ -140,6 +140,10 @@ export async function openViewer(i, { keepImage = false } = {}) {
   $(".prev", viewer).hidden = i === 0;
   $(".next", viewer).hidden = i === items.length - 1;
   const { id, width: w, height: h, version: v } = items[i];
+  const trash = $(".trash", viewer);
+  trash.title = isVideo(items[i]) ? t("Delete this video (Delete key)") : t("Delete this photo (Delete key)");
+  trash.setAttribute("aria-label", isVideo(items[i]) ? t("Delete this video") : t("Delete this photo"));
+  viewer.setAttribute("aria-label", isVideo(items[i]) ? t("Video") : t("Photo"));
   viewer.classList.add("open");
   setViewerModal(true);
   if (!keepImage) await showViewerImage(i, id, w, h, v);
@@ -150,7 +154,7 @@ export async function openViewer(i, { keepImage = false } = {}) {
     if (viewerIndex !== i) return;
     // Not the previous photo's details: say what happened.
     $(".boxes", viewer).innerHTML = "";
-    setDetails(`<div class="s">${t("Couldn't load this photo's details: {error}", { error: esc(err.message) })}</div>`);
+    setDetails(`<div class="s">${t("Couldn't load the details: {error}", { error: esc(err.message) })}</div>`);
     return;
   }
   if (viewerIndex !== i) return;
@@ -166,8 +170,8 @@ export async function openViewer(i, { keepImage = false } = {}) {
     <div class="s">${d.duration != null ? `${[t("Video"), fmtDuration(d.duration)].filter(Boolean).join(" · ")} · ` : ""}${d.dateFromExif ? "" : `${t("Date from file (no EXIF)")} · `}${d.width} × ${d.height}</div>
     <div class="item-acts">
       ${folderInfo.desktop && canShareFiles
-        ? `<button data-share-item="${id}" title="${t("Send this photo with another app")}">${icon("share", 15)} ${t("Share")}</button>`
-        : `<a class="btn-like" href="/original/${id}?download=1&v=${v}" download title="${t("Save the photo on this device")}">${icon("download", 15)} ${t("Download")}</a>`}
+        ? `<button data-share-item="${id}" title="${d.duration != null ? t("Send this video with another app") : t("Send this photo with another app")}">${icon("share", 15)} ${t("Share")}</button>`
+        : `<a class="btn-like" href="/original/${id}?download=1&v=${v}" download title="${d.duration != null ? t("Save the video on this device") : t("Save the photo on this device")}">${icon("download", 15)} ${t("Download")}</a>`}
       ${d.rotatable ? `<button data-rotate="-1" title="${t("Rotate left (Shift+R)")}" aria-label="${t("Rotate left")}">${icon("rotate", 15)}</button><button data-rotate="1" title="${t("Rotate right (R)")}" aria-label="${t("Rotate right")}">${icon("rotate", 15, true)}</button>` : ""}
       ${folderInfo.desktop ? `<button data-reveal="${id}" title="${t("Show the file in its folder")}">${icon("folder", 15)} ${t("Open in folder")}</button>` : ""}
     </div>
@@ -197,11 +201,12 @@ async function itemMissing(id) {
   try { result = await post(`/api/items/${id}/check`); } catch { return; }
   if (!result || result.status === "present") return; // a passing glitch; nothing to say
   const dlg = $("#goneDlg");
+  const video = isVideo(items.find(p => p.id === id));
   if (result.status === "removed") {
-    $("#goneTitle").textContent = t("This photo is no longer there");
+    $("#goneTitle").textContent = video ? t("This video is no longer there") : t("This photo is no longer there");
     $("#goneText").textContent = t("Its file is no longer in its folder, so it has been removed from the gallery.");
   } else {
-    $("#goneTitle").textContent = t("This photo can't be reached");
+    $("#goneTitle").textContent = video ? t("This video can't be reached") : t("This photo can't be reached");
     $("#goneText").textContent = t("Its folder can't be reached right now (an unplugged drive or a network folder, for example). Nothing was removed: it will show again when the folder is back.");
   }
   $("#gonePath").textContent = result.path || "";
@@ -365,7 +370,7 @@ async function deleteViewerItem() {
     if (again !== "permanently") return;
     result = await remove("disk", true);
   }
-  if (!result.ok) return toast(t("Couldn't delete the photo: {error}", { error: result.body.error || result.status }), true);
+  if (!result.ok) return toast(t("Couldn't delete it: {error}", { error: result.body.error || result.status }), true);
   toast({ removed: t("Removed from the gallery; the file is still on disk"), binned: t("Moved to the bin"), deleted: t("Deleted permanently") }[result.body.status] || t("Removed"));
   dropItemFromView(id);
 }

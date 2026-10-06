@@ -2,7 +2,7 @@
 
 *Formerly Totufoto (until version 0.1.10). Existing libraries carry over: the desktop app moves its data on first start, and the command-line app keeps using a `totufoto-data` folder when there is no `imadive-data`.*
 
-A fast local photo gallery written in Rust. Point it at your photo folders and it indexes them in parallel: timeline, places, upcoming anniversaries and people found by face recognition. Everything runs on your computer and your photos are never uploaded; the files only change when you ask (rotating or deleting a photo).
+A fast local photo and video gallery written in Rust. Point it at your photo folders and it indexes them in parallel: timeline, places, upcoming anniversaries and people found by face recognition. Everything runs on your computer and your photos are never uploaded; the files only change when you ask (rotating or deleting a photo).
 
 It comes as a desktop app for Windows and Linux, and as a command-line app that serves the gallery to your browser. It is free for personal and other non-commercial use, and its source code is available ([license](#license)).
 

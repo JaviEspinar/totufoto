@@ -87,13 +87,16 @@ pub(super) async fn remove_item(
             Ok((StatusCode::CONFLICT, Json(json!({ "status": "no-bin", "error": error, "path": path })))
                 .into_response())
         }
-        RemoveItem::NotFound => Err(ApiError::not_found("photo")),
-        RemoveItem::Outside => Err(ApiError::forbidden("the file is outside the photo folders")),
+        RemoveItem::NotFound => Err(ApiError::not_found("photo or video")),
+        RemoveItem::Outside => Err(ApiError::forbidden("the file is outside the gallery's folders")),
     }
 }
 
 pub(super) async fn item_detail(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Json<ItemDetail>> {
-    db(&s, move |conn| items::item_detail(conn, id)).await?.map(Json).ok_or_else(|| ApiError::not_found("photo"))
+    db(&s, move |conn| items::item_detail(conn, id))
+        .await?
+        .map(Json)
+        .ok_or_else(|| ApiError::not_found("photo or video"))
 }
 
 #[derive(Deserialize)]
@@ -155,7 +158,7 @@ pub(super) async fn set_video_thumb(
     let Some(thumb) = thumb else { return Err(ApiError::bad_request("the picture must be a JPEG image")) };
     match db(&s, move |conn| items::set_video_thumbnail(conn, id, q.v, &thumb)).await? {
         items::SetThumbnail::Saved(version) => Ok(Json(json!({ "version": version }))),
-        items::SetThumbnail::NotFound => Err(ApiError::not_found("photo")),
+        items::SetThumbnail::NotFound => Err(ApiError::not_found("photo or video")),
         items::SetThumbnail::NotAVideo => Err(ApiError::conflict("only videos get their thumbnail from the page")),
         items::SetThumbnail::Changed => Err(ApiError::conflict("the video changed; its thumbnail will be made again")),
     }
@@ -180,7 +183,7 @@ pub(super) async fn rotate_photo(
     Json(body): Json<RotateBody>,
 ) -> ApiResult<Response> {
     if s.status.running.load(std::sync::atomic::Ordering::Relaxed) {
-        return Err(ApiError::conflict("the photos are being scanned; try again when the scan ends"));
+        return Err(ApiError::conflict("the folders are being scanned; try again when the scan ends"));
     }
     let turns = body.turns.rem_euclid(4) as u8;
     let scan_cfg = s.scan.clone();
@@ -194,11 +197,11 @@ pub(super) async fn rotate_photo(
         Outcome::Rotated { width, height, version } => {
             Ok(Json(json!({ "width": width, "height": height, "version": version })).into_response())
         }
-        Outcome::NotFound => Err(ApiError::not_found("photo")),
+        Outcome::NotFound => Err(ApiError::not_found("photo or video")),
         Outcome::Unsupported => {
             Err(ApiError::new(StatusCode::UNSUPPORTED_MEDIA_TYPE, "only JPEG and PNG photos can be rotated"))
         }
-        Outcome::Outside => Err(ApiError::forbidden("the file is not in the photo folders")),
+        Outcome::Outside => Err(ApiError::forbidden("the file is not in the gallery's folders")),
         Outcome::Changed => Err(ApiError::conflict("the file changed since it was indexed; rescan first")),
     }
 }
@@ -206,7 +209,7 @@ pub(super) async fn rotate_photo(
 /// Shows the item's file in the file manager (desktop app only; 501 otherwise).
 pub(super) async fn reveal_item(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
     let path = db(&s, move |conn| items::item_path(conn, id)).await?;
-    let Some(path) = path.map(PathBuf::from) else { return Err(ApiError::not_found("photo")) };
+    let Some(path) = path.map(PathBuf::from) else { return Err(ApiError::not_found("photo or video")) };
     let Some(host) = &s.host else {
         return Err(ApiError::desktop_only("open folders"));
     };
@@ -261,7 +264,7 @@ pub(super) async fn original(
     request: axum::extract::Request,
 ) -> ApiResult<Response> {
     let path = db(&s, move |conn| items::item_path(conn, id)).await?;
-    let Some(path) = path.map(PathBuf::from) else { return Err(ApiError::not_found("photo")) };
+    let Some(path) = path.map(PathBuf::from) else { return Err(ApiError::not_found("photo or video")) };
     if !path.is_file() {
         // Deleted outside the gallery (or its drive is unplugged): the page asks /check.
         return Err(ApiError::not_found("file in its folder"));

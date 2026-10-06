@@ -63,7 +63,7 @@ impl Gallery {
         let folders = cfg
             .folders
             .iter()
-            .map(|p| dunce::canonicalize(p).with_context(|| format!("photo folder {}", p.display())))
+            .map(|p| dunce::canonicalize(p).with_context(|| format!("folder {}", p.display())))
             .collect::<Result<Vec<_>>>()?;
         Ok(Self {
             scan: Arc::new(ScanConfig {

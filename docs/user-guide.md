@@ -11,7 +11,7 @@ How the gallery works, tab by tab. To install it, see the [README](../README.md)
 - [Rotating, downloading and deleting](#rotating-downloading-and-deleting)
 - [Videos](#videos)
 - [Optimization: identical files](#optimization-identical-files)
-- [Settings: photo folders and the library](#settings-photo-folders-and-the-library)
+- [Settings: folders and the library](#settings-folders-and-the-library)
 - [Phones and tablets](#phones-and-tablets)
 - [The index](#the-index)
 - [Keyboard](#keyboard)
@@ -95,7 +95,7 @@ The buttons under the photo's date in the viewer.
 - *Remove from gallery* keeps the file and leaves it out of later scans. Settings can show such photos again.
 - *Remove from disk* moves the file to the bin of the computer running Imadive. If its drive has no bin, it asks before deleting for good.
 
-Only files inside the photo folders can be deleted. The gallery has no login, so anyone who can open it on your network can delete photos too (see [Privacy and security](../README.md#privacy-and-security)).
+Only files inside the gallery's folders can be deleted. The gallery has no login, so anyone who can open it on your network can delete photos and videos too (see [Privacy and security](../README.md#privacy-and-security)).
 
 ## Videos
 
@@ -109,11 +109,11 @@ After each scan, Imadive looks in the background for identical photo files (the 
 
 *Delete duplicates* moves the copies to the bin, keeping the one with the oldest file date of each set (if two have the same date, one of them). A progress bar shows how far it has got; closing or reloading the page doesn't stop it. Each copy is checked just before it goes: it, and the file that is kept, must still be there and unchanged.
 
-## Settings: photo folders and the library
+## Settings: folders and the library
 
 Settings is the gear at the top right. (The ImaDive logo at the top left shows the version, and how to support the project.)
 
-**Photo folders**
+**Folders**
 
 - *Add folder…* opens the system folder picker in the desktop app. In the browser it lists the folders of the computer running Imadive: open one, or type or paste a path, then *Add this folder*.
 - A folder inside one already in the gallery isn't needed and is refused. Adding a folder that contains others replaces them.

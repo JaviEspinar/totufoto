@@ -22,13 +22,13 @@ function indexWork(s) {
   if (s?.removing) {
     const name = s.removing.split(/[\\/]/).filter(Boolean).pop() || s.removing;
     return s.remove_total
-      ? { title: t("Removing {done} of {total} photos", { done: num(s.remove_done), total: num(s.remove_total) }), detail: t("Folder {name}", { name }), done: s.remove_done, total: s.remove_total }
+      ? { title: t("Removing {done} of {total} files", { done: num(s.remove_done), total: num(s.remove_total) }), detail: t("Folder {name}", { name }), done: s.remove_done, total: s.remove_total }
       : { title: t("Removing a folder…"), detail: t("Folder {name}", { name }) };
   }
   if (!s?.running) return null;
-  if (s.phase === "indexing photos" && s.total > 0) {
-    return { title: t("Indexing {done} of {total} photos", { done: num(s.done), total: num(s.total) }),
-      detail: s.faces ? tn(s.faces, "{n} face found", "{n} faces found") : t("Reading photos, making thumbnails, finding faces"),
+  if (s.phase === "indexing files" && s.total > 0) {
+    return { title: t("Indexing {done} of {total} files", { done: num(s.done), total: num(s.total) }),
+      detail: s.faces ? tn(s.faces, "{n} face found", "{n} faces found") : t("Reading photos and videos, making thumbnails, finding faces"),
       done: s.done, total: s.total };
   }
   if (s.phase === "grouping faces" && s.group_total > 0) {
@@ -36,13 +36,13 @@ function indexWork(s) {
       detail: t("Placing faces into people"), done: s.group_done, total: s.group_total };
   }
   // Listing the files of a large library takes a while: say so when nothing is shown yet.
-  if (s.phase === "listing files" && !shownItemCount) return { title: t("Looking for photos…"), detail: t("Listing the files in your folders") };
+  if (s.phase === "listing files" && !shownItemCount) return { title: t("Looking for photos and videos…"), detail: t("Listing the files in your folders") };
   return null;
 }
 export function firstIndexHtml(s) {
   const w = indexWork(s) ?? { title: t("Getting ready…"), detail: "" };
-  return `<h2>${t("Indexing your photos")}</h2>
-    <p>${t("Photos appear here as they are indexed. You can close the app; it continues where it left off.")}</p>
+  return `<h2>${t("Indexing your photos and videos")}</h2>
+    <p>${t("Photos and videos appear here as they are indexed. You can close the app; it continues where it left off.")}</p>
     <progress ${w.total ? `max="${w.total}" value="${w.done}"` : ""}></progress>
     <div class="n">${esc(w.title)}${w.detail ? ` · ${esc(w.detail)}` : ""}</div>`;
 }
@@ -60,7 +60,7 @@ export function updateIndexPill(s) {
     const bar = $("progress", pill);
     if (w.total) { bar.max = w.total; bar.value = w.done; } else { bar.removeAttribute("value"); }
     // Photos indexed since the Photos view was drawn: offer to show them (no surprise reloads).
-    const fresh = s.phase === "indexing photos" ? s.done - Math.min(indexedAtRender, s.done) : 0;
+    const fresh = s.phase === "indexing files" ? s.done - Math.min(indexedAtRender, s.done) : 0;
     const more = $("[data-pill-new]", pill);
     more.hidden = !(fresh > 0 && shownItemCount > 0 && state.view === "photos");
     more.textContent = t("Show {n} new", { n: num(fresh) });

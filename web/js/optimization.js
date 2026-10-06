@@ -15,7 +15,7 @@ const DUP_BATCH = 100;
 export async function renderOptimization(main, job) {
   const report = await api("/api/duplicates", { signal: job.signal });
   if (!job.alive()) return;
-  const intro = `<h2>${t("Duplicate photos")}</h2><p class="lead">${t("Identical files (the very same bytes) take space twice. Of each set, the copy with the oldest file date is kept. Nothing is deleted until you click <b>Delete duplicates</b>.")}</p>`;
+  const intro = `<h2>${t("Duplicate files")}</h2><p class="lead">${t("Identical files (the very same bytes) take space twice. Of each set, the copy with the oldest file date is kept. Nothing is deleted until you click <b>Delete duplicates</b>.")}</p>`;
   if (report.deleting) {
     // Deleting (started here or on another device): progress until it ends.
     main.innerHTML = `<div class="opt">${intro}<div class="opt-progress" id="dupDeleting">${deleteProgressHtml(null)}</div></div>`;
@@ -33,7 +33,7 @@ export async function renderOptimization(main, job) {
     // While the scan or the search runs: its progress every second (the report itself only
     // once it's done, since it can be large).
     const progress = p => {
-      const what = p.scanning ? t("Waiting for the photo scan to finish…")
+      const what = p.scanning ? t("Waiting for the scan to finish…")
         : t("Checking {done} of {total} files that could be duplicates", { done: num(p.checked), total: num(p.to_check) });
       return `<div>${what}</div><progress ${p.scanning || !p.to_check ? "" : `max="${p.to_check}" value="${p.checked}"`}></progress>`;
     };
@@ -57,7 +57,7 @@ export async function renderOptimization(main, job) {
         <small>${t("{files} in {sets}.", { files: plural(report.files, "duplicate file"), sets: plural(report.groups.length, "set") })} ${checked}</small></div>
        <div class="acts"><button class="btn" data-dup-search>${t("Search again")}</button>
          <button class="btn danger" data-dup-delete>${t("Delete duplicates")}</button></div>`
-    : `<div class="what"><div class="big">${t("No duplicates")}</div><small>${t("No two photos are identical files.")} ${checked}</small></div>
+    : `<div class="what"><div class="big">${t("No duplicates")}</div><small>${t("No two files are identical.")} ${checked}</small></div>
        <div class="acts"><button class="btn" data-dup-search>${t("Search again")}</button></div>`;
   main.innerHTML = `<div class="opt">${intro}<div class="opt-summary">${summary}</div><div id="dupGroups"></div></div>`;
   const list = $("#dupGroups");

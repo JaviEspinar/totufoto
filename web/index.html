@@ -90,7 +90,7 @@
   </nav>
   <div class="spacer"></div>
   <div class="tools" id="tools">
-    <div class="range" title="Only photos taken between these dates (both included)">
+    <div class="range" title="Only photos and videos taken between these dates (both included)">
       <label>From <input type="date" id="fromDate"></label>
       <label>to <input type="date" id="toDate"></label>
     </div>
@@ -113,7 +113,7 @@
   <div class="head-buttons">
     <button class="icon-btn" id="peopleBtn" title="People in the photo" aria-label="People in the photo" aria-expanded="false"><svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><use href="#i-people"/></svg><span class="badge" id="peopleBtnCount" hidden></span></button>
     <button class="icon-btn" id="viewBtn" title="Dates, grouping and order" aria-label="Dates, grouping and order" aria-expanded="false" aria-controls="tools"><svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><use href="#i-sliders"/></svg><span class="dot" id="viewBtnDot" hidden></span></button>
-    <button class="icon-btn" id="settingsBtn" title="Settings: photo folders and indexing" aria-label="Settings"><svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><use href="#i-gear"/></svg></button>
+    <button class="icon-btn" id="settingsBtn" title="Settings: folders and indexing" aria-label="Settings"><svg class="icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><use href="#i-gear"/></svg></button>
   </div>
 </header>
 <div class="scrim" id="scrim"></div>
@@ -188,7 +188,7 @@
 </dialog>
 
 <dialog id="browseDlg" aria-labelledby="browseTitle">
-  <div class="dlg-head"><h3 id="browseTitle">Add a photo folder</h3><button data-close title="Close">✕</button></div>
+  <div class="dlg-head"><h3 id="browseTitle">Add a folder</h3><button data-close title="Close">✕</button></div>
   <div class="dlg-body">
     <p>Folders on the computer running Imadive. Open a folder, then add it; its subfolders are included.</p>
     <div class="browse-path">

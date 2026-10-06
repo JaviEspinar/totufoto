@@ -461,7 +461,7 @@ mod tests {
         assert_eq!(body["width"], 64);
         assert_eq!(
             error(call(&app, "GET", "/api/items/9999", None).await),
-            (StatusCode::NOT_FOUND, "no such photo".into())
+            (StatusCode::NOT_FOUND, "no such photo or video".into())
         );
         assert_eq!(call(&app, "GET", "/thumb/9999/0", None).await.0, StatusCode::NOT_FOUND);
         assert_eq!(call(&app, "GET", "/api/groups", None).await.0, StatusCode::BAD_REQUEST);

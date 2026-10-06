@@ -78,17 +78,17 @@ export async function addFolder(path) {
 // ---- settings: photo folders and indexing -------------------------------------------
 export function scanStateHtml(st) {
   if (!st) return `<div class="what">${t("Checking…")}</div>`;
-  const rescan = `<button class="btn" data-rescan title="${st.running ? t("Scan again when this one ends") : t("Look for new, changed or deleted photos")}">${t("Rescan")}</button>`;
+  const rescan = `<button class="btn" data-rescan title="${st.running ? t("Scan again when this one ends") : t("Look for new, changed or deleted photos and videos")}">${t("Rescan")}</button>`;
   if (st.running && st.phase === "grouping faces") {
     const pct = st.group_total ? Math.min(100, Math.floor((100 * st.group_done) / st.group_total)) : 0;
     return `<div class="what">${t("Grouping faces {pct}%", { pct })}<small>${st.faces ? tn(st.faces, "Placing faces into people, {n} new face", "Placing faces into people, {n} new faces") : t("Placing faces into people")}</small>
       <progress max="${st.group_total || 1}" value="${st.group_done}"></progress></div>${rescan}`;
   }
-  if (st.running && st.phase === "indexing photos") {
-    return `<div class="what">${t("Indexing {done} of {total} photos", { done: num(st.done), total: num(st.total) })}<small>${st.faces ? tn(st.faces, "{n} face found", "{n} faces found") : t("Reading photos, making thumbnails, finding faces")}</small>
+  if (st.running && st.phase === "indexing files") {
+    return `<div class="what">${t("Indexing {done} of {total} files", { done: num(st.done), total: num(st.total) })}<small>${st.faces ? tn(st.faces, "{n} face found", "{n} faces found") : t("Reading photos and videos, making thumbnails, finding faces")}</small>
       <progress max="${st.total || 1}" value="${st.done}"></progress></div>${rescan}`;
   }
-  if (st.running) return `<div class="what">${t("Looking for new or changed photos…")}<progress></progress></div>${rescan}`;
+  if (st.running) return `<div class="what">${t("Looking for new or changed files…")}<progress></progress></div>${rescan}`;
   return `<div class="what">${st.phase === "failed" ? t("The last scan failed") : t("Up to date")}</div>${rescan}`;
 }
 
@@ -96,7 +96,7 @@ export function scanStateHtml(st) {
 export function excludedHtml(st) {
   const n = st?.excluded ?? 0;
   if (!n) return "";
-  return `<div class="scan-state"><div class="what">${tn(n, "{n} photo removed from the gallery", "{n} photos removed from the gallery")}
+  return `<div class="scan-state"><div class="what">${tn(n, "{n} file removed from the gallery", "{n} files removed from the gallery")}
       <small>${t("Their files are still on disk. Showing them again indexes them at the next scan.")}</small></div>
     <button class="btn" data-show-excluded>${t("Show again")}</button></div>`;
 }
@@ -124,9 +124,9 @@ function failuresHtml() {
 /** "Removing 1,200 of 40,000 photos", or waiting for a scan to stop first. */
 export function removeProgressHtml(st) {
   if (!st?.remove_total) {
-    return `<div>${st?.running ? t("Stopping the scan first…") : t("Removing its photos…")}</div><progress></progress>`;
+    return `<div>${st?.running ? t("Stopping the scan first…") : t("Removing its photos and videos…")}</div><progress></progress>`;
   }
-  return `<div>${t("Removing {done} of {total} photos", { done: num(st.remove_done), total: num(st.remove_total) })}</div>
+  return `<div>${t("Removing {done} of {total} files", { done: num(st.remove_done), total: num(st.remove_total) })}</div>
     <progress max="${st.remove_total}" value="${st.remove_done}"></progress>`;
 }
 export function renderSettings(error = "") {
@@ -140,13 +140,13 @@ export function renderSettings(error = "") {
       </div>`
     : `<div class="folder">
       <span class="p" title="${esc(f.path)}"><bdi>${esc(f.path)}</bdi></span>
-      ${f.available ? `<span class="c">${plural(f.items, "photo")}</span>` : `<span class="off" title="${t("The folder can't be found right now. Its photos are kept until it's back or you remove it.")}">${t("not available")}</span>`}
+      ${f.available ? `<span class="c">${plural(f.items, "file")}</span>` : `<span class="off" title="${t("The folder can't be found right now. Its photos and videos are kept until it's back or you remove it.")}">${t("not available")}</span>`}
       ${f.fixed
         ? `<span class="fixed" title="${t("Given on the command line when Imadive was started; remove it there")}">${t("command line")}</span>`
         : `<button class="btn" data-remove="${esc(f.path)}" ${removing ? `disabled title="${t("Wait for the folder being removed")}"` : ""}>${t("Remove")}</button>`}
     </div>`).join("") : `<p>${t("No folders yet.")}</p>`;
   const add = `<div class="add-row"><button class="btn primary" ${desktop ? "data-pick" : "data-browse"} ${removing ? "disabled" : ""}>${t("Add folder…")}</button></div>`;
-  body.innerHTML = `<h4>${t("Photo folders")}</h4><p>${t("Subfolders are included. Photos are only changed when you rotate or delete them.")}</p>${list}${add}<div class="err">${esc(error)}</div>
+  body.innerHTML = `<h4>${t("Folders")}</h4><p>${t("Subfolders are included. Files are only changed when you rotate or delete them.")}</p>${list}${add}<div class="err">${esc(error)}</div>
     <h4>${t("Library")}</h4><div class="scan-state" id="settingsScan">${scanStateHtml(lastStatus)}</div>
     <div id="settingsFailures">${failuresHtml()}</div>
     <div id="settingsExcluded">${excludedHtml(lastStatus)}</div>
@@ -268,7 +268,7 @@ $("#settingsDlg").addEventListener("click", async e => {
     else if (e.target.dataset.remove) {
       const path = e.target.dataset.remove;
       const choice = await askChoice(`<p class="gone-path">${esc(path)}</p>
-        <p>${t("Its photos leave the gallery, with their faces. The files stay on disk, and adding the folder again brings them back.")}</p>
+        <p>${t("Its photos and videos leave the gallery, with their faces. The files stay on disk, and adding the folder again brings them back.")}</p>
         <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button><button class="btn danger" data-choice="remove">${t("Remove folder")}</button></div>`,
         t("Remove this folder from the gallery?"));
       if (choice !== "remove") return;
@@ -289,7 +289,7 @@ $("#settingsDlg").addEventListener("click", async e => {
         clearInterval(watch);
         setLastStatus({ ...lastStatus, removing: null });
       }
-      toast(tn(r.removed, "{n} photo removed from the gallery", "{n} photos removed from the gallery")
+      toast(tn(r.removed, "{n} file removed from the gallery", "{n} files removed from the gallery")
         + (r.kept ? `; ${tn(r.kept, "{n} stays, as another folder includes it", "{n} stay, as another folder includes them")}` : ""));
       await Promise.all([loadFolders(), loadMeta()]);
       renderSettings();

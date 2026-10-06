@@ -44,7 +44,7 @@ test("Settings: About, adding and removing a folder", async ({ page }) => {
   await settings.locator("[data-remove]").click();
   await page.locator('#choiceDlg [data-choice="remove"]').click();
   await expect(settings.locator(".folder")).toHaveCount(1);
-  await expect(page.locator("#toast")).toContainText("1 photo removed from the gallery");
+  await expect(page.locator("#toast")).toContainText("1 file removed from the gallery");
 });
 
 test("the logo opens About: the icon, the name, the version and the coffee", async ({ page }) => {

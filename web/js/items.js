@@ -234,7 +234,7 @@ export function oneItemLess() { shownItemCount = Math.max(0, shownItemCount - 1)
 export async function renderPhotos(main, job) {
   indexedAtRender = lastStatus?.running ? lastStatus.done : 0;
   const shape = itemsShape();
-  const load = beginViewLoad(main, "photos", filterChips() + `<div class="count">${t("Loading photos…")}</div>`,
+  const load = beginViewLoad(main, "photos", filterChips() + `<div class="count">${t("Loading photos and videos…")}</div>`,
     shape.cards ? cardPlaceholders : itemPlaceholders, job);
   // Grouped photos show as cards: the server sends one line per group, not every photo.
   // Only an opened group loads its photos.
@@ -252,7 +252,7 @@ export async function renderPhotos(main, job) {
     const filtered = state.people.size || state.place != null || state.date || state.from || state.to;
     if (!filtered && !folderInfo.folders.length) {
       main.innerHTML = `<div class="welcome"><h2>${t("Welcome to Imadive")}</h2>
-        <p>${t("Add a folder with photos. It is indexed in the background, and subfolders are included.")}</p>
+        <p>${t("Add a folder with photos and videos. It is indexed in the background, and subfolders are included.")}</p>
         <button class="btn primary" id="welcomeAdd">${t("Add folder…")}</button></div>`;
       $("#welcomeAdd").onclick = () => (folderInfo.desktop ? addFolder(null) : browseForFolder())
         .then(ok => ok && render()).catch(err => toast(err.message, true));
@@ -264,7 +264,7 @@ export async function renderPhotos(main, job) {
       $("#indexPill").hidden = true;
       return;
     }
-    const msg = filtered ? t("No photos match these filters.") : t("No photos yet. They appear here while the folders are indexed.");
+    const msg = filtered ? t("Nothing matches these filters.") : t("No photos or videos yet. They appear here while the folders are indexed.");
     load.area.innerHTML = `<div class="blank">${msg}</div>`;
     return;
   }
@@ -356,7 +356,7 @@ export async function renderUpcoming(main, job) {
   // Upcoming days first (today, tomorrow...), and within a day the most recent year first.
   items = data.items.map(itemRow).sort((a, b) =>
     order.get(a.taken.slice(5, 10)) - order.get(b.taken.slice(5, 10)) || b.taken.localeCompare(a.taken));
-  if (!items.length) { load.area.innerHTML = `<div class="blank">${t("No photos were taken on these dates in previous years.")}</div>`; return; }
+  if (!items.length) { load.area.innerHTML = `<div class="blank">${t("No photos or videos were taken on these dates in previous years.")}</div>`; return; }
   const thisYear = new Date().getFullYear();
   const groups = groupItems(items, p => p.taken.slice(5, 10));
   const header = g => {

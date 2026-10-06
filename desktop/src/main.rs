@@ -19,7 +19,7 @@ struct DesktopHost {
 
 impl Host for DesktopHost {
     fn pick_folder(&self) -> Option<PathBuf> {
-        let mut dialog = self.app.dialog().file().set_title("Add a photo folder");
+        let mut dialog = self.app.dialog().file().set_title("Add a folder");
         if let Some(window) = self.app.get_webview_window("main") {
             dialog = dialog.set_parent(&window);
         }

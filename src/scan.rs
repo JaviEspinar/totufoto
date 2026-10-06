@@ -333,7 +333,7 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     }
 
     status.total.store(todo.len() as u64, Ordering::Relaxed);
-    status.set_phase("indexing photos");
+    status.set_phase("indexing files");
     tracing::info!("{} photos to index ({updated} changed), {removed} removed", todo.len());
 
     let (sender, receiver) = mpsc::sync_channel::<Outcome>(256);
@@ -385,7 +385,7 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     }
     conn.execute_batch("PRAGMA optimize;")?;
     tracing::info!(
-        "scan finished in {:.1}s: {} photos, {} faces, {} errors",
+        "scan finished in {:.1}s: {} files, {} faces, {} errors",
         started.elapsed().as_secs_f32(),
         status.done.load(Ordering::Relaxed),
         status.faces.load(Ordering::Relaxed),

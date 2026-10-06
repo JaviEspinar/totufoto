@@ -13,6 +13,7 @@ The gallery shows videos as well as photos, so what the API calls a photo is now
 | `GET /api/photos`, answering `{"photos": [...]}` | `GET /api/items`, answering `{"items": [...]}` |
 | `/api/photos/{id}`, and its `/check`, `/reveal` and `/rotate` | `/api/items/{id}`, and its `/check`, `/reveal` and `/rotate` |
 | `"photos"` (how many) on each folder of `GET /api/folders` | `"items"` |
+| `indexing photos` as the `phase` of `GET /api/status` | `indexing files` |
 | | videos: `duration` as the seventh value of each row, `videos` in `/api/groups`, `duration` in `/api/items/{id}` |
 | | `PUT /api/items/{id}/thumb` (a video's thumbnail, made by the page), `/thumb` answering `204` for a video without one |
 | | `?silent=1` on `/original/{id}`: a video without its sound |
@@ -145,11 +146,11 @@ Faces moved by hand are never moved by automatic grouping.
 
 ### `GET /api/status`
 
-Progress of the current or last scan, cheap enough to poll. `phase` is `listing files`, `indexing photos`, `grouping faces` or, after an error, `failed`.
+Progress of the current or last scan, cheap enough to poll. `phase` is `listing files`, `indexing files`, `grouping faces` or, after an error, `failed`.
 
 ```json
 {
-  "running": true, "phase": "indexing photos", "total": 1200, "done": 300, "errors": 0, "faces": 410,
+  "running": true, "phase": "indexing files", "total": 1200, "done": 300, "errors": 0, "faces": 410,
   "group_done": 0, "group_total": 0,
   "removing": null, "remove_done": 0, "remove_total": 0,
   "failed": 2, "excluded": 1, "version": "0.1.11", "project": "https://github.com/...", "logs": false

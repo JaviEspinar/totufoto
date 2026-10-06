@@ -35,7 +35,7 @@ test("Spanish: the page, its numbers and the server's messages", async ({ page }
 
   await page.locator("#settingsBtn").click();
   const settings = page.locator("#settingsDlg");
-  await expect(settings.locator("h4", { hasText: "Carpetas de fotos" })).toBeVisible();
+  await expect(settings.locator("h4", { hasText: /^Carpetas$/ })).toBeVisible();
   // A message from the server, translated with the path it names.
   await settings.locator("[data-browse]").click();
   const browse = page.locator("#browseDlg");
