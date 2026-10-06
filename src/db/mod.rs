@@ -176,6 +176,18 @@ fn migrate(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS photos_hash ON photos(content_hash) WHERE content_hash IS NOT NULL",
     )?;
+    // One-time steps, counted in SQLite's user_version.
+    let done: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if done < 1 {
+        // 0.2.x served a generic picture as the thumbnail of every video, which browsers keep
+        // for good. A new version gives those videos new thumbnail addresses, so pages ask
+        // the server again, get "none yet" and make the real one.
+        conn.execute_batch(
+            "UPDATE photos SET version = version + 1
+             WHERE duration IS NOT NULL AND id NOT IN (SELECT photo_id FROM thumbs);
+             PRAGMA user_version = 1;",
+        )?;
+    }
     Ok(())
 }
 
@@ -337,6 +349,30 @@ mod tests {
         let index: i64 =
             conn.query_row("SELECT COUNT(*) FROM sqlite_master WHERE name = 'photos_hash'", [], |r| r.get(0)).unwrap();
         assert_eq!(index, 1);
+    }
+
+    #[test]
+    fn videos_without_a_thumbnail_get_new_addresses_once() {
+        let conn = open_in_memory();
+        conn.execute_batch(
+            "INSERT INTO photos (id, path, mtime, size, width, height, taken, date_from_exif, duration) VALUES
+                 (1, '/p/a.jpg', 0, 1, 1, 1, '2020-01-01 00:00:00', 0, NULL),
+                 (2, '/p/b.mp4', 0, 1, 1, 1, '2020-01-01 00:00:00', 0, 3.0),
+                 (3, '/p/c.mp4', 0, 1, 1, 1, '2020-01-01 00:00:00', 0, 3.0);
+             INSERT INTO thumbs (photo_id, data) VALUES (1, x'00'), (3, x'00');
+             PRAGMA user_version = 0;",
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        migrate(&conn).unwrap(); // only the first time
+        let versions: Vec<i64> = conn
+            .prepare("SELECT version FROM photos ORDER BY id")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(versions, [0, 1, 0], "only the video without a thumbnail");
     }
 
     #[test]
