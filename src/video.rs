@@ -223,7 +223,9 @@ fn track_size(tkhd: &[u8]) -> Option<(u32, u32)> {
 
 /// QuickTime metadata (`moov/meta`, keys and values), as text.
 fn apple_metadata(moov: &[u8]) -> Vec<(String, String)> {
-    let Some(meta) = child(moov, b"meta") else { return Vec::new() };
+    // Phones put it in moov/meta; FFmpeg and the tools built on it, in moov/udta/meta.
+    let meta = child(moov, b"meta").or_else(|| child(moov, b"udta").and_then(|udta| child(udta, b"meta")));
+    let Some(meta) = meta else { return Vec::new() };
     // QuickTime's meta box has no version/flags; the MP4 one does.
     let meta = if meta.get(4..8) == Some(b"hdlr") { meta } else { meta.get(4..).unwrap_or_default() };
     let Some(keys) = child(meta, b"keys") else { return Vec::new() };
@@ -373,6 +375,20 @@ pub(crate) mod tests {
         assert_eq!(info.taken, Some(expected.format("%Y-%m-%d %H:%M:%S").to_string()));
         assert_eq!(info.gps, None);
         assert_eq!(info.duration, Some(12.5));
+    }
+
+    #[test]
+    fn the_apple_keys_are_also_read_inside_udta_as_ffmpeg_writes_them() {
+        let bytes = sample(true, false);
+        let moov = child(&bytes, b"moov").unwrap();
+        let mut moved = Vec::new();
+        for (kind, body) in boxes(moov) {
+            let kind: &[u8; 4] = kind.try_into().unwrap();
+            moved.extend(if kind == b"meta" { bx(b"udta", &bx(b"meta", body)) } else { bx(kind, body) });
+        }
+        let info = parse_moov(&moved);
+        assert_eq!(info.taken.as_deref(), Some("2024-10-05 18:22:01"));
+        assert!(info.gps.is_some());
     }
 
     #[test]
