@@ -221,6 +221,10 @@ Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP, and HEIC/HEIF on macOS (deco
 - [HTTP API](docs/api.md).
 - [Releasing](docs/releasing.md).
 
+## Support
+
+Imadive is free. If you like it and find it useful, you can [buy me a coffee on Ko-fi](https://ko-fi.com/waiting4timeout) ☕
+
 ## Contributing
 
 Bug reports, ideas and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for how to build, test and send changes, and the [code of conduct](CODE_OF_CONDUCT.md).
