@@ -280,7 +280,9 @@ pub enum SetThumbnail {
 /// Stores a video's thumbnail, made by the page from the video at `version`, and raises the
 /// version so browsers fetch it instead of what they had.
 pub fn set_video_thumbnail(conn: &mut Connection, id: i64, version: i64, jpeg: &[u8]) -> Result<SetThumbnail> {
-    let tx = conn.transaction()?;
+    // Writing from the start: pages send thumbnails two at a time, and a read that turns into
+    // a write can't wait for another writer ("database is locked"); this waits its turn.
+    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let row: Option<(bool, i64)> = tx
         .query_row("SELECT duration IS NOT NULL, version FROM photos WHERE id = ?", [id], |r| {
             Ok((r.get(0)?, r.get(1)?))

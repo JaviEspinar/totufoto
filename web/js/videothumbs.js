@@ -16,7 +16,7 @@ let running = 0;
 export function makeVideoThumb(id, version) {
   if (waiting.has(id) || failed.has(id)) return;
   waiting.add(id);
-  queue.push({ id, version });
+  queue.push({ id, version, tries: 0 });
   pump();
 }
 
@@ -24,11 +24,22 @@ function pump() {
   while (running < AT_ONCE && queue.length) {
     const job = queue.shift();
     running++;
+    let again = false;
     frameOf(job)
       .then(blob => api(`/api/photos/${job.id}/thumb?v=${job.version}`, { method: "PUT", headers: { "content-type": "image/jpeg" }, body: blob }))
       .then(saved => show(job.id, saved.version))
-      .catch(() => failed.add(job.id)) // not this visit again
-      .finally(() => { running--; waiting.delete(job.id); pump(); });
+      .catch(err => {
+        // The server failing for a moment is worth one more try; anything else (a video this
+        // browser can't decode, a frame it refused) is not, this visit.
+        again = err.status >= 500 && job.tries++ < 1;
+        if (!again) failed.add(job.id);
+      })
+      .finally(() => {
+        running--;
+        if (again) queue.push(job);
+        else waiting.delete(job.id);
+        pump();
+      });
   }
 }
 
