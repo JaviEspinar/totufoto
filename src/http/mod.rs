@@ -52,7 +52,8 @@ const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 const PROJECT_URL: &str = "https://github.com/JaviEspinar/totufoto";
 /// Where people can support the project ("buying me a coffee" in the About dialog). None
 /// hides the link and keeps the sentence.
-const DONATE_URL: Option<&str> = Some("https://ko-fi.com/waiting4timeout");
+const DONATE_URL: Option<&str> =
+    Some("https://ko-fi.com/waiting4timeout/?hidefeed=true&widget=true&embed=true&preview=true");
 
 /// The page, with its stylesheet and scripts linked by a hash of their contents
 /// (`/app.css?v=<hash>`, `/js/<hash>/main.js`): browsers may keep them for good, and still
