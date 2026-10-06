@@ -4,6 +4,19 @@ The gallery's page talks to the program through this API, and scripts can use it
 
 **Stability**: before version 1.0 the API can change in a minor release (0.2, 0.3...), never in a patch release; the page in `web/` is the client it is written for. Changes are listed below and in the release notes.
 
+## Changes in 0.3
+
+The gallery shows videos as well as photos, so what the API calls a photo is now an **item** (a photo or a video).
+
+| Before (0.2) | Now |
+|---|---|
+| `GET /api/photos`, answering `{"photos": [...]}` | `GET /api/items`, answering `{"items": [...]}` |
+| `/api/photos/{id}`, and its `/check`, `/reveal` and `/rotate` | `/api/items/{id}`, and its `/check`, `/reveal` and `/rotate` |
+| `"photos"` (how many) on each folder of `GET /api/folders` | `"items"` |
+| | videos: `duration` as the seventh value of each row, `videos` in `/api/groups`, `duration` in `/api/items/{id}` |
+| | `PUT /api/items/{id}/thumb` (a video's thumbnail, made by the page), `/thumb` answering `204` for a video without one |
+| | `?silent=1` on `/original/{id}`: a video without its sound |
+
 ## Changes in 0.2
 
 | Before (0.1) | Now |
@@ -13,7 +26,6 @@ The gallery's page talks to the program through this API, and scripts can use it
 | `POST /api/excluded/clear` | `DELETE /api/excluded` |
 | `POST /api/people/{id}`, answering `{"name"}` or nothing | `PATCH /api/people/{id}`, always answering with the person |
 | `GET /thumb/{id}?v={version}` | `GET /thumb/{id}/{version}` |
-| | videos: `duration` as the seventh value of each row, `videos` in `/api/groups`, `duration` in `/api/photos/{id}` |
 | | `version` on each file of `GET /api/duplicates` |
 
 ## Conventions
@@ -26,11 +38,11 @@ The gallery's page talks to the program through this API, and scripts can use it
 - `202 Accepted` means the work was started in the background; follow it with `/api/status`.
 - Photo files are tied to the folders: deleting and rotating only work on files inside the photo folders (`403` otherwise).
 
-## Photos
+## Items (photos and videos)
 
-### `GET /api/photos`
+### `GET /api/items`
 
-The photos matching a filter.
+The photos and videos matching a filter.
 
 | Query | |
 |---|---|
@@ -43,7 +55,7 @@ The photos matching a filter.
 | `upcoming` | photos from earlier years whose anniversary falls in the next N days |
 
 ```json
-{ "photos": [[42, 4032, 3024, "2024-10-05 18:22:01", 7, 0], ...], "days": [] }
+{ "items": [[42, 4032, 3024, "2024-10-05 18:22:01", 7, 0], ...], "days": [] }
 ```
 
 Each photo or video is an array, to keep large libraries small: `[id, width, height, taken, place_id or null, version, duration]`. Width and height are as shown (after the EXIF orientation, or a video's rotation). `duration` is null for photos, and a video's length in seconds (0 when the file doesn't say). `days` lists the days (`MM-DD`) that `upcoming` covers.
@@ -60,13 +72,13 @@ The same filters plus `by` (`year`, `month`, `day` or `place`): one line per gro
 
 ### `GET /api/places`
 
-Places of the photos, the most photos first. Takes `people`, `match`, `from` and `to`.
+Places of the items, the most items first. Takes `people`, `match`, `from` and `to`.
 
 ```json
 [{ "id": 7, "city": "Madrid", "region": "Madrid", "country": "ES", "count": 120, "cover": 42 }]
 ```
 
-### `GET /api/photos/{id}`
+### `GET /api/items/{id}`
 
 ```json
 {
@@ -86,19 +98,19 @@ A face's `box` is `[x, y, width, height]` as fractions of the photo as shown.
 | | |
 |---|---|
 | `GET /thumb/{id}/{version}` | the thumbnail, JPEG. `204 No Content` for a video whose thumbnail the page hasn't made yet |
-| `PUT /api/photos/{id}/thumb?v={version}` | a video's thumbnail, made by the page: a JPEG frame of the video at that version as the body. The server makes its own thumbnail from it and raises the version: `{"version": n}`. `409` for a photo or when the video changed, `400` for a body that isn't a JPEG |
+| `PUT /api/items/{id}/thumb?v={version}` | a video's thumbnail, made by the page: a JPEG frame of the video at that version as the body. The server makes its own thumbnail from it and raises the version: `{"version": n}`. `409` for a photo or when the video changed, `400` for a body that isn't a JPEG |
 | `GET /face/{id}` | a face's picture, JPEG |
 | `GET /original/{id}` | the file itself (HEIC and TIFF converted to JPEG); `?download=1` to save it with its own name. Videos are streamed and answer range requests (`Range: bytes=...`), for seeking; `?silent=1` serves a video with its sound tracks marked as filler (same size and offsets), for videos whose broken sound makes the browser refuse them (the page takes thumbnail frames from it, and plays it when the original fails) |
 
 Thumbnails and faces are cached for good by browsers (`immutable`). A photo's version goes up when it is rotated or its file changes, so its thumbnail gets a new address; an address with an old version still answers with the current picture, but marked not to be kept (`no-cache`).
 
-### `POST /api/photos/{id}/rotate`
+### `POST /api/items/{id}/rotate`
 
 `{"turns": 1}`: quarter turns clockwise (negative: counterclockwise). Answers the new `{"width", "height", "version"}`.
 
 `409` while a scan runs or when the file changed since it was indexed; `415` for formats other than JPEG and PNG.
 
-### `DELETE /api/photos/{id}`
+### `DELETE /api/items/{id}`
 
 | Query | |
 |---|---|
@@ -108,11 +120,11 @@ Thumbnails and faces are cached for good by browsers (`immutable`). A photo's ve
 
 Answers `{"status": "removed" or "binned" or "deleted", "path": ...}`. When the file can't go to a bin, the answer is `409` with `{"status": "no-bin", ...}`, and nothing is deleted until asked again with `permanently=true`.
 
-### `POST /api/photos/{id}/check`
+### `POST /api/items/{id}/check`
 
 For a photo that can't be opened: `{"status": "present"}`, `{"status": "removed"}` (its file is gone, so it left the index) or `{"status": "unavailable", "folder": ...}` (its folder can't be reached, so nothing changed).
 
-### `POST /api/photos/{id}/reveal`
+### `POST /api/items/{id}/reveal`
 
 Shows the file in the file manager. Desktop app only (`501` otherwise).
 
@@ -150,16 +162,16 @@ Progress of the current or last scan, cheap enough to poll. `phase` is `listing 
 | `POST /api/regroup` | scan, then regroup every face from scratch (`202`) |
 | `GET /api/failures` | files that could not be read: `[{"path", "error"}]` (the first 500) |
 | `POST /api/failures/retry` | forget them and scan, so they are tried again (`202`) |
-| `DELETE /api/excluded` | bring back the photos removed from the gallery (`202`) |
+| `DELETE /api/excluded` | bring back the items removed from the gallery (`202`) |
 
 ### Folders
 
 | | |
 |---|---|
-| `GET /api/folders` | `{"folders": [{"path", "available", "photos", "fixed"}], "desktop": bool}`. `fixed`: given on the command line. `desktop`: running in the desktop app |
+| `GET /api/folders` | `{"folders": [{"path", "available", "items", "fixed"}], "desktop": bool}`. `fixed`: given on the command line. `desktop`: running in the desktop app |
 | `POST /api/folders` | `{"path": "/home/ana/Pictures"}` adds a folder and scans it. `409` when it is already in, or inside a folder that is |
 | `POST /api/folders/pick` | opens the folder picker and adds the folder chosen (desktop app only; `204` when cancelled) |
-| `DELETE /api/folders?path=...` | takes the folder's photos out of the gallery (the files stay), and answers `{"removed", "kept"}` when done; `kept` are photos another folder still includes. One at a time (`409`) |
+| `DELETE /api/folders?path=...` | takes the folder's items out of the gallery (the files stay), and answers `{"removed", "kept"}` when done; `kept` are items another folder still includes. One at a time (`409`) |
 | `GET /api/folders/browse?path=` | the folders inside `path` on the computer running Imadive: `{"path", "parent", "dirs": [{"name", "path"}]}`. Without `path`: next to the first photo folder |
 
 ### Identical files

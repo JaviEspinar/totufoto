@@ -69,8 +69,8 @@ fn fingerprint(db_path: &Path, status: &DupStatus) -> Result<()> {
     let conn = crate::db::open(db_path)?;
     let todo: Vec<(i64, String, i64, i64)> = conn
         .prepare(
-            "SELECT id, path, mtime, size FROM photos WHERE content_hash IS NULL
-             AND size IN (SELECT size FROM photos GROUP BY size HAVING COUNT(*) > 1)",
+            "SELECT id, path, mtime, size FROM items WHERE content_hash IS NULL
+             AND size IN (SELECT size FROM items GROUP BY size HAVING COUNT(*) > 1)",
         )?
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<Result<_, _>>()?;
@@ -89,7 +89,7 @@ fn fingerprint(db_path: &Path, status: &DupStatus) -> Result<()> {
             })
             .collect()
     });
-    let mut save = conn.prepare("UPDATE photos SET content_hash = ? WHERE id = ?")?;
+    let mut save = conn.prepare("UPDATE items SET content_hash = ? WHERE id = ?")?;
     conn.execute_batch("BEGIN")?;
     for (id, hash) in &hashes {
         save.execute(params![hash, id])?;
@@ -144,8 +144,8 @@ pub struct DupGroup {
 pub fn report(conn: &Connection) -> Result<Vec<DupGroup>> {
     let rows: Vec<(String, DupFile)> = conn
         .prepare(
-            "SELECT content_hash, id, path, mtime, size, version FROM photos
-             WHERE content_hash IN (SELECT content_hash FROM photos WHERE content_hash IS NOT NULL
+            "SELECT content_hash, id, path, mtime, size, version FROM items
+             WHERE content_hash IN (SELECT content_hash FROM items WHERE content_hash IS NOT NULL
                                     GROUP BY content_hash HAVING COUNT(*) > 1)
              ORDER BY content_hash, mtime, path",
         )?
@@ -247,7 +247,7 @@ pub fn delete(
         }
     }
     // Their faces are the same as the kept copy's, so the people only lose the duplicates.
-    crate::db::forget_photos(conn, &gone)?;
+    crate::db::forget_items(conn, &gone)?;
     tracing::info!(
         "duplicates: {} to the bin, {} deleted, {} bytes freed",
         result.binned,
@@ -304,7 +304,7 @@ mod tests {
         assert!(lib.root().join("b.jpg").exists());
         assert!(!lib.root().join("a.jpg").exists() && !lib.root().join("sub/c.jpg").exists());
         assert!(lib.root().join("other.jpg").exists());
-        let rows: i64 = lib.conn().query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0)).unwrap();
+        let rows: i64 = lib.conn().query_row("SELECT COUNT(*) FROM items", [], |r| r.get(0)).unwrap();
         assert_eq!(rows, 2);
         assert!(report(&lib.conn()).unwrap().is_empty());
     }

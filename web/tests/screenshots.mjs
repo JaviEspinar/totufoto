@@ -30,9 +30,9 @@ async function shot(page, name) {
 
 /** The id of the photo whose file name contains `text`. */
 async function photoId(page, text) {
-  const { photos } = await (await page.request.get(`${base}/api/photos`)).json();
-  for (const [id] of photos) {
-    const d = await (await page.request.get(`${base}/api/photos/${id}`)).json();
+  const { items } = await (await page.request.get(`${base}/api/items`)).json();
+  for (const [id] of items) {
+    const d = await (await page.request.get(`${base}/api/items/${id}`)).json();
     if (d.path.includes(text)) return id;
   }
   throw new Error(`no photo with ${text}`);

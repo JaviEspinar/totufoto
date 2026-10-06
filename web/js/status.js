@@ -2,7 +2,7 @@
 // One of the page's modules; main.js starts the page.
 import { num, t, tn } from "./i18n.js";
 import { $, api, esc, loadMeta, state } from "./core.js";
-import { indexedAtRender, shownPhotoCount } from "./photos.js";
+import { indexedAtRender, shownItemCount } from "./items.js";
 import { toast } from "./people.js";
 import { render } from "./views.js";
 import { viewer } from "./viewer.js";
@@ -14,7 +14,7 @@ export let lastStatus = null;
 export function setLastStatus(st) { lastStatus = st; }
 let wasRunning = false;
 // ---- indexing progress outside Settings ---------------------------------------------
-let firstPhotosCheck = 0; // last look for the first photos while the library is still empty
+let firstItemsCheck = 0; // last look for the first photos while the library is still empty
 let pillHiddenUntilIdle = false, pillDoneTimer = 0, pillWasBusy = false;
 /** What the library is doing, for the card and the first-index screen; null when idle or
  *  only checking for changes (that is quick and needs no attention). */
@@ -36,7 +36,7 @@ function indexWork(s) {
       detail: t("Placing faces into people"), done: s.group_done, total: s.group_total };
   }
   // Listing the files of a large library takes a while: say so when nothing is shown yet.
-  if (s.phase === "listing files" && !shownPhotoCount) return { title: t("Looking for photos…"), detail: t("Listing the files in your folders") };
+  if (s.phase === "listing files" && !shownItemCount) return { title: t("Looking for photos…"), detail: t("Listing the files in your folders") };
   return null;
 }
 export function firstIndexHtml(s) {
@@ -62,7 +62,7 @@ export function updateIndexPill(s) {
     // Photos indexed since the Photos view was drawn: offer to show them (no surprise reloads).
     const fresh = s.phase === "indexing photos" ? s.done - Math.min(indexedAtRender, s.done) : 0;
     const more = $("[data-pill-new]", pill);
-    more.hidden = !(fresh > 0 && shownPhotoCount > 0 && state.view === "photos");
+    more.hidden = !(fresh > 0 && shownItemCount > 0 && state.view === "photos");
     more.textContent = t("Show {n} new", { n: num(fresh) });
   } else if (pillWasBusy && !s.running && !s.removing) {
     pillWasBusy = false;
@@ -118,9 +118,9 @@ export async function pollStatus() {
     render();
   }
   // During the first index, show photos as soon as some are in instead of waiting for the end.
-  else if (s.running && s.done > 0 && !shownPhotoCount && state.view === "photos" && !viewer.classList.contains("open")
-    && Date.now() - firstPhotosCheck > 5000) {
-    firstPhotosCheck = Date.now();
+  else if (s.running && s.done > 0 && !shownItemCount && state.view === "photos" && !viewer.classList.contains("open")
+    && Date.now() - firstItemsCheck > 5000) {
+    firstItemsCheck = Date.now();
     render();
   }
   wasRunning = s.running;

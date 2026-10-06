@@ -32,5 +32,5 @@ test("removing from the gallery, then showing it again from Settings", async ({ 
   await expect(excluded).toContainText("1 photo removed from the gallery");
   await excluded.locator("[data-show-excluded]").click();
   await page.keyboard.press("Escape");
-  await expect.poll(async () => (await page.request.get("/api/photos").then(r => r.json())).photos.length, { timeout: 15_000 }).toBe(12);
+  await expect.poll(async () => (await page.request.get("/api/items").then(r => r.json())).items.length, { timeout: 15_000 }).toBe(12);
 });

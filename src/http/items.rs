@@ -1,4 +1,4 @@
-//! Photos: lists, groups, details, pictures, rotating, removing.
+//! Items (photos and videos): lists, groups, details, pictures, rotating, removing.
 
 use std::path::PathBuf;
 
@@ -13,35 +13,35 @@ use serde_json::{Value as JsonValue, json};
 use crate::{imaging, library};
 
 use super::{ApiError, ApiResult, IMMUTABLE, Shared, db};
-use crate::db::filters::PhotoQuery;
-use crate::db::photos::{self, GroupBy, Groups, PhotoDetail, PhotoList, Place};
+use crate::db::filters::ItemQuery;
+use crate::db::items::{self, GroupBy, Groups, ItemDetail, ItemList, Place};
 
-pub(super) async fn photos(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResult<Json<PhotoList>> {
-    Ok(Json(db(&s, move |conn| photos::list_photos(conn, &q)).await?))
+pub(super) async fn items(State(s): State<Shared>, Query(q): Query<ItemQuery>) -> ApiResult<Json<ItemList>> {
+    Ok(Json(db(&s, move |conn| items::list_items(conn, &q)).await?))
 }
 
-/// One line per group of the photos matching the filters, for the group cards.
-pub(super) async fn groups(State(s): State<Shared>, Query(q): Query<PhotoQuery>) -> ApiResult<Json<Groups>> {
+/// One line per group of the items matching the filters, for the group cards.
+pub(super) async fn groups(State(s): State<Shared>, Query(q): Query<ItemQuery>) -> ApiResult<Json<Groups>> {
     let Some(by) = GroupBy::parse(q.by.as_deref()) else {
         return Err(ApiError::bad_request("by must be year, month, day or place"));
     };
-    Ok(Json(db(&s, move |conn| photos::groups(conn, &q, by)).await?))
+    Ok(Json(db(&s, move |conn| items::groups(conn, &q, by)).await?))
 }
 
-/// Called when a photo can't be opened. If its file is gone but its folder is there, the
-/// photo is removed from the index ("removed"); if the whole folder can't be reached (an
+/// Called when an item can't be opened. If its file is gone but its folder is there, the
+/// item is removed from the index ("removed"); if the whole folder can't be reached (an
 /// unplugged drive, say) nothing is removed ("unavailable"); "present" if the file is there.
-pub(super) async fn check_photo(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Json<JsonValue>> {
+pub(super) async fn check_item(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Json<JsonValue>> {
     let scan_cfg = s.scan.clone();
     let checked = db(&s, move |conn| {
         let roots = scan_cfg.roots(conn)?;
-        library::check_photo(conn, &roots, id)
+        library::check_item(conn, &roots, id)
     })
     .await?;
     Ok(Json(match checked {
-        library::CheckPhoto::Present(path) => json!({ "status": "present", "path": path }),
-        library::CheckPhoto::Removed(path) => json!({ "status": "removed", "path": path }),
-        library::CheckPhoto::Unavailable { path, folder } => {
+        library::CheckItem::Present(path) => json!({ "status": "present", "path": path }),
+        library::CheckItem::Removed(path) => json!({ "status": "removed", "path": path }),
+        library::CheckItem::Unavailable { path, folder } => {
             json!({ "status": "unavailable", "path": path, "folder": folder.to_string_lossy() })
         }
     }))
@@ -56,16 +56,16 @@ pub(super) struct RemoveQuery {
     permanently: bool,
 }
 
-/// Removes a photo. From the gallery: the file stays, and scans leave it out from then on.
+/// Removes an item. From the gallery: the file stays, and scans leave it out from then on.
 /// From disk: the file is moved to the bin of the computer running the gallery; if that
 /// isn't possible the answer is "no-bin", and the file is only deleted for good when asked
 /// again with `permanently`. Only files inside the library folders can be deleted.
-pub(super) async fn remove_photo(
+pub(super) async fn remove_item(
     State(s): State<Shared>,
     Path(id): Path<i64>,
     Query(body): Query<RemoveQuery>,
 ) -> ApiResult<Response> {
-    use library::RemovePhoto;
+    use library::RemoveItem;
     let from = match body.from.as_str() {
         "gallery" => library::RemoveFrom::Gallery,
         "disk" => library::RemoveFrom::Disk { permanently: body.permanently },
@@ -74,35 +74,35 @@ pub(super) async fn remove_photo(
     let scan_cfg = s.scan.clone();
     let removed = db(&s, move |conn| {
         let roots = scan_cfg.roots(conn)?;
-        library::remove_photo(conn, &roots, id, from)
+        library::remove_item(conn, &roots, id, from)
     })
     .await?;
     let ok = |status: &str, path: String| Ok(Json(json!({ "status": status, "path": path })).into_response());
     match removed {
-        RemovePhoto::Removed(path) => ok("removed", path),
-        RemovePhoto::Binned(path) => ok("binned", path),
-        RemovePhoto::Deleted(path) => ok("deleted", path),
+        RemoveItem::Removed(path) => ok("removed", path),
+        RemoveItem::Binned(path) => ok("binned", path),
+        RemoveItem::Deleted(path) => ok("deleted", path),
         // Not an error: the page asks whether to delete it for good instead.
-        RemovePhoto::NoBin { path, error } => {
+        RemoveItem::NoBin { path, error } => {
             Ok((StatusCode::CONFLICT, Json(json!({ "status": "no-bin", "error": error, "path": path })))
                 .into_response())
         }
-        RemovePhoto::NotFound => Err(ApiError::not_found("photo")),
-        RemovePhoto::Outside => Err(ApiError::forbidden("the file is outside the photo folders")),
+        RemoveItem::NotFound => Err(ApiError::not_found("photo")),
+        RemoveItem::Outside => Err(ApiError::forbidden("the file is outside the photo folders")),
     }
 }
 
-pub(super) async fn photo_detail(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Json<PhotoDetail>> {
-    db(&s, move |conn| photos::photo_detail(conn, id)).await?.map(Json).ok_or_else(|| ApiError::not_found("photo"))
+pub(super) async fn item_detail(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Json<ItemDetail>> {
+    db(&s, move |conn| items::item_detail(conn, id)).await?.map(Json).ok_or_else(|| ApiError::not_found("photo"))
 }
 
 #[derive(Deserialize)]
 pub(super) struct PlacesQuery {
-    /// Only count photos of these people (comma separated ids), as in /api/photos.
+    /// Only count items of these people (comma separated ids), as in /api/items.
     people: Option<String>,
     #[serde(rename = "match")]
     match_mode: Option<String>,
-    /// Only count photos taken in this range (YYYY-MM-DD, both days included).
+    /// Only count items taken in this range (YYYY-MM-DD, both days included).
     from: Option<String>,
     to: Option<String>,
 }
@@ -110,7 +110,7 @@ pub(super) struct PlacesQuery {
 pub(super) async fn places(State(s): State<Shared>, Query(q): Query<PlacesQuery>) -> ApiResult<Json<Vec<Place>>> {
     Ok(Json(
         db(&s, move |conn| {
-            photos::places(conn, q.people.as_deref(), q.match_mode.as_deref(), q.from.as_deref(), q.to.as_deref())
+            items::places(conn, q.people.as_deref(), q.match_mode.as_deref(), q.from.as_deref(), q.to.as_deref())
         })
         .await?,
     ))
@@ -120,11 +120,11 @@ pub(super) fn jpeg(bytes: Vec<u8>, cache: &'static str) -> Response {
     ([(header::CONTENT_TYPE, "image/jpeg"), (header::CACHE_CONTROL, cache)], bytes).into_response()
 }
 
-/// A photo's thumbnail at `/thumb/{id}/{version}`. The version in the address is what makes
-/// it safe to keep for good: a new version (the photo was rotated, or its file changed) has
+/// An item's thumbnail at `/thumb/{id}/{version}`. The version in the address is what makes
+/// it safe to keep for good: a new version (the item was rotated, or its file changed) has
 /// a new address. An address with another version gets the current picture, but not to keep.
 pub(super) async fn thumb(State(s): State<Shared>, Path((id, version)): Path<(i64, i64)>) -> ApiResult<Response> {
-    let data = db(&s, move |conn| photos::thumbnail(conn, id)).await?;
+    let data = db(&s, move |conn| items::thumbnail(conn, id)).await?;
     let (picture, current) = data.ok_or_else(|| ApiError::not_found("picture"))?;
     // A video whose thumbnail the page hasn't made yet: nothing, and the page draws its own.
     let Some(bytes) = picture else {
@@ -153,16 +153,16 @@ pub(super) async fn set_video_thumb(
     })
     .await??;
     let Some(thumb) = thumb else { return Err(ApiError::bad_request("the picture must be a JPEG image")) };
-    match db(&s, move |conn| photos::set_video_thumbnail(conn, id, q.v, &thumb)).await? {
-        photos::SetThumbnail::Saved(version) => Ok(Json(json!({ "version": version }))),
-        photos::SetThumbnail::NotFound => Err(ApiError::not_found("photo")),
-        photos::SetThumbnail::NotAVideo => Err(ApiError::conflict("only videos get their thumbnail from the page")),
-        photos::SetThumbnail::Changed => Err(ApiError::conflict("the video changed; its thumbnail will be made again")),
+    match db(&s, move |conn| items::set_video_thumbnail(conn, id, q.v, &thumb)).await? {
+        items::SetThumbnail::Saved(version) => Ok(Json(json!({ "version": version }))),
+        items::SetThumbnail::NotFound => Err(ApiError::not_found("photo")),
+        items::SetThumbnail::NotAVideo => Err(ApiError::conflict("only videos get their thumbnail from the page")),
+        items::SetThumbnail::Changed => Err(ApiError::conflict("the video changed; its thumbnail will be made again")),
     }
 }
 
 pub(super) async fn face_thumb(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
-    let data = db(&s, move |conn| photos::face_picture(conn, id)).await?;
+    let data = db(&s, move |conn| items::face_picture(conn, id)).await?;
     data.map(|d| jpeg(d, IMMUTABLE)).ok_or_else(|| ApiError::not_found("picture"))
 }
 
@@ -203,9 +203,9 @@ pub(super) async fn rotate_photo(
     }
 }
 
-/// Shows the photo's file in the file manager (desktop app only; 501 otherwise).
-pub(super) async fn reveal_photo(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
-    let path = db(&s, move |conn| photos::photo_path(conn, id)).await?;
+/// Shows the item's file in the file manager (desktop app only; 501 otherwise).
+pub(super) async fn reveal_item(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
+    let path = db(&s, move |conn| items::item_path(conn, id)).await?;
     let Some(path) = path.map(PathBuf::from) else { return Err(ApiError::not_found("photo")) };
     let Some(host) = &s.host else {
         return Err(ApiError::desktop_only("open folders"));
@@ -260,7 +260,7 @@ pub(super) async fn original(
     Query(q): Query<OriginalQuery>,
     request: axum::extract::Request,
 ) -> ApiResult<Response> {
-    let path = db(&s, move |conn| photos::photo_path(conn, id)).await?;
+    let path = db(&s, move |conn| items::item_path(conn, id)).await?;
     let Some(path) = path.map(PathBuf::from) else { return Err(ApiError::not_found("photo")) };
     if !path.is_file() {
         // Deleted outside the gallery (or its drive is unplugged): the page asks /check.

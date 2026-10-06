@@ -1,8 +1,8 @@
 //! HTTP API and embedded web UI: the router, the connection pool, errors, and the page.
 
 mod folders;
+mod items;
 mod people;
-mod photos;
 mod system;
 
 use std::path::PathBuf;
@@ -36,7 +36,7 @@ const SCRIPTS: [(&str, &str); 13] = [
     ("i18n_es", include_str!("../../web/js/i18n_es.js")),
     ("core", include_str!("../../web/js/core.js")),
     ("sidebar", include_str!("../../web/js/sidebar.js")),
-    ("photos", include_str!("../../web/js/photos.js")),
+    ("items", include_str!("../../web/js/items.js")),
     ("videothumbs", include_str!("../../web/js/videothumbs.js")),
     ("optimization", include_str!("../../web/js/optimization.js")),
     ("people", include_str!("../../web/js/people.js")),
@@ -204,28 +204,28 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
         .route("/api/folders/browse", get(folders::browse_folders))
         .route("/api/open", post(system::open_url))
         .route("/api/logs/reveal", post(system::reveal_logs))
-        .route("/api/photos", get(photos::photos))
-        .route("/api/photos/{id}", get(photos::photo_detail).delete(photos::remove_photo))
-        .route("/api/photos/{id}/check", post(photos::check_photo))
-        .route("/api/photos/{id}/reveal", post(photos::reveal_photo))
-        .route("/api/photos/{id}/rotate", post(photos::rotate_photo))
+        .route("/api/items", get(items::items))
+        .route("/api/items/{id}", get(items::item_detail).delete(items::remove_item))
+        .route("/api/items/{id}/check", post(items::check_item))
+        .route("/api/items/{id}/reveal", post(items::reveal_item))
+        .route("/api/items/{id}/rotate", post(items::rotate_photo))
         .route("/api/excluded", delete(system::clear_excluded))
         .route("/api/duplicates", get(system::duplicates_report))
         .route("/api/duplicates/search", post(system::duplicates_search))
         .route("/api/duplicates/delete", post(system::duplicates_delete))
         .route("/api/duplicates/progress", get(system::duplicates_progress))
-        .route("/api/groups", get(photos::groups))
-        .route("/api/places", get(photos::places))
+        .route("/api/groups", get(items::groups))
+        .route("/api/places", get(items::places))
         .route("/api/people", get(people::people))
         .route("/api/people/{id}", patch(people::update_person))
         .route("/api/people/{id}/merge", post(people::merge_person))
         .route("/api/faces/{id}/reject", post(people::reject_face))
         .route("/api/faces/{id}/cover", post(people::cover_face))
         .route("/api/faces/{id}/assign", post(people::assign_face))
-        .route("/thumb/{id}/{version}", get(photos::thumb))
-        .route("/api/photos/{id}/thumb", put(photos::set_video_thumb))
-        .route("/face/{id}", get(photos::face_thumb))
-        .route("/original/{id}", get(photos::original))
+        .route("/thumb/{id}/{version}", get(items::thumb))
+        .route("/api/items/{id}/thumb", put(items::set_video_thumb))
+        .route("/face/{id}", get(items::face_thumb))
+        .route("/original/{id}", get(items::original))
         // Not videos: they are already compressed, and range requests (seeking) need the
         // bytes as they are on disk.
         .layer(
@@ -314,7 +314,7 @@ mod tests {
         lib.conn()
             .execute_batch(&format!(
                 "INSERT INTO persons (id, name) VALUES (1, 'Ana'), (2, NULL);
-                 INSERT INTO faces (id, photo_id, x, y, w, h, score, embedding, thumb, person_id) VALUES
+                 INSERT INTO faces (id, item_id, x, y, w, h, score, embedding, thumb, person_id) VALUES
                      (1, {madrid}, 0.1, 0.2, 0.3, 0.4, 0.9, x'', x'01', 1), (2, {madrid}, 0.5, 0.5, 0.1, 0.1, 0.8, x'', x'02', 2);"
             ))
             .unwrap();
@@ -324,9 +324,9 @@ mod tests {
             async move { call(&app, "GET", &uri, None).await }
         };
 
-        let (_, v) = get("/api/photos".into()).await;
-        assert_eq!(keys(&v), ["days", "photos"]);
-        let rows = v["photos"].as_array().unwrap();
+        let (_, v) = get("/api/items".into()).await;
+        assert_eq!(keys(&v), ["days", "items"]);
+        let rows = v["items"].as_array().unwrap();
         assert_eq!(rows.len(), 2);
         let row = rows.iter().find(|r| r[0] == madrid).unwrap().as_array().unwrap();
         assert_eq!(row.len(), 7, "[id, width, height, taken, place, version, duration]");
@@ -343,7 +343,7 @@ mod tests {
         let (_, v) = get("/api/groups?by=place".into()).await;
         assert!(v["groups"].as_array().unwrap().iter().any(|g| g["key"] == 0), "no location is key 0");
 
-        let (_, v) = get(format!("/api/photos/{madrid}")).await;
+        let (_, v) = get(format!("/api/items/{madrid}")).await;
         assert_eq!(
             keys(&v),
             [
@@ -456,17 +456,17 @@ mod tests {
         let error =
             |(status, body): (StatusCode, JsonValue)| (status, body["error"].as_str().unwrap_or("").to_string());
 
-        let (status, body) = call(&app, "GET", &format!("/api/photos/{id}"), None).await;
+        let (status, body) = call(&app, "GET", &format!("/api/items/{id}"), None).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["width"], 64);
         assert_eq!(
-            error(call(&app, "GET", "/api/photos/9999", None).await),
+            error(call(&app, "GET", "/api/items/9999", None).await),
             (StatusCode::NOT_FOUND, "no such photo".into())
         );
         assert_eq!(call(&app, "GET", "/thumb/9999/0", None).await.0, StatusCode::NOT_FOUND);
         assert_eq!(call(&app, "GET", "/api/groups", None).await.0, StatusCode::BAD_REQUEST);
         let (status, msg) =
-            error(call(&app, "POST", &format!("/api/photos/{id}/rotate"), Some(json!({ "turns": 1 }))).await);
+            error(call(&app, "POST", &format!("/api/items/{id}/rotate"), Some(json!({ "turns": 1 }))).await);
         assert_eq!(status, StatusCode::OK, "{msg}");
         let (status, msg) = error(call(&app, "POST", "/api/folders/pick", None).await);
         assert_eq!(
@@ -480,25 +480,25 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_photo_whose_file_is_gone_is_404_then_removed_by_check() {
+    async fn an_item_whose_file_is_gone_is_404_then_removed_by_check() {
         let (lib, id) = library_with_a_photo();
         // Another file, so the folder isn't left empty (which would count as unplugged).
         std::fs::write(lib.root().join("notes.txt"), "").unwrap();
         let app = app(&lib);
         std::fs::remove_file(lib.root().join("a.jpg")).unwrap();
         assert_eq!(call(&app, "GET", &format!("/original/{id}"), None).await.0, StatusCode::NOT_FOUND);
-        let (_, body) = call(&app, "POST", &format!("/api/photos/{id}/check"), None).await;
+        let (_, body) = call(&app, "POST", &format!("/api/items/{id}/check"), None).await;
         assert_eq!(body["status"], "removed");
-        assert_eq!(call(&app, "GET", &format!("/api/photos/{id}"), None).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(call(&app, "GET", &format!("/api/items/{id}"), None).await.0, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
     async fn removing_from_the_gallery_keeps_the_file_and_disk_stays_inside_the_folders() {
         let (lib, id) = library_with_a_photo();
         let app = app(&lib);
-        let (status, body) = call(&app, "DELETE", &format!("/api/photos/{id}?from=nowhere"), None).await;
+        let (status, body) = call(&app, "DELETE", &format!("/api/items/{id}?from=nowhere"), None).await;
         assert_eq!((status, body["error"].as_str()), (StatusCode::BAD_REQUEST, Some("from must be gallery or disk")));
-        let (status, body) = call(&app, "DELETE", &format!("/api/photos/{id}?from=gallery"), None).await;
+        let (status, body) = call(&app, "DELETE", &format!("/api/items/{id}?from=gallery"), None).await;
         assert_eq!((status, body["status"].as_str()), (StatusCode::OK, Some("removed")));
         assert!(lib.root().join("a.jpg").exists());
         assert_eq!(lib.scan().total, 0, "it stays out of the gallery");
@@ -508,12 +508,12 @@ mod tests {
         crate::testutil::Photo::default().write(&outside);
         let conn = lib.conn();
         conn.execute(
-            "INSERT INTO photos (path, mtime, size, width, height, taken, date_from_exif) VALUES (?, 0, 1, 1, 1, '2020-01-01 00:00:00', 0)",
+            "INSERT INTO items (path, mtime, size, width, height, taken, date_from_exif) VALUES (?, 0, 1, 1, 1, '2020-01-01 00:00:00', 0)",
             [outside.to_string_lossy()],
         )
         .unwrap();
         let b = conn.last_insert_rowid();
-        let (status, _) = call(&app, "DELETE", &format!("/api/photos/{b}?from=disk&permanently=true"), None).await;
+        let (status, _) = call(&app, "DELETE", &format!("/api/items/{b}?from=disk&permanently=true"), None).await;
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert!(outside.exists());
     }
@@ -539,7 +539,7 @@ mod tests {
 
         // Rotating waits for the scan.
         status.running.store(true, SeqCst);
-        let (code, _) = call(&app, "POST", &format!("/api/photos/{id}/rotate"), Some(json!({ "turns": 1 }))).await;
+        let (code, _) = call(&app, "POST", &format!("/api/items/{id}/rotate"), Some(json!({ "turns": 1 }))).await;
         assert_eq!(code, StatusCode::CONFLICT);
         status.running.store(false, SeqCst);
 
@@ -557,14 +557,14 @@ mod tests {
         std::fs::write(lib.root().join("clip.mov"), crate::video::tests::sample(true, true)).unwrap();
         lib.scan();
         let app = app(&lib);
-        let (_, list) = call(&app, "GET", "/api/photos", None).await;
-        let rows = list["photos"].as_array().unwrap();
+        let (_, list) = call(&app, "GET", "/api/items", None).await;
+        let rows = list["items"].as_array().unwrap();
         let video = rows.iter().find(|r| !r[6].is_null()).expect("the video is listed");
         assert_eq!((&video[1], &video[2], &video[6]), (&json!(1080), &json!(1920), &json!(12.5)));
         assert_eq!(video[3], json!("2024-10-05 18:22:01"));
         assert!(rows.iter().any(|r| r[6].is_null()), "the photo has no duration");
         let id = video[0].as_i64().unwrap();
-        let (_, detail) = call(&app, "GET", &format!("/api/photos/{id}"), None).await;
+        let (_, detail) = call(&app, "GET", &format!("/api/items/{id}"), None).await;
         assert_eq!((&detail["duration"], &detail["rotatable"]), (&json!(12.5), &json!(false)));
         let (_, groups) = call(&app, "GET", "/api/groups?by=year", None).await;
         assert_eq!((&groups["total"], &groups["videos"]), (&json!(2), &json!(1)));
@@ -626,15 +626,15 @@ mod tests {
         let frame = crate::testutil::Photo { width: 320, height: 180, ..Default::default() }.jpeg();
 
         // Refused: not an image, a photo, a frame from another version of the video.
-        let r = put(format!("/api/photos/{video}/thumb?v=0"), b"not a picture".to_vec()).await.unwrap();
+        let r = put(format!("/api/items/{video}/thumb?v=0"), b"not a picture".to_vec()).await.unwrap();
         assert_eq!(r.status(), StatusCode::BAD_REQUEST);
-        let r = put(format!("/api/photos/{photo}/thumb?v=0"), frame.clone()).await.unwrap();
+        let r = put(format!("/api/items/{photo}/thumb?v=0"), frame.clone()).await.unwrap();
         assert_eq!(r.status(), StatusCode::CONFLICT);
-        let r = put(format!("/api/photos/{video}/thumb?v=5"), frame.clone()).await.unwrap();
+        let r = put(format!("/api/items/{video}/thumb?v=5"), frame.clone()).await.unwrap();
         assert_eq!(r.status(), StatusCode::CONFLICT);
 
         // Stored, at a new version, and served as a JPEG from then on.
-        let r = put(format!("/api/photos/{video}/thumb?v=0"), frame).await.unwrap();
+        let r = put(format!("/api/items/{video}/thumb?v=0"), frame).await.unwrap();
         assert_eq!(r.status(), StatusCode::OK);
         let body: JsonValue =
             serde_json::from_slice(&axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()).unwrap();
@@ -659,7 +659,7 @@ mod tests {
         lib.scan();
         let conn = lib.conn();
         let id = lib.id("GOPR0001.MP4");
-        let (picture, _) = crate::db::photos::thumbnail(&conn, id).unwrap().unwrap();
+        let (picture, _) = crate::db::items::thumbnail(&conn, id).unwrap().unwrap();
         assert!(picture.is_some(), "the .THM became the thumbnail");
     }
 

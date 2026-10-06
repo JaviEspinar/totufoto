@@ -1,42 +1,42 @@
-//! Photo queries for the page: lists, group cards, details, places and pictures. Each
+//! Item queries for the page: lists, group cards, details, places and pictures. Each
 //! returns what the page reads, ready to be sent as JSON.
 
 use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params_from_iter};
 use serde::Serialize;
 
-use super::filters::{PhotoQuery, date_range_filter, people_filter, photo_filters};
+use super::filters::{ItemQuery, date_range_filter, item_filters, people_filter};
 
-/// A photo or video in a list: `[id, width, height, taken, place, version, duration]`, where
+/// An item (photo or video) in a list: `[id, width, height, taken, place, version, duration]`, where
 /// `duration` is null for photos and a video's length in seconds (0 when unknown). An array
-/// rather than an object, since lists can have hundreds of thousands of photos.
+/// rather than an object, since lists can have hundreds of thousands of items.
 #[derive(Serialize)]
-pub struct PhotoRow(pub i64, pub i64, pub i64, pub String, pub Option<i64>, pub i64, pub Option<f64>);
+pub struct ItemRow(pub i64, pub i64, pub i64, pub String, pub Option<i64>, pub i64, pub Option<f64>);
 
 #[derive(Serialize)]
-pub struct PhotoList {
-    pub photos: Vec<PhotoRow>,
+pub struct ItemList {
+    pub items: Vec<ItemRow>,
     /// With `upcoming`: the days (`MM-DD`) it covers, from today.
     pub days: Vec<String>,
 }
 
-/// The photos matching the query, newest first unless `sort` is "asc".
-pub fn list_photos(conn: &Connection, q: &PhotoQuery) -> Result<PhotoList> {
-    let (filters, args, days) = photo_filters(q);
+/// The items matching the query, newest first unless `sort` is "asc".
+pub fn list_items(conn: &Connection, q: &ItemQuery) -> Result<ItemList> {
+    let (filters, args, days) = item_filters(q);
     let order = if newest_first(q) { "taken DESC, id DESC" } else { "taken ASC, id ASC" };
     let sql = format!(
-        "SELECT id, width, height, taken, place_id, version, duration FROM photos WHERE 1 = 1{filters} ORDER BY {order}"
+        "SELECT id, width, height, taken, place_id, version, duration FROM items WHERE 1 = 1{filters} ORDER BY {order}"
     );
-    let photos = conn
+    let items = conn
         .prepare_cached(&sql)?
         .query_map(params_from_iter(args), |r| {
-            Ok(PhotoRow(r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
+            Ok(ItemRow(r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?))
         })?
         .collect::<Result<_, _>>()?;
-    Ok(PhotoList { photos, days })
+    Ok(ItemList { items, days })
 }
 
-fn newest_first(q: &PhotoQuery) -> bool {
+fn newest_first(q: &ItemQuery) -> bool {
     q.sort.as_deref() != Some("asc")
 }
 
@@ -81,7 +81,7 @@ pub enum GroupKey {
 pub struct Group {
     pub key: GroupKey,
     pub count: i64,
-    /// The cover photo: the newest, or the oldest when sorting oldest first.
+    /// The cover item: the newest, or the oldest when sorting oldest first.
     pub cover: i64,
     /// The cover's version, for its thumbnail's URL.
     #[serde(rename = "v")]
@@ -99,10 +99,10 @@ pub struct Groups {
     pub videos: i64,
 }
 
-/// One line per group of the photos matching the query, for the group cards. Dates follow
-/// the sort; places come with the most photos first.
-pub fn groups(conn: &Connection, q: &PhotoQuery, by: GroupBy) -> Result<Groups> {
-    let (filters, args, _) = photo_filters(q);
+/// One line per group of the items matching the query, for the group cards. Dates follow
+/// the sort; places come with the most items first.
+pub fn groups(conn: &Connection, q: &ItemQuery, by: GroupBy) -> Result<Groups> {
+    let (filters, args, _) = item_filters(q);
     let desc = newest_first(q);
     // SQLite takes the other columns from the row that has the MAX/MIN: the cover.
     let pick = if desc { "MAX(taken)" } else { "MIN(taken)" };
@@ -115,7 +115,7 @@ pub fn groups(conn: &Connection, q: &PhotoQuery, by: GroupBy) -> Result<Groups> 
     };
     let key = by.key();
     let sql = format!(
-        "SELECT {key} AS k, COUNT(*) AS n, id, {pick}, version, COUNT(duration) FROM photos WHERE 1 = 1{filters}
+        "SELECT {key} AS k, COUNT(*) AS n, id, {pick}, version, COUNT(duration) FROM items WHERE 1 = 1{filters}
          GROUP BY k ORDER BY {order}"
     );
     let groups: Vec<Group> = conn
@@ -132,7 +132,7 @@ pub fn groups(conn: &Connection, q: &PhotoQuery, by: GroupBy) -> Result<Groups> 
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct PhotoDetail {
+pub struct ItemDetail {
     pub id: i64,
     pub path: String,
     pub taken: String,
@@ -162,17 +162,17 @@ pub struct FaceBox {
     pub name: Option<String>,
 }
 
-/// A photo's details and faces (left to right), for the viewer.
-pub fn photo_detail(conn: &Connection, id: i64) -> Result<Option<PhotoDetail>> {
-    let photo = conn
+/// An item's details and faces (left to right), for the viewer.
+pub fn item_detail(conn: &Connection, id: i64) -> Result<Option<ItemDetail>> {
+    let item = conn
         .prepare_cached(
             "SELECT p.path, p.taken, p.date_from_exif, p.width, p.height, p.lat, p.lon, pl.city, pl.region,
                     pl.country, p.version, p.duration
-             FROM photos p LEFT JOIN places pl ON pl.id = p.place_id WHERE p.id = ?",
+             FROM items p LEFT JOIN places pl ON pl.id = p.place_id WHERE p.id = ?",
         )?
         .query_row([id], |r| {
             let path: String = r.get(0)?;
-            Ok(PhotoDetail {
+            Ok(ItemDetail {
                 id,
                 rotatable: crate::rotate::can_rotate(std::path::Path::new(&path)),
                 path,
@@ -191,11 +191,11 @@ pub fn photo_detail(conn: &Connection, id: i64) -> Result<Option<PhotoDetail>> {
             })
         })
         .optional()?;
-    let Some(mut photo) = photo else { return Ok(None) };
-    photo.faces = conn
+    let Some(mut item) = item else { return Ok(None) };
+    item.faces = conn
         .prepare_cached(
             "SELECT f.id, f.x, f.y, f.w, f.h, f.person_id, p.name FROM faces f
-             LEFT JOIN persons p ON p.id = f.person_id WHERE f.photo_id = ? ORDER BY f.x",
+             LEFT JOIN persons p ON p.id = f.person_id WHERE f.item_id = ? ORDER BY f.x",
         )?
         .query_map([id], |r| {
             Ok(FaceBox {
@@ -206,7 +206,7 @@ pub fn photo_detail(conn: &Connection, id: i64) -> Result<Option<PhotoDetail>> {
             })
         })?
         .collect::<Result<_, _>>()?;
-    Ok(Some(photo))
+    Ok(Some(item))
 }
 
 #[derive(Serialize)]
@@ -216,12 +216,12 @@ pub struct Place {
     pub region: String,
     pub country: String,
     pub count: i64,
-    /// The newest photo taken there.
+    /// The newest item taken there.
     pub cover: i64,
 }
 
-/// The places of the photos with these people (as in the photo query) taken in this date
-/// range, with the most photos first.
+/// The places of the items with these people (as in the item query) taken in this date
+/// range, with the most items first.
 pub fn places(
     conn: &Connection,
     people: Option<&str>,
@@ -234,7 +234,7 @@ pub fn places(
     Ok(conn
         .prepare_cached(&format!(
             "SELECT pl.id, pl.city, pl.region, pl.country, COUNT(*) AS n, MAX(p.id)
-             FROM photos p JOIN places pl ON pl.id = p.place_id
+             FROM items p JOIN places pl ON pl.id = p.place_id
              WHERE 1 = 1{filter}{range}
              GROUP BY pl.id ORDER BY n DESC, pl.city"
         ))?
@@ -251,19 +251,17 @@ pub fn places(
         .collect::<Result<_, _>>()?)
 }
 
-/// The file of a photo in the gallery.
-pub fn photo_path(conn: &Connection, id: i64) -> Result<Option<String>> {
-    Ok(conn.prepare_cached("SELECT path FROM photos WHERE id = ?")?.query_row([id], |r| r.get(0)).optional()?)
+/// The file of an item in the gallery.
+pub fn item_path(conn: &Connection, id: i64) -> Result<Option<String>> {
+    Ok(conn.prepare_cached("SELECT path FROM items WHERE id = ?")?.query_row([id], |r| r.get(0)).optional()?)
 }
 
-/// A photo's thumbnail (JPEG) and the photo's current version. The thumbnail is None for a
-/// video whose thumbnail the page hasn't made yet; None overall when there is no such photo.
-pub fn thumbnail(conn: &Connection, photo: i64) -> Result<Option<(Option<Vec<u8>>, i64)>> {
+/// An item's thumbnail (JPEG) and the item's current version. The thumbnail is None for a
+/// video whose thumbnail the page hasn't made yet; None overall when there is no such item.
+pub fn thumbnail(conn: &Connection, item: i64) -> Result<Option<(Option<Vec<u8>>, i64)>> {
     Ok(conn
-        .prepare_cached(
-            "SELECT t.data, p.version FROM photos p LEFT JOIN thumbs t ON t.photo_id = p.id WHERE p.id = ?",
-        )?
-        .query_row([photo], |r| Ok((r.get(0)?, r.get(1)?)))
+        .prepare_cached("SELECT t.data, p.version FROM items p LEFT JOIN thumbs t ON t.item_id = p.id WHERE p.id = ?")?
+        .query_row([item], |r| Ok((r.get(0)?, r.get(1)?)))
         .optional()?)
 }
 
@@ -284,17 +282,15 @@ pub fn set_video_thumbnail(conn: &mut Connection, id: i64, version: i64, jpeg: &
     // a write can't wait for another writer ("database is locked"); this waits its turn.
     let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     let row: Option<(bool, i64)> = tx
-        .query_row("SELECT duration IS NOT NULL, version FROM photos WHERE id = ?", [id], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })
+        .query_row("SELECT duration IS NOT NULL, version FROM items WHERE id = ?", [id], |r| Ok((r.get(0)?, r.get(1)?)))
         .optional()?;
     let outcome = match row {
         None => SetThumbnail::NotFound,
         Some((false, _)) => SetThumbnail::NotAVideo,
         Some((true, current)) if current != version => SetThumbnail::Changed,
         Some((true, current)) => {
-            tx.execute("INSERT OR REPLACE INTO thumbs (photo_id, data) VALUES (?, ?)", rusqlite::params![id, jpeg])?;
-            tx.execute("UPDATE photos SET version = version + 1 WHERE id = ?", [id])?;
+            tx.execute("INSERT OR REPLACE INTO thumbs (item_id, data) VALUES (?, ?)", rusqlite::params![id, jpeg])?;
+            tx.execute("UPDATE items SET version = version + 1 WHERE id = ?", [id])?;
             SetThumbnail::Saved(current + 1)
         }
     };

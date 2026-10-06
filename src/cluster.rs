@@ -413,7 +413,7 @@ mod tests {
     fn index() -> Connection {
         let conn = crate::db::open_in_memory();
         conn.execute(
-            "INSERT INTO photos (id, path, mtime, size, width, height, taken, date_from_exif)
+            "INSERT INTO items (id, path, mtime, size, width, height, taken, date_from_exif)
              VALUES (1, '/p/1.jpg', 0, 1, 1, 1, '2020-01-01 00:00:00', 1)",
             [],
         )
@@ -423,7 +423,7 @@ mod tests {
 
     fn add_face(conn: &Connection, id: i64, embedding: &[f32]) {
         conn.execute(
-            "INSERT INTO faces (id, photo_id, x, y, w, h, score, embedding, thumb) VALUES (?, 1, 0, 0, 1, 1, 0.9, ?, x'')",
+            "INSERT INTO faces (id, item_id, x, y, w, h, score, embedding, thumb) VALUES (?, 1, 0, 0, 1, 1, 0.9, ?, x'')",
             params![id, embedding_to_bytes(embedding)],
         )
         .unwrap();

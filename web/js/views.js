@@ -3,7 +3,7 @@
 import { t } from "./i18n.js";
 import { $, esc, saveHash, state } from "./core.js";
 import { renderPeopleList, setDrawer, updateRailCount } from "./sidebar.js";
-import { onChipClick, photos, rememberCards, renderPhotos, renderUpcoming } from "./photos.js";
+import { items, onChipClick, rememberCards, renderPhotos, renderUpcoming } from "./items.js";
 import { renderOptimization } from "./optimization.js";
 import { openMerge, renamePerson, renderPeople, toggleHidden, unmountPeopleGrid } from "./people.js";
 import { openViewer } from "./viewer.js";
@@ -51,7 +51,7 @@ $("#main").addEventListener("click", e => {
   if (e.target.closest("[data-rerender]")) return render();
   if (e.target.dataset.clear) return onChipClick(e);
   const tile = e.target.closest(".tile");
-  if (tile) { e.preventDefault(); return openViewer(photos.findIndex(p => p.id === +tile.dataset.id)); }
+  if (tile) { e.preventDefault(); return openViewer(items.findIndex(p => p.id === +tile.dataset.id)); }
   const group = e.target.closest("[data-group]");
   if (group) {
     rememberCards();

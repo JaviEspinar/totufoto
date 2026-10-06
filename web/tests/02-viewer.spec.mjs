@@ -21,9 +21,9 @@ test("arrows move between photos and Escape closes", async ({ page }) => {
 
 /** The id of the photo whose file name ends with `name`. */
 async function photoId(page, name) {
-  const { photos } = await (await page.request.get("/api/photos")).json();
-  for (const [id] of photos) {
-    const d = await (await page.request.get(`/api/photos/${id}`)).json();
+  const { items } = await (await page.request.get("/api/items")).json();
+  for (const [id] of items) {
+    const d = await (await page.request.get(`/api/items/${id}`)).json();
     if (d.path.endsWith(name)) return id;
   }
   throw new Error(`no photo ${name}`);

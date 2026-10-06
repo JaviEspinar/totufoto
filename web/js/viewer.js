@@ -1,9 +1,9 @@
 // The photo viewer: details, faces, sharing, rotating, deleting, zoom and swipe.
 // One of the page's modules; main.js starts the page.
 import { t } from "./i18n.js";
-import { $, api, del, esc, fmtFull, icon, loadMeta, personById, personName, photoDetail, post, pref, regionName, state } from "./core.js";
+import { $, api, del, esc, fmtFull, icon, itemDetail, loadMeta, personById, personName, post, pref, regionName, state } from "./core.js";
 import { renderPeopleList } from "./sidebar.js";
-import { VIDEO_PICTURE, fmtDuration, isVideo, mediaCount, onePhotoLess, originalUrl, photos, shownPhotoCount, silentUrl, thumbUrl, versionOf } from "./photos.js";
+import { VIDEO_PICTURE, fmtDuration, isVideo, items, mediaCount, oneItemLess, originalUrl, shownItemCount, silentUrl, thumbUrl, versionOf } from "./items.js";
 import { makeVideoThumb } from "./videothumbs.js";
 import { openAssign, refreshPeopleViews, renamePerson, toast } from "./people.js";
 import { render } from "./views.js";
@@ -35,7 +35,7 @@ function fitViewerImage(w, h, sideways = false) {
   }
 }
 const videoEl = () => $(".frame video", viewer);
-const showingVideo = () => viewerIndex >= 0 && isVideo(photos[viewerIndex]);
+const showingVideo = () => viewerIndex >= 0 && isVideo(items[viewerIndex]);
 /** Stops the video (and its download) when the viewer moves on or closes. */
 function stopVideo() {
   const video = videoEl();
@@ -87,20 +87,20 @@ function showViewerVideo(i, id, w, h, v) {
     img.hidden = false;
     note.innerHTML = `${t("This video can't be played here.")} <a href="/original/${id}?download=1" download>${t("Download it")}</a>`;
     note.hidden = false;
-    photoMissing(id); // says so if the file itself is gone
+    itemMissing(id); // says so if the file itself is gone
   };
 }
 window.addEventListener("resize", () => {
   if (viewerIndex < 0) return;
   resetZoom();
   if (rotation) previewRotation();
-  else fitViewerImage(photos[viewerIndex].width, photos[viewerIndex].height);
+  else fitViewerImage(items[viewerIndex].width, items[viewerIndex].height);
 });
 
 /** Shows photo `i`: its thumbnail at the final size at once, then the full photo. */
 async function showViewerImage(i, id, w, h, v) {
   stopVideo();
-  if (isVideo(photos[i])) return showViewerVideo(i, id, w, h, v);
+  if (isVideo(items[i])) return showViewerVideo(i, id, w, h, v);
   videoEl().hidden = true;
   $(".video-note", viewer).hidden = true;
   const img = $(".frame img", viewer);
@@ -121,31 +121,31 @@ async function showViewerImage(i, id, w, h, v) {
   full.src = originalUrl(id, v);
   full.decode()
     .then(() => { if (viewerIndex === i) img.src = full.src; })
-    .catch(() => { if (viewerIndex === i) photoMissing(id); });
+    .catch(() => { if (viewerIndex === i) itemMissing(id); });
   // Ready for the arrows: neighbours' thumbnails, and the next photo in full size.
-  for (const j of [i - 1, i + 1]) if (photos[j]) new Image().src = thumbUrl(photos[j].id, photos[j].version);
-  if (photos[i + 1]) {
+  for (const j of [i - 1, i + 1]) if (items[j]) new Image().src = thumbUrl(items[j].id, items[j].version);
+  if (items[i + 1]) {
     // A video is only fetched when it is played.
-    if (!isVideo(photos[i + 1])) new Image().src = originalUrl(photos[i + 1].id, photos[i + 1].version);
-    photoDetail(photos[i + 1].id, photos[i + 1].version).catch(() => {});
+    if (!isVideo(items[i + 1])) new Image().src = originalUrl(items[i + 1].id, items[i + 1].version);
+    itemDetail(items[i + 1].id, items[i + 1].version).catch(() => {});
   }
 }
 /** `keepImage`: only refresh the details and face boxes (the photo shown is already right). */
 export async function openViewer(i, { keepImage = false } = {}) {
-  if (i < 0 || i >= photos.length) return;
-  if (rotation && rotation.id !== photos[i].id) flushRotation();
+  if (i < 0 || i >= items.length) return;
+  if (rotation && rotation.id !== items[i].id) flushRotation();
   viewerIndex = i;
   resetZoom();
   // No arrow where there is no photo to go to.
   $(".prev", viewer).hidden = i === 0;
-  $(".next", viewer).hidden = i === photos.length - 1;
-  const { id, width: w, height: h, version: v } = photos[i];
+  $(".next", viewer).hidden = i === items.length - 1;
+  const { id, width: w, height: h, version: v } = items[i];
   viewer.classList.add("open");
   setViewerModal(true);
   if (!keepImage) await showViewerImage(i, id, w, h, v);
   if (viewerIndex !== i) return;
   let d;
-  try { d = await photoDetail(id, v); }
+  try { d = await itemDetail(id, v); }
   catch (err) {
     if (viewerIndex !== i) return;
     // Not the previous photo's details: say what happened.
@@ -164,9 +164,9 @@ export async function openViewer(i, { keepImage = false } = {}) {
   setDetails(`
     <h3>${esc(fmtFull(d.taken))}</h3>
     <div class="s">${d.duration != null ? `${[t("Video"), fmtDuration(d.duration)].filter(Boolean).join(" · ")} · ` : ""}${d.dateFromExif ? "" : `${t("Date from file (no EXIF)")} · `}${d.width} × ${d.height}</div>
-    <div class="photo-acts">
+    <div class="item-acts">
       ${folderInfo.desktop && canShareFiles
-        ? `<button data-share-photo="${id}" title="${t("Send this photo with another app")}">${icon("share", 15)} ${t("Share")}</button>`
+        ? `<button data-share-item="${id}" title="${t("Send this photo with another app")}">${icon("share", 15)} ${t("Share")}</button>`
         : `<a class="btn-like" href="/original/${id}?download=1&v=${v}" download title="${t("Save the photo on this device")}">${icon("download", 15)} ${t("Download")}</a>`}
       ${d.rotatable ? `<button data-rotate="-1" title="${t("Rotate left (Shift+R)")}" aria-label="${t("Rotate left")}">${icon("rotate", 15)}</button><button data-rotate="1" title="${t("Rotate right (R)")}" aria-label="${t("Rotate right")}">${icon("rotate", 15, true)}</button>` : ""}
       ${folderInfo.desktop ? `<button data-reveal="${id}" title="${t("Show the file in its folder")}">${icon("folder", 15)} ${t("Open in folder")}</button>` : ""}
@@ -192,9 +192,9 @@ export async function openViewer(i, { keepImage = false } = {}) {
 }
 /** The full photo couldn't be loaded: ask the server why. A file that is gone (its folder
  *  still there) is removed from the gallery; an unreachable folder removes nothing. */
-async function photoMissing(id) {
+async function itemMissing(id) {
   let result;
-  try { result = await post(`/api/photos/${id}/check`); } catch { return; }
+  try { result = await post(`/api/items/${id}/check`); } catch { return; }
   if (!result || result.status === "present") return; // a passing glitch; nothing to say
   const dlg = $("#goneDlg");
   if (result.status === "removed") {
@@ -208,17 +208,17 @@ async function photoMissing(id) {
   dlg.showModal();
   await new Promise(r => dlg.addEventListener("close", r, { once: true }));
   if (result.status !== "removed") return;
-  dropPhotoFromView(id);
+  dropItemFromView(id);
 }
 /** A photo left the gallery: take it off the screen, update counts, move the viewer on. */
-function dropPhotoFromView(id) {
-  const index = photos.findIndex(p => p.id === id);
-  if (index >= 0) photos.splice(index, 1);
+function dropItemFromView(id) {
+  const index = items.findIndex(p => p.id === id);
+  if (index >= 0) items.splice(index, 1);
   $(`.tile[data-id="${id}"]`)?.remove();
-  onePhotoLess();
+  oneItemLess();
   const count = $(".view-head .count");
-  if (count?.dataset.photos != null) count.textContent = mediaCount(shownPhotoCount, photos.filter(isVideo).length);
-  if (photos.length && viewer.classList.contains("open")) openViewer(Math.min(Math.max(index, 0), photos.length - 1));
+  if (count?.dataset.items != null) count.textContent = mediaCount(shownItemCount, items.filter(isVideo).length);
+  if (items.length && viewer.classList.contains("open")) openViewer(Math.min(Math.max(index, 0), items.length - 1));
   else closeViewer();
   loadMeta().then(() => refreshPeopleViews({ animate: false })).catch(() => {});
 }
@@ -229,7 +229,7 @@ let viewerPath = "";
 const canShareFiles = (() => {
   try { return !!navigator.canShare?.({ files: [new File([""], "photo.jpg", { type: "image/jpeg" })] }); } catch { return false; }
 })();
-async function sharePhoto(id, button) {
+async function shareItem(id, button) {
   const name = viewerPath.split(/[\\/]/).pop() || `photo-${id}.jpg`;
   button.disabled = true;
   try {
@@ -242,8 +242,8 @@ async function sharePhoto(id, button) {
     button.disabled = false;
   }
 }
-async function revealPhoto(id) {
-  try { await post(`/api/photos/${id}/reveal`); }
+async function revealItem(id) {
+  try { await post(`/api/items/${id}/reveal`); }
   catch (err) { toast(t("Couldn't open its folder: {error}", { error: err.message }), true); }
 }
 
@@ -253,7 +253,7 @@ async function revealPhoto(id) {
 let rotation = null; // { id, turns, timer } while turns wait to be saved
 function rotateViewer(dir) {
   if (viewerIndex < 0) return;
-  const id = photos[viewerIndex].id;
+  const id = items[viewerIndex].id;
   if (rotation?.id !== id) { flushRotation(); rotation = { id, turns: 0, timer: 0 }; }
   rotation.turns += dir;
   resetZoom();
@@ -262,7 +262,7 @@ function rotateViewer(dir) {
   rotation.timer = setTimeout(flushRotation, 800);
 }
 function previewRotation() {
-  const { width: w, height: h } = photos[viewerIndex];
+  const { width: w, height: h } = items[viewerIndex];
   const img = $(".frame img", viewer);
   img.classList.add("turning");
   viewer.classList.add("rotating"); // face boxes hide until the turned photo is back
@@ -275,7 +275,7 @@ async function flushRotation() {
   clearTimeout(r.timer);
   rotation = null;
   const turns = ((r.turns % 4) + 4) % 4;
-  const here = () => viewerIndex >= 0 && photos[viewerIndex]?.id === r.id;
+  const here = () => viewerIndex >= 0 && items[viewerIndex]?.id === r.id;
   const unturn = (w, h) => {
     const img = $(".frame img", viewer);
     img.classList.remove("turning");
@@ -284,17 +284,17 @@ async function flushRotation() {
     fitViewerImage(w, h);
   };
   if (!turns) {
-    if (here() && !rotation) unturn(photos[viewerIndex].width, photos[viewerIndex].height);
+    if (here() && !rotation) unturn(items[viewerIndex].width, items[viewerIndex].height);
     return;
   }
   let res;
   try {
-    res = await post(`/api/photos/${r.id}/rotate`, { turns });
+    res = await post(`/api/items/${r.id}/rotate`, { turns });
   } catch (err) {
-    if (here() && !rotation) unturn(photos[viewerIndex].width, photos[viewerIndex].height);
+    if (here() && !rotation) unturn(items[viewerIndex].width, items[viewerIndex].height);
     return toast(t("Couldn't rotate the photo: {error}", { error: err.message }), true);
   }
-  const p = photos.find(p => p.id === r.id);
+  const p = items.find(p => p.id === r.id);
   if (p) Object.assign(p, { width: res.width, height: res.height, version: res.version });
   // The new pictures are ready before they replace the turned one, so nothing flickers.
   const full = new Image(), thumb = new Image();
@@ -340,10 +340,10 @@ export function askChoice(body, title) {
   });
 }
 // ---- deleting a photo -----------------------------------------------------------------
-async function deleteViewerPhoto() {
+async function deleteViewerItem() {
   if (viewerIndex < 0) return;
-  const id = photos[viewerIndex].id;
-  const detail = await api(`/api/photos/${id}`).catch(() => null);
+  const id = items[viewerIndex].id;
+  const detail = await api(`/api/items/${id}`).catch(() => null);
   const path = detail?.path ?? "";
   const what = `<div class="delete-what"><img src="${thumbUrl(id, versionOf(id))}" alt=""><div class="p">${esc(path)}</div></div>`;
   const choice = await askChoice(`${what}
@@ -351,9 +351,9 @@ async function deleteViewerPhoto() {
       <button class="btn" data-choice="gallery">${t("Remove from gallery")}<small>${t("The file stays on disk. It won't come back with the next scan (Settings can show it again).")}</small></button>
       <button class="btn danger" data-choice="disk">${t("Remove from disk")}<small>${t("Moves the file to the bin of the computer running Imadive.")}</small></button>
     </div>
-    <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button></div>`, isVideo(photos[viewerIndex]) ? t("Delete this video?") : t("Delete this photo?"));
+    <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button></div>`, isVideo(items[viewerIndex]) ? t("Delete this video?") : t("Delete this photo?"));
   if (choice === "cancel") return;
-  const remove = (from, permanently = false) => del(`/api/photos/${id}`, permanently ? { from, permanently } : { from })
+  const remove = (from, permanently = false) => del(`/api/items/${id}`, permanently ? { from, permanently } : { from })
     .then(body => ({ ok: true, status: 200, body }))
     .catch(err => ({ ok: false, status: err.status, body: err.body ?? { error: err.message } }));
   let result = await remove(choice);
@@ -367,9 +367,9 @@ async function deleteViewerPhoto() {
   }
   if (!result.ok) return toast(t("Couldn't delete the photo: {error}", { error: result.body.error || result.status }), true);
   toast({ removed: t("Removed from the gallery; the file is still on disk"), binned: t("Moved to the bin"), deleted: t("Deleted permanently") }[result.body.status] || t("Removed"));
-  dropPhotoFromView(id);
+  dropItemFromView(id);
 }
-$(".trash", viewer).addEventListener("click", deleteViewerPhoto);
+$(".trash", viewer).addEventListener("click", deleteViewerItem);
 $("#goneDlg").addEventListener("click", e => { if (e.target.dataset.close != null || e.target === e.currentTarget) e.currentTarget.close(); });
 
 /** Names an unnamed person (or a face in no group) from the viewer. A name that exists
@@ -549,7 +549,7 @@ function zoomAt(clientX, clientY, scale, animate = false) {
     if (moved || e.type === "pointercancel") return;
     if (zoom.s > 1) return resetZoom(true);
     // Zoom to the photo's real pixels (between 2x and 4x) where it was tapped.
-    const width = photos[viewerIndex]?.width ?? 0;
+    const width = items[viewerIndex]?.width ?? 0;
     zoomAt(e.clientX, e.clientY, Math.min(4, Math.max(2, width / frame.offsetWidth)), true);
   };
   frame.addEventListener("pointerup", release);
@@ -579,7 +579,7 @@ function setInfoCollapsed(collapsed) {
   if (viewerIndex >= 0) {
     resetZoom();
     if (rotation) previewRotation();
-    else fitViewerImage(photos[viewerIndex].width, photos[viewerIndex].height);
+    else fitViewerImage(items[viewerIndex].width, items[viewerIndex].height);
   }
 }
 $("#infoToggle").addEventListener("click", e => { e.stopPropagation(); setInfoCollapsed(!viewer.classList.contains("info-collapsed")); });
@@ -591,9 +591,9 @@ $(".info", viewer).addEventListener("click", async e => {
     e.preventDefault();
     return post("/api/open", { url: link.href }).catch(err => toast(t("Couldn't open the map: {error}", { error: err.message }), true));
   }
-  const act = e.target.closest(".photo-acts button");
-  if (act?.dataset.sharePhoto) return sharePhoto(+act.dataset.sharePhoto, act);
-  if (act?.dataset.reveal) return revealPhoto(+act.dataset.reveal);
+  const act = e.target.closest(".item-acts button");
+  if (act?.dataset.shareItem) return shareItem(+act.dataset.shareItem, act);
+  if (act?.dataset.reveal) return revealItem(+act.dataset.reveal);
   if (act?.dataset.rotate) return rotateViewer(+act.dataset.rotate);
   if (e.target.dataset.assign) {
     return openAssign(+e.target.dataset.assign, e.target.dataset.current ? +e.target.dataset.current : null);
@@ -637,7 +637,7 @@ document.addEventListener("keydown", e => {
   if (e.target.tagName === "VIDEO" && (e.key.startsWith("Arrow") || e.key === " ")) return;
   // Handled here: other Escape handlers (the side panels') leave it alone.
   if (e.key === "Escape") { e.preventDefault(); closeViewer(); }
-  else if (e.key === "Delete") deleteViewerPhoto();
+  else if (e.key === "Delete") deleteViewerItem();
   else if (e.key === "r" || e.key === "R") { if ($("#viewer [data-rotate]")) rotateViewer(e.shiftKey ? -1 : 1); }
   else if (e.key === "i" || e.key === "I") setInfoCollapsed(!viewer.classList.contains("info-collapsed"));
   else if (e.key === "ArrowLeft") openViewer(viewerIndex - 1);

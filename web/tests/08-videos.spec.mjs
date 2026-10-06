@@ -11,12 +11,12 @@ test("videos: thumbnails made by the page, playing or offered for download", asy
   test.info().annotations.push({ type: "cleanup", description: clips });
   const added = await page.request.post("/api/folders", { data: { path: clips } });
   expect(added.ok() || added.status() === 409).toBe(true);
-  await expect.poll(async () => (await (await page.request.get("/api/photos")).json()).photos.length, { timeout: 15_000 }).toBe(14);
-  const rows = (await (await page.request.get("/api/photos")).json()).photos;
+  await expect.poll(async () => (await (await page.request.get("/api/items")).json()).items.length, { timeout: 15_000 }).toBe(14);
+  const rows = (await (await page.request.get("/api/items")).json()).items;
   const idOf = async name => {
     for (const [id, , , , , , duration] of rows) {
       if (duration == null) continue;
-      if ((await (await page.request.get(`/api/photos/${id}`)).json()).path.endsWith(name)) return id;
+      if ((await (await page.request.get(`/api/items/${id}`)).json()).path.endsWith(name)) return id;
     }
   };
   const [webm, mov] = [await idOf("green.webm"), await idOf("clip.mov")];

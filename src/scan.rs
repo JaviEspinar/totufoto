@@ -264,7 +264,7 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
 
     let models = cfg.models.clone().filter(ModelPaths::exist);
     let known: HashMap<String, (i64, i64, i64, bool)> = {
-        let mut stmt = conn.prepare("SELECT path, id, mtime, size, faces_scanned FROM photos")?;
+        let mut stmt = conn.prepare("SELECT path, id, mtime, size, faces_scanned FROM items")?;
         stmt.query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))))?
             .collect::<Result<_, _>>()?
     };
@@ -327,7 +327,7 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
         crate::db::remember_named_people(&conn, None)?;
         let tx = conn.transaction()?;
         for id in &stale {
-            tx.execute("DELETE FROM photos WHERE id = ?", [id])?;
+            tx.execute("DELETE FROM items WHERE id = ?", [id])?;
         }
         tx.commit()?;
     }
@@ -551,12 +551,12 @@ fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Outcome>, statu
                     if let Some(id) = file.known {
                         let people: Vec<i64> = tx
                             .prepare_cached(
-                                "SELECT DISTINCT person_id FROM faces WHERE photo_id = ? AND person_id IS NOT NULL",
+                                "SELECT DISTINCT person_id FROM faces WHERE item_id = ? AND person_id IS NOT NULL",
                             )?
                             .query_map([id], |r| r.get(0))?
                             .collect::<Result<_, _>>()?;
                         crate::db::remember_named_people(&tx, Some(&people))?;
-                        tx.execute("DELETE FROM photos WHERE id = ?", [id])?;
+                        tx.execute("DELETE FROM items WHERE id = ?", [id])?;
                     }
                     tx.execute(
                         "INSERT OR REPLACE INTO failures (path, mtime, size, error) VALUES (?, ?, ?, ?)",
@@ -572,12 +572,12 @@ fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Outcome>, statu
                 Some((lat, lon)) => Some(place_id(&tx, places, lat, lon)?),
                 None => None,
             };
-            let photo_id = match p.file.known {
+            let item_id = match p.file.known {
                 // Changed: the same photo with what the file says now. Its faces are found
                 // again; the version tells browsers to fetch the new thumbnail.
                 Some(id) => {
                     tx.execute(
-                        "UPDATE photos SET mtime = ?, size = ?, width = ?, height = ?, taken = ?, date_from_exif = ?,
+                        "UPDATE items SET mtime = ?, size = ?, width = ?, height = ?, taken = ?, date_from_exif = ?,
                              lat = ?, lon = ?, place_id = ?, faces_scanned = ?, duration = ?, content_hash = NULL,
                              version = version + 1
                          WHERE id = ?",
@@ -596,13 +596,13 @@ fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Outcome>, statu
                             id
                         ],
                     )?;
-                    tx.execute("DELETE FROM thumbs WHERE photo_id = ?", [id])?;
-                    tx.execute("DELETE FROM faces WHERE photo_id = ?", [id])?;
+                    tx.execute("DELETE FROM thumbs WHERE item_id = ?", [id])?;
+                    tx.execute("DELETE FROM faces WHERE item_id = ?", [id])?;
                     id
                 }
                 None => {
                     tx.execute(
-                        "INSERT INTO photos (path, mtime, size, width, height, taken, date_from_exif, lat, lon, place_id,
+                        "INSERT INTO items (path, mtime, size, width, height, taken, date_from_exif, lat, lon, place_id,
                              faces_scanned, duration)
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                         params![
@@ -624,13 +624,13 @@ fn write_results(conn: &mut Connection, receiver: mpsc::Receiver<Outcome>, statu
                 }
             };
             if !p.thumb.is_empty() {
-                tx.execute("INSERT INTO thumbs (photo_id, data) VALUES (?, ?)", params![photo_id, p.thumb])?;
+                tx.execute("INSERT INTO thumbs (item_id, data) VALUES (?, ?)", params![item_id, p.thumb])?;
             }
             for f in &p.faces {
                 tx.execute(
-                    "INSERT INTO faces (photo_id, x, y, w, h, score, embedding, thumb, grouped) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)",
+                    "INSERT INTO faces (item_id, x, y, w, h, score, embedding, thumb, grouped) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)",
                     params![
-                        photo_id,
+                        item_id,
                         f.rel[0],
                         f.rel[1],
                         f.rel[2],
@@ -731,7 +731,7 @@ mod tests {
     fn indexed(cfg: &ScanConfig, dir: &TempDir) -> Vec<String> {
         let conn = crate::db::open(&cfg.db_path).unwrap();
         let mut paths: Vec<String> = conn
-            .prepare("SELECT path FROM photos")
+            .prepare("SELECT path FROM items")
             .unwrap()
             .query_map([], |r| r.get::<_, String>(0))
             .unwrap()
@@ -786,7 +786,7 @@ mod tests {
         let conn = crate::db::open(&cfg.db_path).unwrap();
         let (taken, from_exif, city, w, h): (String, bool, String, u32, u32) = conn
             .query_row(
-                "SELECT taken, date_from_exif, city, width, height FROM photos JOIN places ON places.id = place_id
+                "SELECT taken, date_from_exif, city, width, height FROM items JOIN places ON places.id = place_id
                  WHERE path LIKE '%madrid.jpg'",
                 [],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
@@ -794,7 +794,7 @@ mod tests {
             .unwrap();
         assert_eq!((taken.as_str(), from_exif, city.as_str(), w, h), ("2019-07-04 18:30:00", true, "Madrid", 64, 48));
         let (from_exif, place): (bool, Option<i64>) = conn
-            .query_row("SELECT date_from_exif, place_id FROM photos WHERE path LIKE '%no-exif.jpg'", [], |r| {
+            .query_row("SELECT date_from_exif, place_id FROM items WHERE path LIKE '%no-exif.jpg'", [], |r| {
                 Ok((r.get(0)?, r.get(1)?))
             })
             .unwrap();
@@ -817,7 +817,7 @@ mod tests {
     }
 
     #[test]
-    fn photos_on_a_missing_folder_are_kept() {
+    fn items_on_a_missing_folder_are_kept() {
         // An unplugged drive: its folder is gone, but its photos stay in the gallery.
         let dir = TempDir::new();
         let cfg = library(&dir, true);
@@ -871,7 +871,7 @@ mod tests {
     }
 
     #[test]
-    fn removed_photos_stay_out_and_unreadable_files_wait_for_a_change() {
+    fn removed_items_stay_out_and_unreadable_files_wait_for_a_change() {
         let dir = TempDir::new();
         let cfg = library(&dir, true);
         Photo::default().write(&dir.file("photos/keep.jpg"));
@@ -905,7 +905,7 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_photo_folder_counts_as_unplugged() {
+    fn an_empty_folder_counts_as_unplugged() {
         // On Linux an unmounted drive leaves its mount point as an empty folder; its photos
         // must not be taken for deleted.
         let lib = crate::testutil::Library::new();
@@ -916,12 +916,12 @@ mod tests {
         std::fs::create_dir(lib.root()).unwrap();
         lib.scan();
         let conn = lib.conn();
-        let n: i64 = conn.query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0)).unwrap();
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM items", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 2);
         // A folder that only lost some files is pruned as usual.
         lib.add("c.jpg", Photo { color: [4, 5, 6], ..Photo::default() });
         lib.scan();
-        let n: i64 = conn.query_row("SELECT COUNT(*) FROM photos", [], |r| r.get(0)).unwrap();
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM items", [], |r| r.get(0)).unwrap();
         assert_eq!(n, 1);
     }
 
@@ -937,7 +937,7 @@ mod tests {
         assert_eq!(lib.id("a.jpg"), id, "same photo, so links to it keep working");
         let (w, h, taken, version): (u32, u32, String, i64) = lib
             .conn()
-            .query_row("SELECT width, height, taken, version FROM photos WHERE id = ?", [id], |r| {
+            .query_row("SELECT width, height, taken, version FROM items WHERE id = ?", [id], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
             })
             .unwrap();
@@ -956,12 +956,12 @@ mod tests {
         let status = lib.scan();
         assert_eq!(status.errors, 1);
         let conn = lib.conn();
-        let (photos, failures): (i64, i64) = conn
-            .query_row("SELECT (SELECT COUNT(*) FROM photos), (SELECT COUNT(*) FROM failures)", [], |r| {
+        let (items, failures): (i64, i64) = conn
+            .query_row("SELECT (SELECT COUNT(*) FROM items), (SELECT COUNT(*) FROM failures)", [], |r| {
                 Ok((r.get(0)?, r.get(1)?))
             })
             .unwrap();
-        assert_eq!((photos, failures), (0, 1));
+        assert_eq!((items, failures), (0, 1));
     }
 
     #[test]

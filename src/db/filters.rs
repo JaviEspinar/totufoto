@@ -1,4 +1,4 @@
-//! The photo query the page sends, and the SQL conditions it turns into (shared by the photo
+//! The item query the page sends, and the SQL conditions it turns into (shared by the item
 //! list, the group cards and the places).
 
 use chrono::{Datelike, Duration, Local};
@@ -6,7 +6,7 @@ use rusqlite::types::Value;
 use serde::Deserialize;
 
 #[derive(Deserialize)]
-pub(crate) struct PhotoQuery {
+pub(crate) struct ItemQuery {
     /// "asc" or "desc" (default) by capture date
     pub(crate) sort: Option<String>,
     place: Option<i64>,
@@ -21,7 +21,7 @@ pub(crate) struct PhotoQuery {
     /// capture date range, YYYY-MM-DD, both days included
     from: Option<String>,
     to: Option<String>,
-    /// photos from previous years whose anniversary falls within the next `upcoming` days
+    /// items from previous years whose anniversary falls within the next `upcoming` days
     upcoming: Option<u32>,
     /// /api/groups only: "year", "month", "day" or "place"
     pub(crate) by: Option<String>,
@@ -31,7 +31,7 @@ pub(crate) fn parse_ids(s: &str) -> Vec<i64> {
     s.split(',').filter_map(|p| p.trim().parse().ok()).collect()
 }
 
-/// SQL condition (starting with " AND") and its arguments keeping photos whose `taken`
+/// SQL condition (starting with " AND") and its arguments keeping items whose `taken`
 /// column falls in the range, both days included. Either end may be missing; invalid
 /// dates are ignored, and a reversed range is put the right way round.
 pub(crate) fn date_range_filter(taken: &str, from: Option<&str>, to: Option<&str>) -> (String, Vec<Value>) {
@@ -56,10 +56,10 @@ pub(crate) fn date_range_filter(taken: &str, from: Option<&str>, to: Option<&str
     (sql, args)
 }
 
-/// SQL condition (starting with " AND") keeping photos, by their `photo_id` column, where
+/// SQL condition (starting with " AND") keeping items, by their `item_id` column, where
 /// the given people appear. `match_mode`: "all" (default) all of them together, "any" at
 /// least one, "only" all of them and no other known person. Empty without people.
-pub(crate) fn people_filter(photo_id: &str, people: Option<&str>, match_mode: Option<&str>) -> String {
+pub(crate) fn people_filter(item_id: &str, people: Option<&str>, match_mode: Option<&str>) -> String {
     let people = people.map(parse_ids).unwrap_or_default();
     if people.is_empty() {
         return String::new();
@@ -67,16 +67,16 @@ pub(crate) fn people_filter(photo_id: &str, people: Option<&str>, match_mode: Op
     // ids are parsed integers, so inlining them is safe
     let list = people.iter().map(i64::to_string).collect::<Vec<_>>().join(",");
     match match_mode.unwrap_or("all") {
-        "any" => format!(" AND {photo_id} IN (SELECT photo_id FROM faces WHERE person_id IN ({list}))"),
+        "any" => format!(" AND {item_id} IN (SELECT item_id FROM faces WHERE person_id IN ({list}))"),
         mode => {
             let mut sql = format!(
-                " AND {photo_id} IN (SELECT photo_id FROM faces WHERE person_id IN ({list})
-                                     GROUP BY photo_id HAVING COUNT(DISTINCT person_id) = {})",
+                " AND {item_id} IN (SELECT item_id FROM faces WHERE person_id IN ({list})
+                                     GROUP BY item_id HAVING COUNT(DISTINCT person_id) = {})",
                 people.len()
             );
             if mode == "only" {
                 sql.push_str(&format!(
-                    " AND {photo_id} NOT IN (SELECT photo_id FROM faces f JOIN persons pe ON pe.id = f.person_id
+                    " AND {item_id} NOT IN (SELECT item_id FROM faces f JOIN persons pe ON pe.id = f.person_id
                                              WHERE pe.hidden = 0 AND f.person_id NOT IN ({list}))"
                 ));
             }
@@ -93,14 +93,14 @@ pub(crate) fn upcoming_days(days: u32) -> (Vec<String>, i32) {
     (list, today.year())
 }
 
-/// The filters of a photo query as SQL conditions (each starting with " AND") and their
-/// arguments, shared by the photo list and the group summaries so both always agree. Also
+/// The filters of an item query as SQL conditions (each starting with " AND") and their
+/// arguments, shared by the item list and the group summaries so both always agree. Also
 /// returns the upcoming days (`MM-DD`) when `upcoming` is set.
-pub(crate) fn photo_filters(q: &PhotoQuery) -> (String, Vec<Value>, Vec<String>) {
+pub(crate) fn item_filters(q: &ItemQuery) -> (String, Vec<Value>, Vec<String>) {
     let mut sql = String::new();
     let mut args: Vec<Value> = Vec::new();
     match q.place {
-        // 0: photos without a location
+        // 0: items without a location
         Some(0) => sql.push_str(" AND place_id IS NULL"),
         Some(place) => {
             sql.push_str(" AND place_id = ?");
@@ -136,13 +136,13 @@ mod tests {
     use rusqlite::{Connection, params, params_from_iter};
     use serde_json::{Value as JsonValue, json};
 
-    /// Six photos and four people (Carl hidden):
+    /// Six items and four people (Carl hidden):
     /// 1 Ana + Ben, 2 Ana, 3 Ben, 4 Ana + Carl, 5 nobody, 6 Ana + Dan.
     fn library() -> Connection {
         let conn = crate::db::open_in_memory();
         conn.execute_batch(
             "INSERT INTO persons (id, name, hidden) VALUES (1, 'Ana', 0), (2, 'Ben', 0), (3, 'Carl', 1), (4, NULL, 0);
-             INSERT INTO photos (id, path, mtime, size, width, height, taken, date_from_exif) VALUES
+             INSERT INTO items (id, path, mtime, size, width, height, taken, date_from_exif) VALUES
                  (1, '/p/1.jpg', 0, 1, 1, 1, '2020-03-10 12:00:00', 1),
                  (2, '/p/2.jpg', 0, 1, 1, 1, '2020-03-11 00:00:00', 1),
                  (3, '/p/3.jpg', 0, 1, 1, 1, '2021-05-01 08:00:00', 1),
@@ -151,21 +151,21 @@ mod tests {
                  (6, '/p/6.jpg', 0, 1, 1, 1, '2022-06-01 10:00:00', 1);",
         )
         .unwrap();
-        for (photo, person) in [(1, 1), (1, 2), (2, 1), (3, 2), (4, 1), (4, 3), (6, 1), (6, 4)] {
+        for (item, person) in [(1, 1), (1, 2), (2, 1), (3, 2), (4, 1), (4, 3), (6, 1), (6, 4)] {
             conn.execute(
-                "INSERT INTO faces (photo_id, x, y, w, h, score, embedding, thumb, person_id) VALUES (?, 0, 0, 1, 1, 1, x'', x'', ?)",
-                [photo, person],
+                "INSERT INTO faces (item_id, x, y, w, h, score, embedding, thumb, person_id) VALUES (?, 0, 0, 1, 1, 1, x'', x'', ?)",
+                [item, person],
             )
             .unwrap();
         }
         conn
     }
 
-    /// The photos a query (as the UI sends it) keeps.
+    /// The items a query (as the UI sends it) keeps.
     fn ids(conn: &Connection, query: JsonValue) -> Vec<i64> {
-        let q: PhotoQuery = serde_json::from_value(query).unwrap();
-        let (filters, args, _) = photo_filters(&q);
-        conn.prepare(&format!("SELECT id FROM photos WHERE 1 = 1{filters} ORDER BY id"))
+        let q: ItemQuery = serde_json::from_value(query).unwrap();
+        let (filters, args, _) = item_filters(&q);
+        conn.prepare(&format!("SELECT id FROM items WHERE 1 = 1{filters} ORDER BY id"))
             .unwrap()
             .query_map(params_from_iter(args), |r| r.get(0))
             .unwrap()
@@ -207,10 +207,10 @@ mod tests {
             let day = today + Duration::days(days_ahead);
             format!("{}-{} 12:00:00", today.year() - years_ago, day.format("%m-%d"))
         };
-        conn.execute_batch("DELETE FROM photos").unwrap();
+        conn.execute_batch("DELETE FROM items").unwrap();
         for (id, taken) in [(10, on(3, 0)), (11, on(1, 5)), (12, on(0, 0)), (13, on(2, 40))] {
             conn.execute(
-                "INSERT INTO photos (id, path, mtime, size, width, height, taken, date_from_exif) VALUES (?, ?, 0, 1, 1, 1, ?, 1)",
+                "INSERT INTO items (id, path, mtime, size, width, height, taken, date_from_exif) VALUES (?, ?, 0, 1, 1, 1, ?, 1)",
                 params![id, format!("/p/{id}.jpg"), taken],
             )
             .unwrap();

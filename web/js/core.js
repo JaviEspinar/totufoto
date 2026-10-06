@@ -118,11 +118,11 @@ export const api = async (url, opts) => {
  *  is instant. Anything sent to the server may change them (a face moved, people merged), so
  *  every POST empties it, and so does every reload of the people (a scan may regroup them). */
 const details = new Map();
-export function photoDetail(id, version) {
+export function itemDetail(id, version) {
   const key = `${id}:${version}`;
   if (!details.has(key)) {
     if (details.size >= 200) details.delete(details.keys().next().value);
-    details.set(key, api(`/api/photos/${id}`).catch(err => { details.delete(key); throw err; }));
+    details.set(key, api(`/api/items/${id}`).catch(err => { details.delete(key); throw err; }));
   }
   return details.get(key);
 }
@@ -162,12 +162,12 @@ export const placeLabel = id => {
 /** "2024", "October 2024" or a full day, for a YYYY / YYYY-MM / YYYY-MM-DD date filter. */
 export const dateLabel = d => d.length === 4 ? d : d.length === 7 ? fmtMonth(d) : fmtDay(d);
 
-export function photoQuery(extra = {}) {
+export function itemQuery(extra = {}) {
   const q = new URLSearchParams({ sort: state.sort, ...extra });
   if (state.people.size) { q.set("people", [...state.people].join(",")); q.set("match", state.match); }
   if (state.place != null) q.set("place", state.place);
   if (state.date) q.set("date", state.date);
   if (state.from) q.set("from", state.from);
   if (state.to) q.set("to", state.to);
-  return "/api/photos?" + q;
+  return "/api/items?" + q;
 }

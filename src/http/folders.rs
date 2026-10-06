@@ -21,10 +21,10 @@ pub(super) async fn folders(State(s): State<Shared>) -> ApiResult<Json<JsonValue
     let list = db(&s, move |conn| {
         let mut out = Vec::new();
         for root in scan_cfg.roots(conn)? {
-            let photos = library::count_under(conn, &root)?;
+            let items = library::count_under(conn, &root)?;
             let fixed = scan_cfg.is_fixed(&root);
             out.push(
-                json!({ "path": root.to_string_lossy(), "available": library::reachable(&root), "photos": photos, "fixed": fixed }),
+                json!({ "path": root.to_string_lossy(), "available": library::reachable(&root), "items": items, "fixed": fixed }),
             );
         }
         Ok(out)
@@ -124,7 +124,7 @@ pub(super) async fn remove_folder_now(s: Shared, path: String) -> ApiResult<(usi
             |total| status.remove_total.store(total as u64, Relaxed),
             |done| status.remove_done.store(done as u64, Relaxed),
         )?;
-        tracing::info!("removed folder {path} ({} photos, {} kept: in another folder)", r.removed, r.kept);
+        tracing::info!("removed folder {path} ({} items, {} kept: in another folder)", r.removed, r.kept);
         Ok((r.removed, r.kept))
     })
     .await

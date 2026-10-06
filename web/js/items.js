@@ -1,7 +1,7 @@
 // The Photos and Upcoming views: the justified grid, group cards, and progressive loading.
 // One of the page's modules; main.js starts the page.
 import { lang, num, t, tn } from "./i18n.js";
-import { $, api, dateLabel, esc, fmtDate, fmtDay, fmtMonth, icon, personById, personName, photoQuery, placeById, placeLabel, plural, regionName, state } from "./core.js";
+import { $, api, dateLabel, esc, fmtDate, fmtDay, fmtMonth, icon, itemQuery, personById, personName, placeById, placeLabel, plural, regionName, state } from "./core.js";
 import { renderPeopleList } from "./sidebar.js";
 import { toast } from "./people.js";
 import { currentJob, render, syncRangeInputs } from "./views.js";
@@ -10,9 +10,9 @@ import { firstIndexHtml, lastStatus } from "./status.js";
 import { makeVideoThumb } from "./videothumbs.js";
 
 // ---- photo grid ------------------------------------------------------------
-/** A photo as /api/photos sends it (an array, to keep large libraries small), with names.
+/** An item (photo or video) as /api/items sends it (an array, to keep large libraries small), with names.
  *  `duration` is null for photos, and a video's length in seconds (0 when unknown). */
-const photoRow = ([id, width, height, taken, place, version, duration]) => ({ id, width, height, taken, place, version, duration });
+const itemRow = ([id, width, height, taken, place, version, duration]) => ({ id, width, height, taken, place, version, duration });
 export const isVideo = p => p?.duration != null;
 /** "0:42", "12:05", "1:02:33"; empty when unknown. */
 export function fmtDuration(seconds) {
@@ -43,7 +43,7 @@ function groupTitle(key, sample, mode = state.groupBy) {
     default: return "";
   }
 }
-function groupPhotos(list, keyFn) {
+function groupItems(list, keyFn) {
   const groups = [], index = new Map();
   for (const p of list) {
     const k = keyFn(p);
@@ -86,7 +86,7 @@ export const thumbUrl = (id, v = 0) => `/thumb/${id}/${v}`;
 export const originalUrl = (id, v) => v ? `/original/${id}?v=${v}` : `/original/${id}`;
 /** The video without its sound: some phones' sound stops the browser playing the picture. */
 export const silentUrl = (id, v) => `${originalUrl(id, v)}${v ? "&" : "?"}silent=1`;
-export const versionOf = id => photos.find(p => p.id === id)?.version ?? 0;
+export const versionOf = id => items.find(p => p.id === id)?.version ?? 0;
 const tile = p => `<a class="tile${isVideo(p) ? " video" : ""}" data-id="${p.id}" style="--r:${(p.width / p.height).toFixed(3)}" href="${originalUrl(p.id, p.version)}">` +
   (loadedThumbs.has(String(p.id))
     ? `<img src="${thumbUrl(p.id, p.version)}" loading="lazy" alt="" data-thumb="${p.id}" class="ok">`
@@ -96,7 +96,7 @@ const tile = p => `<a class="tile${isVideo(p) ? " video" : ""}" data-id="${p.id}
 // ---- loading views: filters change at once, results follow --------------------------
 const LOADING_DELAY = 150;
 const TILE_SHAPES = [1.5, 0.67, 1.33, 1.5, 1, 1.78, 0.75, 1.5, 1.33, 0.67, 1.5, 1.2];
-const photoPlaceholders = () => `<section class="group"><div class="sk-title shimmer"></div><div class="grid">${
+const itemPlaceholders = () => `<section class="group"><div class="sk-title shimmer"></div><div class="grid">${
   Array.from({ length: 36 }, (_, i) => `<div class="tile skeleton shimmer" style="--r:${TILE_SHAPES[i % TILE_SHAPES.length]}"></div>`).join("")}</div></section>`;
 const cardPlaceholders = () => `<div class="cards">${
   `<div class="card skeleton" aria-hidden="true"><div class="sk-img shimmer"></div><div class="meta"><div class="line shimmer"></div><div class="line short shimmer"></div></div></div>`.repeat(10)}</div>`;
@@ -226,29 +226,29 @@ export function onChipClick(e) {
 }
 
 /** The photos of the view on screen, in order (the viewer moves through them). */
-export let photos = [];
-export let shownPhotoCount = 0; // photos the Photos tab shows (as cards or tiles)
+export let items = [];
+export let shownItemCount = 0; // photos the Photos tab shows (as cards or tiles)
 export let indexedAtRender = 0; // photos indexed (this scan) when the Photos view was last drawn
 /** A photo left the view (deleted, or removed from the gallery). */
-export function onePhotoLess() { shownPhotoCount = Math.max(0, shownPhotoCount - 1); }
+export function oneItemLess() { shownItemCount = Math.max(0, shownItemCount - 1); }
 export async function renderPhotos(main, job) {
   indexedAtRender = lastStatus?.running ? lastStatus.done : 0;
-  const shape = photosShape();
+  const shape = itemsShape();
   const load = beginViewLoad(main, "photos", filterChips() + `<div class="count">${t("Loading photos…")}</div>`,
-    shape.cards ? cardPlaceholders : photoPlaceholders, job);
+    shape.cards ? cardPlaceholders : itemPlaceholders, job);
   // Grouped photos show as cards: the server sends one line per group, not every photo.
   // Only an opened group loads its photos.
   const data = shape.cards
-    ? await api(photoQuery().replace("/api/photos?", `/api/groups?by=${shape.cards}&`), { signal: job.signal })
-    : await api(photoQuery(), { signal: job.signal });
+    ? await api(itemQuery().replace("/api/items?", `/api/groups?by=${shape.cards}&`), { signal: job.signal })
+    : await api(itemQuery(), { signal: job.signal });
   if (!job.alive()) return;
-  photos = (data.photos ?? []).map(photoRow);
-  shownPhotoCount = data.total ?? photos.length;
+  items = (data.items ?? []).map(itemRow);
+  shownItemCount = data.total ?? items.length;
   load.finish();
   const count = load.head.querySelector(".count");
-  count.textContent = mediaCount(shownPhotoCount, data.videos ?? photos.filter(isVideo).length);
-  count.dataset.photos = ""; // a plain photo count, which removing a photo updates
-  if (!shownPhotoCount) {
+  count.textContent = mediaCount(shownItemCount, data.videos ?? items.filter(isVideo).length);
+  count.dataset.items = ""; // a plain photo count, which removing a photo updates
+  if (!shownItemCount) {
     const filtered = state.people.size || state.place != null || state.date || state.from || state.to;
     if (!filtered && !folderInfo.folders.length) {
       main.innerHTML = `<div class="welcome"><h2>${t("Welcome to Imadive")}</h2>
@@ -272,12 +272,12 @@ export async function renderPhotos(main, job) {
     const groups = data.groups;
     const n = groups.length;
     const groupCount = { year: () => plural(n, "year"), month: () => plural(n, "month"), day: () => plural(n, "day"), place: () => plural(n, "place") }[shape.cards]();
-    delete count.dataset.photos;
-    count.textContent = `${groupCount}, ${mediaCount(shownPhotoCount, data.videos ?? 0)}`;
+    delete count.dataset.items;
+    count.textContent = `${groupCount}, ${mediaCount(shownItemCount, data.videos ?? 0)}`;
     renderGroupCards(load.area, groups, shape.cards);
     return;
   }
-  const groups = groupPhotos(photos, p => groupKey(p, shape.headers));
+  const groups = groupItems(items, p => groupKey(p, shape.headers));
   const header = shape.headers === "none" ? null :
     g => `<h2>${esc(groupTitle(g.key, g.items[0], shape.headers))}<small>${g.items.length}</small></h2>`;
   renderGroups(load.area, groups, header);
@@ -293,7 +293,7 @@ const FINER = { year: "month", month: "day", day: "none", place: "month" };
  * the next finer headers. A coarser date filter (a year, grouped by month) gives cards
  * inside it.
  */
-function photosShape() {
+function itemsShape() {
   const mode = state.groupBy;
   if (mode === "none") return { headers: "none" };
   const dateLen = state.date?.length ?? 0;
@@ -347,18 +347,18 @@ export async function renderUpcoming(main, job) {
   const opts = [7, 14, 30, 60, 90].map(d => `<button data-d="${d}" class="${d === state.upcoming ? "on" : ""}">${t("{n} days", { n: d })}</button>`).join("");
   const load = beginViewLoad(main, "upcoming",
     `<div class="upbar">${t("Memories from past years for the next")} <div class="seg" id="days">${opts}</div></div>` + filterChips(),
-    photoPlaceholders, job);
+    itemPlaceholders, job);
   $("#days").addEventListener("click", e => { if (e.target.dataset.d) { state.upcoming = +e.target.dataset.d; render(); } });
-  const data = await api(photoQuery({ upcoming: state.upcoming }), { signal: job.signal });
+  const data = await api(itemQuery({ upcoming: state.upcoming }), { signal: job.signal });
   if (!job.alive()) return;
   load.finish();
   const order = new Map(data.days.map((d, i) => [d, i]));
   // Upcoming days first (today, tomorrow...), and within a day the most recent year first.
-  photos = data.photos.map(photoRow).sort((a, b) =>
+  items = data.items.map(itemRow).sort((a, b) =>
     order.get(a.taken.slice(5, 10)) - order.get(b.taken.slice(5, 10)) || b.taken.localeCompare(a.taken));
-  if (!photos.length) { load.area.innerHTML = `<div class="blank">${t("No photos were taken on these dates in previous years.")}</div>`; return; }
+  if (!items.length) { load.area.innerHTML = `<div class="blank">${t("No photos were taken on these dates in previous years.")}</div>`; return; }
   const thisYear = new Date().getFullYear();
-  const groups = groupPhotos(photos, p => p.taken.slice(5, 10));
+  const groups = groupItems(items, p => p.taken.slice(5, 10));
   const header = g => {
     const idx = order.get(g.key);
     const [m, d] = g.key.split("-").map(Number);

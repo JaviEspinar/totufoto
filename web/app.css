@@ -478,14 +478,14 @@ button.candidate { background: none; border: 0; padding: 6px; }
 .vface button:hover { color: #fff; border-color: #777; }
 .vface button.is-cover { color: #8fdca4; border-color: #2f5a3b; opacity: 1; cursor: default; }
 .info a { color: #9dbaff; }
-.photo-acts { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 14px; }
-.photo-acts button, .photo-acts .btn-like {
+.item-acts { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 14px; }
+.item-acts button, .item-acts .btn-like {
   display: inline-flex; align-items: center; gap: 6px; background: transparent; border: 1px solid #3a3936; color: #ccc;
   border-radius: 7px; font-size: 12px; padding: 5px 10px;
 }
-.photo-acts .btn-like { text-decoration: none; }
-.photo-acts button:hover, .photo-acts .btn-like:hover { color: #fff; border-color: #777; }
-.photo-acts button:disabled { opacity: 0.5; }
+.item-acts .btn-like { text-decoration: none; }
+.item-acts button:hover, .item-acts .btn-like:hover { color: #fff; border-color: #777; }
+.item-acts button:disabled { opacity: 0.5; }
 .info label { display: flex; gap: 8px; align-items: center; color: #bbb; font-size: 12px; margin-top: 16px; }
 
 dialog {

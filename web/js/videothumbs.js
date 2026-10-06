@@ -1,12 +1,12 @@
 // Video thumbnails, made by the page: the server can't decode videos, the browser can (the
 // formats it plays). A video whose thumbnail doesn't come shows the generic picture
-// (photos.js) and asks here for a real one: a frame about a second in, sent to the server,
+// (items.js) and asks here for a real one: a frame about a second in, sent to the server,
 // which keeps it for everyone. A video the browser can't decode keeps the generic picture.
 // The frame comes from the video without its sound (silentUrl): many phones' videos begin with
 // a broken sound packet that makes Chrome refuse the whole file.
 // One of the page's modules; main.js starts the page.
 import { api } from "./core.js";
-import { photos, silentUrl, thumbUrl } from "./photos.js";
+import { items, silentUrl, thumbUrl } from "./items.js";
 
 const AT_ONCE = 2;
 /** The biggest side of the frame sent; the server makes the thumbnail from it. */
@@ -28,7 +28,7 @@ function pump() {
     running++;
     let again = false;
     frameOf(job)
-      .then(blob => api(`/api/photos/${job.id}/thumb?v=${job.version}`, { method: "PUT", headers: { "content-type": "image/jpeg" }, body: blob }))
+      .then(blob => api(`/api/items/${job.id}/thumb?v=${job.version}`, { method: "PUT", headers: { "content-type": "image/jpeg" }, body: blob }))
       .then(saved => show(job.id, saved.version))
       .catch(err => {
         // The server failing for a moment is worth one more try; anything else (a video this
@@ -85,7 +85,7 @@ async function frameOf({ id, version }) {
 
 /** The new thumbnail wherever the video shows (tiles, cards), and its new version. */
 function show(id, version) {
-  const entry = photos.find(p => p.id === id);
+  const entry = items.find(p => p.id === id);
   if (entry) entry.version = version;
   for (const img of document.querySelectorAll(`img[data-thumb="${id}"], img[data-cover="${id}"]`)) {
     img.classList.remove("generic");

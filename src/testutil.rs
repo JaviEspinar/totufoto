@@ -90,9 +90,7 @@ impl Library {
     /// The id of the photo at `rel` inside the photos folder.
     pub fn id(&self, rel: &str) -> i64 {
         let path = self.root().join(native(rel));
-        self.conn()
-            .query_row("SELECT id FROM photos WHERE path = ?", [path.to_string_lossy()], |r| r.get(0))
-            .expect(rel)
+        self.conn().query_row("SELECT id FROM items WHERE path = ?", [path.to_string_lossy()], |r| r.get(0)).expect(rel)
     }
 }
 
@@ -107,14 +105,14 @@ pub fn people_index() -> Connection {
     let conn = crate::db::open_in_memory();
     conn.execute_batch(
         "INSERT INTO persons (id, name) VALUES (1, 'Ana'), (2, NULL), (3, 'Ben'), (4, 'Old Ana');
-         INSERT INTO photos (id, path, mtime, size, width, height, taken, date_from_exif)
+         INSERT INTO items (id, path, mtime, size, width, height, taken, date_from_exif)
              VALUES (1, '/p/1.jpg', 0, 1, 1, 1, '2020-01-01 00:00:00', 1);",
     )
     .unwrap();
     let embedding = crate::faces::embedding_to_bytes(&[1.0; crate::faces::EMBEDDING_DIM]);
     for (face, person) in [(1, 1), (2, 1), (3, 2), (4, 3)] {
         conn.execute(
-            "INSERT INTO faces (id, photo_id, x, y, w, h, score, embedding, thumb, person_id)
+            "INSERT INTO faces (id, item_id, x, y, w, h, score, embedding, thumb, person_id)
              VALUES (?, 1, 0, 0, 1, 1, 1, ?, x'', ?)",
             params![face, embedding, person],
         )

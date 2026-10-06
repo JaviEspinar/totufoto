@@ -52,12 +52,12 @@ if (index.status !== 0) {
 
 // People: Ana (named), Ben (named) and someone unnamed, with faces on some photos.
 const db = new DatabaseSync(join(data, "index.sqlite"));
-const id = rel => db.prepare("SELECT id FROM photos WHERE path = ?").get(join(library, rel)).id;
+const id = rel => db.prepare("SELECT id FROM items WHERE path = ?").get(join(library, rel)).id;
 db.exec("INSERT INTO persons (id, name) VALUES (1, 'Ana'), (2, 'Ben'), (3, NULL)");
 const picture = readFileSync(join(library, "plain.jpg"));
 const embedding = new Uint8Array(512 * 4);
 const addFace = db.prepare(
-  "INSERT INTO faces (photo_id, x, y, w, h, score, embedding, thumb, person_id, grouped) VALUES (?, ?, 0.2, 0.25, 0.3, 0.9, ?, ?, ?, 1)",
+  "INSERT INTO faces (item_id, x, y, w, h, score, embedding, thumb, person_id, grouped) VALUES (?, ?, 0.2, 0.25, 0.3, 0.9, ?, ?, ?, 1)",
 );
 const faces = [
   ["2021/beach-1.jpg", [1, 2]], ["2021/beach-2.jpg", [1]], ["2022/dinner-1.jpg", [1, 2]], ["2022/dinner-2.jpg", [2]],

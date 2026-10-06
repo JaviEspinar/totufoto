@@ -36,7 +36,7 @@ pub enum Outcome {
 /// (size, thumbnail and face boxes).
 pub fn rotate_photo(conn: &mut Connection, roots: &[PathBuf], id: i64, turns: u8) -> Result<Outcome> {
     let row: Option<(String, i64, i64, i64)> = conn
-        .query_row("SELECT path, mtime, size, version FROM photos WHERE id = ?", [id], |r| {
+        .query_row("SELECT path, mtime, size, version FROM items WHERE id = ?", [id], |r| {
             Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
         })
         .optional()?;
@@ -73,13 +73,13 @@ pub fn rotate_photo(conn: &mut Connection, roots: &[PathBuf], id: i64, turns: u8
     let mtime = meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs() as i64);
     let tx = conn.transaction()?;
     tx.execute(
-        "UPDATE photos SET mtime = ?, size = ?, width = ?, height = ?, content_hash = NULL, version = version + 1 WHERE id = ?",
+        "UPDATE items SET mtime = ?, size = ?, width = ?, height = ?, content_hash = NULL, version = version + 1 WHERE id = ?",
         params![mtime, meta.len() as i64, width, height, id],
     )?;
-    tx.execute("UPDATE thumbs SET data = ? WHERE photo_id = ?", params![thumb, id])?;
+    tx.execute("UPDATE thumbs SET data = ? WHERE item_id = ?", params![thumb, id])?;
     // Face boxes turn with the photo. (SQLite reads the old values on the right-hand side.)
     for _ in 0..turns {
-        tx.execute("UPDATE faces SET x = 1 - y - h, y = x, w = h, h = w WHERE photo_id = ?", [id])?;
+        tx.execute("UPDATE faces SET x = 1 - y - h, y = x, w = h, h = w WHERE item_id = ?", [id])?;
     }
     tx.commit()?;
     Ok(Outcome::Rotated { width, height, version: version + 1 })
@@ -387,7 +387,7 @@ mod tests {
         let id = lib.id("a.jpg");
         let mut conn = lib.conn();
         conn.execute(
-            "INSERT INTO faces (photo_id, x, y, w, h, score, embedding, thumb) VALUES (?, 0.1, 0.2, 0.3, 0.4, 1, x'', x'')",
+            "INSERT INTO faces (item_id, x, y, w, h, score, embedding, thumb) VALUES (?, 0.1, 0.2, 0.3, 0.4, 1, x'', x'')",
             [id],
         )
         .unwrap();
@@ -435,7 +435,7 @@ mod tests {
         assert!(matches!(rotate_photo(&mut conn, &[lib.root()], id, 1).unwrap(), Outcome::Changed));
         // A GIF in the index (inserted directly; the broken test file doesn't index).
         conn.execute(
-            "INSERT INTO photos (path, mtime, size, width, height, taken, date_from_exif) VALUES (?, 0, 6, 1, 1, '2020-01-01 00:00:00', 0)",
+            "INSERT INTO items (path, mtime, size, width, height, taken, date_from_exif) VALUES (?, 0, 6, 1, 1, '2020-01-01 00:00:00', 0)",
             [lib.root().join("b.gif").to_string_lossy()],
         )
         .unwrap();

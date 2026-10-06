@@ -1,7 +1,7 @@
-//! The library: which folders hold the photos, and what may happen to the photos in them.
+//! The library: which folders hold the items (photos and videos), and what may happen to them.
 //!
 //! The folders are the ones given on the command line plus the ones saved in Settings. A
-//! photo belongs to the library when its path is inside one of them; only such photos may be
+//! item belongs to the library when its path is inside one of them; only such items may be
 //! deleted from disk, rotated, or have duplicates deleted. The HTTP handlers map the
 //! outcomes here to answers; the rules live here so they can be tested without a server.
 
@@ -43,27 +43,27 @@ pub fn root_of<'a, R: AsRef<Path>>(roots: &'a [R], path: &Path) -> Option<&'a R>
     roots.iter().find(|r| path.starts_with(r.as_ref()))
 }
 
-/// Whether a photo folder can be read now. A folder that is missing, or there but
+/// Whether a folder can be read now. A folder that is missing, or there but
 /// completely empty, is taken for unplugged: on Linux an unmounted drive leaves its mount
-/// point behind as an empty folder, and its photos must not be taken for deleted.
+/// point behind as an empty folder, and its items must not be taken for deleted.
 pub fn reachable(folder: &Path) -> bool {
     std::fs::read_dir(folder).is_ok_and(|mut entries| entries.next().is_some())
 }
 
-/// The indexed photos (id, path) whose files are inside `folder`.
-pub fn photos_under(conn: &Connection, folder: &Path) -> Result<Vec<(i64, String)>> {
+/// The indexed items (id, path) whose files are inside `folder`.
+pub fn items_under(conn: &Connection, folder: &Path) -> Result<Vec<(i64, String)>> {
     let (len, prefix) = prefix(folder);
     Ok(conn
-        .prepare_cached("SELECT id, path FROM photos WHERE substr(path, 1, ?1) = ?2")?
+        .prepare_cached("SELECT id, path FROM items WHERE substr(path, 1, ?1) = ?2")?
         .query_map(params![len, prefix], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<Result<_, _>>()?)
 }
 
-/// How many indexed photos are inside `folder`.
+/// How many indexed items are inside `folder`.
 pub fn count_under(conn: &Connection, folder: &Path) -> Result<i64> {
     let (len, prefix) = prefix(folder);
     Ok(conn
-        .prepare_cached("SELECT COUNT(*) FROM photos WHERE substr(path, 1, ?1) = ?2")?
+        .prepare_cached("SELECT COUNT(*) FROM items WHERE substr(path, 1, ?1) = ?2")?
         .query_row(params![len, prefix], |r| r.get(0))?)
 }
 
@@ -83,7 +83,7 @@ pub enum AddFolder {
     AlreadyIn(PathBuf),
 }
 
-/// Saves a photo folder from Settings.
+/// Saves a folder from Settings.
 pub fn add_folder(conn: &Connection, fixed: &[PathBuf], path: &Path) -> Result<AddFolder> {
     let Ok(path) = dunce::canonicalize(path) else { return Ok(AddFolder::Missing) };
     if !path.is_dir() {
@@ -92,7 +92,7 @@ pub fn add_folder(conn: &Connection, fixed: &[PathBuf], path: &Path) -> Result<A
     if let Some(outer) = root_of(&roots(conn, fixed)?, &path) {
         return Ok(AddFolder::AlreadyIn(outer.clone()));
     }
-    // Saved folders inside the new one aren't needed any more (their photos stay).
+    // Saved folders inside the new one aren't needed any more (their items stay).
     let saved: Vec<String> =
         conn.prepare("SELECT path FROM folders")?.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
     for inner in saved.iter().filter(|p| Path::new(p).starts_with(&path)) {
@@ -108,9 +108,9 @@ pub struct RemovedFolder {
     pub kept: usize,
 }
 
-/// Removes a saved folder and its photos from the gallery (the files stay), except photos
-/// another folder still includes. `total` is told how many photos go, `progress` how many
-/// are gone so far. The folder leaves the list only once its photos are gone: if removing
+/// Removes a saved folder and its items from the gallery (the files stay), except items
+/// another folder still includes. `total` is told how many items go, `progress` how many
+/// are gone so far. The folder leaves the list only once its items are gone: if removing
 /// them fails, it stays listed and can be removed again.
 pub fn remove_folder(
     conn: &mut Connection,
@@ -121,31 +121,31 @@ pub fn remove_folder(
 ) -> Result<RemovedFolder> {
     let remaining = roots_without(conn, fixed, Some(folder))?;
     let (kept, gone): (Vec<_>, Vec<_>) =
-        photos_under(conn, folder)?.into_iter().partition(|(_, path)| root_of(&remaining, Path::new(path)).is_some());
+        items_under(conn, folder)?.into_iter().partition(|(_, path)| root_of(&remaining, Path::new(path)).is_some());
     let gone: Vec<i64> = gone.into_iter().map(|(id, _)| id).collect();
     total(gone.len());
-    crate::db::forget_photos_with_progress(conn, &gone, progress)?;
+    crate::db::forget_items_with_progress(conn, &gone, progress)?;
     conn.execute("DELETE FROM folders WHERE path = ?", [folder.to_string_lossy()])?;
     Ok(RemovedFolder { removed: gone.len(), kept: kept.len() })
 }
 
-pub enum CheckPhoto {
+pub enum CheckItem {
     /// The file is there.
     Present(String),
-    /// The file is gone but its folder is there, so the photo was removed from the gallery
+    /// The file is gone but its folder is there, so the item was removed from the gallery
     /// (`None`: it wasn't in the gallery to begin with).
     Removed(Option<String>),
     /// Its folder can't be reached (an unplugged drive, say): nothing was removed.
     Unavailable { path: String, folder: PathBuf },
 }
 
-/// What happened to a photo that can't be opened. A photo whose file is gone while its
+/// What happened to an item that can't be opened. An item whose file is gone while its
 /// folder is there is removed from the gallery.
-pub fn check_photo(conn: &mut Connection, roots: &[PathBuf], id: i64) -> Result<CheckPhoto> {
-    let Some(path) = crate::db::photos::photo_path(conn, id)? else { return Ok(CheckPhoto::Removed(None)) };
+pub fn check_item(conn: &mut Connection, roots: &[PathBuf], id: i64) -> Result<CheckItem> {
+    let Some(path) = crate::db::items::item_path(conn, id)? else { return Ok(CheckItem::Removed(None)) };
     let file = PathBuf::from(&path);
     if file.is_file() {
-        return Ok(CheckPhoto::Present(path));
+        return Ok(CheckItem::Present(path));
     }
     let root = root_of(roots, &file);
     let folder_there = match root {
@@ -154,11 +154,11 @@ pub fn check_photo(conn: &mut Connection, roots: &[PathBuf], id: i64) -> Result<
     };
     if !folder_there {
         let folder = root.cloned().unwrap_or_else(|| file.parent().map(PathBuf::from).unwrap_or_default());
-        return Ok(CheckPhoto::Unavailable { path, folder });
+        return Ok(CheckItem::Unavailable { path, folder });
     }
-    crate::db::forget_photo(conn, id)?;
+    crate::db::forget_item(conn, id)?;
     tracing::info!("{path} is gone: removed from the gallery");
-    Ok(CheckPhoto::Removed(Some(path)))
+    Ok(CheckItem::Removed(Some(path)))
 }
 
 pub enum RemoveFrom {
@@ -168,7 +168,7 @@ pub enum RemoveFrom {
     Disk { permanently: bool },
 }
 
-pub enum RemovePhoto {
+pub enum RemoveItem {
     Removed(String),
     Binned(String),
     Deleted(String),
@@ -178,26 +178,26 @@ pub enum RemovePhoto {
         error: String,
     },
     NotFound,
-    /// Not inside the photo folders, so it isn't deleted.
+    /// Not inside the folders, so it isn't deleted.
     Outside,
 }
 
-/// Removes a photo from the gallery or from disk. Only files inside the photo folders are
+/// Removes an item from the gallery or from disk. Only files inside the folders are
 /// deleted.
-pub fn remove_photo(conn: &mut Connection, roots: &[PathBuf], id: i64, from: RemoveFrom) -> Result<RemovePhoto> {
-    let Some(path) = crate::db::photos::photo_path(conn, id)? else { return Ok(RemovePhoto::NotFound) };
+pub fn remove_item(conn: &mut Connection, roots: &[PathBuf], id: i64, from: RemoveFrom) -> Result<RemoveItem> {
+    let Some(path) = crate::db::items::item_path(conn, id)? else { return Ok(RemoveItem::NotFound) };
     let permanently = match from {
         RemoveFrom::Gallery => {
             conn.execute("INSERT OR IGNORE INTO excluded (path) VALUES (?)", [&path])?;
-            crate::db::forget_photo(conn, id)?;
+            crate::db::forget_item(conn, id)?;
             tracing::info!("{path}: removed from the gallery (file kept)");
-            return Ok(RemovePhoto::Removed(path));
+            return Ok(RemoveItem::Removed(path));
         }
         RemoveFrom::Disk { permanently } => permanently,
     };
     let file = PathBuf::from(&path);
     if root_of(roots, &file).is_none() {
-        return Ok(RemovePhoto::Outside);
+        return Ok(RemoveItem::Outside);
     }
     if file.exists() {
         if permanently {
@@ -205,13 +205,13 @@ pub fn remove_photo(conn: &mut Connection, roots: &[PathBuf], id: i64, from: Rem
             tracing::info!("{path}: deleted permanently");
         } else if let Err(e) = trash::delete(&file) {
             tracing::warn!("{path}: can't move to the bin: {e}");
-            return Ok(RemovePhoto::NoBin { path, error: e.to_string() });
+            return Ok(RemoveItem::NoBin { path, error: e.to_string() });
         } else {
             tracing::info!("{path}: moved to the bin");
         }
     }
-    crate::db::forget_photo(conn, id)?;
-    Ok(if permanently { RemovePhoto::Deleted(path) } else { RemovePhoto::Binned(path) })
+    crate::db::forget_item(conn, id)?;
+    Ok(if permanently { RemoveItem::Deleted(path) } else { RemoveItem::Binned(path) })
 }
 
 #[cfg(test)]
@@ -229,19 +229,19 @@ mod tests {
     }
 
     #[test]
-    fn photos_under_a_folder_not_its_namesakes() {
+    fn items_under_a_folder_not_its_namesakes() {
         use crate::testutil::native;
         // Paths as the scan stores them: absolute, with this system's separator.
         let base = std::env::temp_dir();
         let conn = crate::db::open_in_memory();
         for (id, rel) in [(1, "photos/a.jpg"), (2, "photos/sub/b.jpg"), (3, "photos2/c.jpg"), (4, "x/d.jpg")] {
             conn.execute(
-                "INSERT INTO photos (id, path, mtime, size, width, height, taken, date_from_exif) VALUES (?, ?, 0, 1, 1, 1, '', 0)",
+                "INSERT INTO items (id, path, mtime, size, width, height, taken, date_from_exif) VALUES (?, ?, 0, 1, 1, 1, '', 0)",
                 params![id, base.join(native(rel)).to_string_lossy()],
             )
             .unwrap();
         }
-        let ids: Vec<i64> = photos_under(&conn, &base.join("photos")).unwrap().into_iter().map(|(id, _)| id).collect();
+        let ids: Vec<i64> = items_under(&conn, &base.join("photos")).unwrap().into_iter().map(|(id, _)| id).collect();
         assert_eq!(ids, [1, 2]);
         assert_eq!(count_under(&conn, &base.join("photos")).unwrap(), 2);
         assert_eq!(count_under(&conn, &base.join(native("photos/sub"))).unwrap(), 1);
@@ -267,9 +267,9 @@ mod tests {
     }
 
     #[test]
-    fn removing_a_folder_keeps_photos_another_one_includes() {
+    fn removing_a_folder_keeps_items_another_one_includes() {
         // A saved folder that contains the command-line one: removing it must not drop the
-        // command-line folder's photos.
+        // command-line folder's items.
         let lib = Library::new();
         lib.add("a.jpg", Photo::default());
         let outer = lib.dir.path().to_path_buf();
@@ -290,7 +290,7 @@ mod tests {
     }
 
     #[test]
-    fn checking_a_photo_that_cannot_be_opened() {
+    fn checking_an_item_that_cannot_be_opened() {
         let lib = Library::new();
         lib.add("a.jpg", Photo::default());
         lib.add("sub/b.jpg", Photo { color: [1, 2, 3], ..Photo::default() });
@@ -299,18 +299,18 @@ mod tests {
         let roots = lib.cfg.fixed_roots.clone();
         let (a, b) = (lib.id("a.jpg"), lib.id("sub/b.jpg"));
 
-        assert!(matches!(check_photo(&mut conn, &roots, a).unwrap(), CheckPhoto::Present(_)));
+        assert!(matches!(check_item(&mut conn, &roots, a).unwrap(), CheckItem::Present(_)));
         std::fs::remove_file(lib.root().join("a.jpg")).unwrap();
-        assert!(matches!(check_photo(&mut conn, &roots, a).unwrap(), CheckPhoto::Removed(Some(_))));
-        assert!(matches!(check_photo(&mut conn, &roots, a).unwrap(), CheckPhoto::Removed(None)));
+        assert!(matches!(check_item(&mut conn, &roots, a).unwrap(), CheckItem::Removed(Some(_))));
+        assert!(matches!(check_item(&mut conn, &roots, a).unwrap(), CheckItem::Removed(None)));
         // The whole library folder is gone (an unplugged drive): nothing is removed.
         std::fs::remove_dir_all(lib.root()).unwrap();
-        assert!(matches!(check_photo(&mut conn, &roots, b).unwrap(), CheckPhoto::Unavailable { .. }));
+        assert!(matches!(check_item(&mut conn, &roots, b).unwrap(), CheckItem::Unavailable { .. }));
         assert_eq!(lib.id("sub/b.jpg"), b);
     }
 
     #[test]
-    fn removing_photos() {
+    fn removing_items() {
         let lib = Library::new();
         lib.add("a.jpg", Photo::default());
         lib.add("b.jpg", Photo { color: [1, 2, 3], ..Photo::default() });
@@ -319,14 +319,14 @@ mod tests {
         let roots = lib.cfg.fixed_roots.clone();
         let (a, b) = (lib.id("a.jpg"), lib.id("b.jpg"));
 
-        assert!(matches!(remove_photo(&mut conn, &roots, a, RemoveFrom::Gallery).unwrap(), RemovePhoto::Removed(_)));
+        assert!(matches!(remove_item(&mut conn, &roots, a, RemoveFrom::Gallery).unwrap(), RemoveItem::Removed(_)));
         assert!(lib.root().join("a.jpg").exists());
-        assert!(matches!(remove_photo(&mut conn, &roots, a, RemoveFrom::Gallery).unwrap(), RemovePhoto::NotFound));
+        assert!(matches!(remove_item(&mut conn, &roots, a, RemoveFrom::Gallery).unwrap(), RemoveItem::NotFound));
         let elsewhere = [lib.dir.path().join("elsewhere")];
         let disk = || RemoveFrom::Disk { permanently: true };
-        assert!(matches!(remove_photo(&mut conn, &elsewhere, b, disk()).unwrap(), RemovePhoto::Outside));
+        assert!(matches!(remove_item(&mut conn, &elsewhere, b, disk()).unwrap(), RemoveItem::Outside));
         assert!(lib.root().join("b.jpg").exists());
-        assert!(matches!(remove_photo(&mut conn, &roots, b, disk()).unwrap(), RemovePhoto::Deleted(_)));
+        assert!(matches!(remove_item(&mut conn, &roots, b, disk()).unwrap(), RemoveItem::Deleted(_)));
         assert!(!lib.root().join("b.jpg").exists());
     }
 }

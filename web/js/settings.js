@@ -2,7 +2,7 @@
 // One of the page's modules; main.js starts the page.
 import { lang, languages, num, t, tn } from "./i18n.js";
 import { $, api, del, esc, icon, loadMeta, plural, post, pref } from "./core.js";
-import { photos } from "./photos.js";
+import { items } from "./items.js";
 import { toast } from "./people.js";
 import { render } from "./views.js";
 import { askChoice } from "./viewer.js";
@@ -140,7 +140,7 @@ export function renderSettings(error = "") {
       </div>`
     : `<div class="folder">
       <span class="p" title="${esc(f.path)}"><bdi>${esc(f.path)}</bdi></span>
-      ${f.available ? `<span class="c">${plural(f.photos, "photo")}</span>` : `<span class="off" title="${t("The folder can't be found right now. Its photos are kept until it's back or you remove it.")}">${t("not available")}</span>`}
+      ${f.available ? `<span class="c">${plural(f.items, "photo")}</span>` : `<span class="off" title="${t("The folder can't be found right now. Its photos are kept until it's back or you remove it.")}">${t("not available")}</span>`}
       ${f.fixed
         ? `<span class="fixed" title="${t("Given on the command line when Imadive was started; remove it there")}">${t("command line")}</span>`
         : `<button class="btn" data-remove="${esc(f.path)}" ${removing ? `disabled title="${t("Wait for the folder being removed")}"` : ""}>${t("Remove")}</button>`}
@@ -298,4 +298,4 @@ $("#settingsDlg").addEventListener("click", async e => {
     }
   } catch (err) { renderSettings(err.message); }
 });
-$("#settingsDlg").addEventListener("close", () => { if (!photos.length) render(); });
+$("#settingsDlg").addEventListener("close", () => { if (!items.length) render(); });

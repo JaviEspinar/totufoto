@@ -2,7 +2,7 @@
 // One of the page's modules; main.js starts the page.
 import { lang, num, t, tn } from "./i18n.js";
 import { $, api, esc, loadMeta, plural, post, state } from "./core.js";
-import { thumbUrl } from "./photos.js";
+import { thumbUrl } from "./items.js";
 import { toast } from "./people.js";
 import { render } from "./views.js";
 import { askChoice } from "./viewer.js";

@@ -21,7 +21,7 @@ pub struct PersonSummary {
 pub fn list_people(conn: &Connection) -> Result<Vec<PersonSummary>> {
     Ok(conn
         .prepare_cached(
-            "SELECT p.id, p.name, p.hidden, COUNT(DISTINCT f.photo_id) AS n,
+            "SELECT p.id, p.name, p.hidden, COUNT(DISTINCT f.item_id) AS n,
                     COALESCE((SELECT id FROM faces WHERE id = p.cover_face AND person_id = p.id),
                              (SELECT id FROM faces WHERE person_id = p.id ORDER BY score DESC LIMIT 1))
              FROM persons p JOIN faces f ON f.person_id = p.id
@@ -37,7 +37,7 @@ pub fn list_people(conn: &Connection) -> Result<Vec<PersonSummary>> {
 pub fn person(conn: &Connection, id: i64) -> Result<Option<PersonSummary>> {
     Ok(conn
         .prepare_cached(
-            "SELECT p.id, p.name, p.hidden, COUNT(DISTINCT f.photo_id),
+            "SELECT p.id, p.name, p.hidden, COUNT(DISTINCT f.item_id),
                     COALESCE((SELECT id FROM faces WHERE id = p.cover_face AND person_id = p.id),
                              (SELECT id FROM faces WHERE person_id = p.id ORDER BY score DESC LIMIT 1))
              FROM persons p JOIN faces f ON f.person_id = p.id
