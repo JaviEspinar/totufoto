@@ -519,6 +519,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 .about-dlg .about-coffee { margin: 0; color: var(--muted); font-size: 16px; line-height: 1.55; }
 .about-coffee a, .about-credit a { color: var(--accent); }
 .about-dlg .about-credit { margin: 22px 0 0; color: var(--muted); font-size: 12px; }
+/* Narrow phones: room for the invitation's first line on one line */
+@media (max-width: 420px) { .about-dlg .dlg-body { padding: 0 14px 24px; } .about-dlg .about-coffee { font-size: 15px; } }
 .prefs { display: flex; flex-wrap: wrap; gap: 10px 24px; margin: 6px 0 4px; }
 .prefs label { display: flex; align-items: center; gap: 8px; }
 .about p { margin: 0 0 6px; font-size: 13px; color: var(--muted); }
