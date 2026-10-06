@@ -50,6 +50,8 @@ const SCRIPTS: [(&str, &str); 13] = [
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 /// The project's pages, linked from Settings. Update it when the repository moves.
 const PROJECT_URL: &str = "https://github.com/JaviEspinar/totufoto";
+/// The author's page ("Created by W4T" in the About dialog).
+const AUTHOR_URL: &str = "https://waiting4timeout.github.io/";
 /// Where people can support the project ("buying me a coffee" in the About dialog). None
 /// hides the link and keeps the sentence.
 const DONATE_URL: Option<&str> =
@@ -379,7 +381,8 @@ mod tests {
 
         let (_, v) = get("/api/status".into()).await;
         for k in [
-            "excluded", "failed", "phase", "running", "total", "done", "faces", "removing", "version", "logs", "donate",
+            "excluded", "failed", "phase", "running", "total", "done", "faces", "removing", "version", "logs",
+            "donate", "author",
         ] {
             assert!(v.get(k).is_some(), "status.{k}");
         }

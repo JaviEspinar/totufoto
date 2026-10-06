@@ -22,6 +22,7 @@ pub(super) async fn status(State(s): State<Shared>) -> ApiResult<Json<JsonValue>
     value["version"] = env!("CARGO_PKG_VERSION").into();
     value["project"] = super::PROJECT_URL.into();
     value["donate"] = super::DONATE_URL.into();
+    value["author"] = super::AUTHOR_URL.into();
     // The desktop app keeps a log file, which Settings can show (see /api/logs/reveal).
     value["logs"] = s.host.as_ref().is_some_and(|h| h.log_file().is_some()).into();
     Ok(Json(value))
@@ -57,14 +58,15 @@ pub(super) struct OpenBody {
 }
 
 /// Opens a link in the system browser (desktop app only). Limited to the sites the UI links
-/// to (maps, the project's pages, the donation page), so the endpoint can't be used to
+/// to (maps, the project's pages, the donation page, the author's page), so the endpoint can't be used to
 /// launch arbitrary URLs.
 pub(super) async fn open_url(State(s): State<Shared>, Json(body): Json<OpenBody>) -> ApiResult<StatusCode> {
     match &s.host {
         Some(host)
             if body.url.starts_with("https://www.openstreetmap.org/")
                 || body.url.starts_with(&format!("{}/", super::PROJECT_URL))
-                || super::DONATE_URL.is_some_and(|donate| body.url == donate) =>
+                || super::DONATE_URL.is_some_and(|donate| body.url == donate)
+                || body.url.starts_with(super::AUTHOR_URL) =>
         {
             host.open_url(&body.url);
             Ok(StatusCode::NO_CONTENT)

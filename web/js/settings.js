@@ -220,7 +220,9 @@ async function openAbout() {
   const coffee = st?.donate
     ? `<a href="${esc(st.donate)}" target="_blank" rel="noopener">${t("buying me a coffee")}</a>`
     : t("buying me a coffee");
-  $(".about-coffee", dlg).innerHTML = t("ImaDive is free. If you like it and find it useful, please consider {coffee} ☕", { coffee });
+  $(".about-coffee", dlg).innerHTML = t("ImaDive is free. If you like it and find it useful, please consider {coffee}&nbsp;☕", { coffee });
+  const author = st?.author ? `<a href="${esc(st.author)}" target="_blank" rel="noopener">W4T</a>` : "W4T";
+  $(".about-credit", dlg).innerHTML = t("Created by {author}", { author });
   if (!dlg.open) dlg.showModal();
 }
 $("#brandBtn").onclick = openAbout;
