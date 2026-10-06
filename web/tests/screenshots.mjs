@@ -28,6 +28,13 @@ async function shot(page, name) {
   console.log(`${name}.jpg`);
 }
 
+/** Groups the Photos tab (the choice is in the dates, grouping and order panel). */
+async function groupBy(page, value) {
+  await page.locator("#viewBtn").click();
+  await page.selectOption("#groupBy", value);
+  await page.locator("#viewBtn").click();
+}
+
 /** The id of the photo whose file name contains `text`. */
 async function photoId(page, text) {
   const { items } = await (await page.request.get(`${base}/api/items`)).json();
@@ -47,13 +54,13 @@ await page.locator(".tile img.ok").first().waitFor();
 await shot(page, "photos");
 
 // One card per place.
-await page.selectOption("#groupBy", "place");
+await groupBy(page, "place");
 await page.locator(".group-card").first().waitFor();
 await shot(page, "places");
 
 // The viewer, with the people in the photo.
-const id = await photoId(page, "with his wife and the youngest");
-await page.selectOption("#groupBy", "none");
+const id = await photoId(page, "Crew Visits KSC 1");
+await groupBy(page, "none");
 await page.locator(`.tile[data-id="${id}"]`).click();
 await page.locator("#viewer .info-body h3").waitFor();
 await page.locator("#showBoxes").check();
@@ -63,6 +70,8 @@ await page.keyboard.press("Escape");
 // People.
 await page.locator('nav [data-view="people"]').click();
 await page.locator(".face-card:not(.skeleton)").first().waitFor();
+// Bigger cards, so a small demo library fills the picture.
+await page.locator("#peopleZoom").evaluate(z => { z.value = z.max; z.dispatchEvent(new Event("input", { bubbles: true })); });
 await shot(page, "people");
 
 // A phone.

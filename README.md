@@ -4,7 +4,7 @@ A fast local photo and video gallery written in Rust. Point it at your photo fol
 
 It comes as a desktop app for Windows and Linux, and as a command-line app that serves the gallery to your browser. It is free for personal and other non-commercial use, and its source code is available ([license](#license)).
 
-![The timeline: photos in a justified grid, with the people found in them in the sidebar](docs/screenshots/photos.jpg)
+![The timeline: photos and videos in a justified grid, with the people found in them in the sidebar](docs/screenshots/photos.jpg)
 
 <p>
 <img src="docs/screenshots/viewer.jpg" width="49%" alt="The viewer: a photo with its faces outlined and named, and its date, place and people beside it">
@@ -15,7 +15,7 @@ It comes as a desktop app for Windows and Linux, and as a command-line app that 
 <img src="docs/screenshots/phone.jpg" width="24%" alt="The gallery on a phone">
 </p>
 
-<sub>Photos: Library of Congress, FSA/OWI colour collection, 1940 to 1943, public domain ([about the screenshots](docs/screenshots/README.md)).</sub>
+<sub>Photos and videos: NASA, the Artemis II mission (2023 to 2026). NASA doesn't endorse Imadive ([about the screenshots](docs/screenshots/README.md)).</sub>
 
 ## Features
 
