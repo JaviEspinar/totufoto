@@ -2251,6 +2251,7 @@ dependencies = [
  "clap",
  "dunce",
  "fast_image_resize",
+ "futures-util",
  "image",
  "kamadak-exif",
  "libloading 0.9.0",

@@ -88,7 +88,7 @@ A face's `box` is `[x, y, width, height]` as fractions of the photo as shown.
 | `GET /thumb/{id}/{version}` | the thumbnail, JPEG. `204 No Content` for a video whose thumbnail the page hasn't made yet |
 | `PUT /api/photos/{id}/thumb?v={version}` | a video's thumbnail, made by the page: a JPEG frame of the video at that version as the body. The server makes its own thumbnail from it and raises the version: `{"version": n}`. `409` for a photo or when the video changed, `400` for a body that isn't a JPEG |
 | `GET /face/{id}` | a face's picture, JPEG |
-| `GET /original/{id}` | the file itself (HEIC and TIFF converted to JPEG); `?download=1` to save it with its own name. Videos are streamed and answer range requests (`Range: bytes=...`), for seeking |
+| `GET /original/{id}` | the file itself (HEIC and TIFF converted to JPEG); `?download=1` to save it with its own name. Videos are streamed and answer range requests (`Range: bytes=...`), for seeking; `?silent=1` serves a video with its sound tracks marked as filler (same size and offsets), for videos whose broken sound makes the browser refuse them (the page takes thumbnail frames from it, and plays it when the original fails) |
 
 Thumbnails and faces are cached for good by browsers (`immutable`). A photo's version goes up when it is rotated or its file changes, so its thumbnail gets a new address; an address with an old version still answers with the current picture, but marked not to be kept (`no-cache`).
 

@@ -2,9 +2,11 @@
 // formats it plays). A video whose thumbnail doesn't come shows the generic picture
 // (photos.js) and asks here for a real one: a frame about a second in, sent to the server,
 // which keeps it for everyone. A video the browser can't decode keeps the generic picture.
+// The frame comes from the video without its sound (silentUrl): many phones' videos begin with
+// a broken sound packet that makes Chrome refuse the whole file.
 // One of the page's modules; main.js starts the page.
 import { api } from "./core.js";
-import { originalUrl, photos, thumbUrl } from "./photos.js";
+import { photos, silentUrl, thumbUrl } from "./photos.js";
 
 const AT_ONCE = 2;
 /** The biggest side of the frame sent; the server makes the thumbnail from it. */
@@ -57,7 +59,7 @@ async function frameOf({ id, version }) {
   });
   try {
     const ready = event("loadeddata", 15_000);
-    video.src = originalUrl(id, version);
+    video.src = silentUrl(id, version); // the picture is all it needs, and the sound can break it
     await ready;
     const length = Number.isFinite(video.duration) ? video.duration : 0;
     if (length > 0.1) {

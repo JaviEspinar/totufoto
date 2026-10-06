@@ -587,6 +587,21 @@ mod tests {
         assert!(part.headers().get(header::CONTENT_ENCODING).is_none());
         let bytes = axum::body::to_bytes(part.into_body(), 1 << 20).await.unwrap();
         assert_eq!(bytes.len(), 100);
+
+        // Without its sound: the same bytes, but the sound track is filler, whole or in parts.
+        let file = std::fs::read(lib.root().join("clip.mov")).unwrap();
+        let sound = crate::video::sound_track_types(&lib.root().join("clip.mov")).unwrap()[0] as usize;
+        let whole = get(format!("/original/{id}?silent=1"), None).await.unwrap();
+        let whole = axum::body::to_bytes(whole.into_body(), 1 << 20).await.unwrap();
+        assert_eq!(whole.len(), file.len());
+        assert_eq!(&whole[sound..sound + 4], b"free");
+        assert_eq!((&whole[..sound], &whole[sound + 4..]), (&file[..sound], &file[sound + 4..]));
+        let range = format!("bytes={}-{}", sound + 2, sound + 9);
+        let part = get(format!("/original/{id}?silent=1"), Some(&range)).await.unwrap();
+        assert_eq!(part.status(), StatusCode::PARTIAL_CONTENT);
+        let part = axum::body::to_bytes(part.into_body(), 1 << 20).await.unwrap();
+        assert_eq!(&part[..2], b"ee");
+        assert_eq!(&part[2..], &file[sound + 4..sound + 10]);
     }
 
     #[tokio::test]

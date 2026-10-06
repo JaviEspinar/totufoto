@@ -56,13 +56,31 @@ pub fn read(path: &Path) -> Result<VideoInfo> {
         return Ok(VideoInfo::default());
     }
     let mut file = File::open(path)?;
-    let Some(moov) = find_moov(&mut file)? else { return Ok(VideoInfo::default()) };
+    let Some((moov, _)) = find_moov(&mut file)? else { return Ok(VideoInfo::default()) };
     Ok(parse_moov(&moov))
 }
 
-/// The `moov` box's contents. It may come before or after the media data, so the top-level
-/// boxes are skipped over (never read) until it is found.
-fn find_moov(file: &mut File) -> Result<Option<Vec<u8>>> {
+/// Where in the file each sound track's box type (`trak`) is. Writing `free` there instead
+/// hides the sound from players (they skip `free` boxes) while nothing else moves: the file
+/// keeps its size and every offset in it. Some phones' videos (many sent with WhatsApp)
+/// begin with a broken sound packet that makes Chrome refuse the whole file, picture
+/// included; without the sound it plays, and gives a thumbnail.
+pub fn sound_track_types(path: &Path) -> Result<Vec<u64>> {
+    if !ISO_MEDIA.contains(&crate::imaging::extension(path).as_str()) {
+        return Ok(Vec::new());
+    }
+    let mut file = File::open(path)?;
+    let Some((moov, start)) = find_moov(&mut file)? else { return Ok(Vec::new()) };
+    Ok(boxes_at(&moov)
+        .into_iter()
+        .filter(|(_, kind, trak)| *kind == b"trak" && handler(trak) == Some(b"soun"))
+        .map(|(at, _, _)| start + at as u64 + 4)
+        .collect())
+}
+
+/// The `moov` box's contents, and where they start in the file. It may come before or after
+/// the media data, so the top-level boxes are skipped over (never read) until it is found.
+fn find_moov(file: &mut File) -> Result<Option<(Vec<u8>, u64)>> {
     let len = file.metadata()?.len();
     let mut pos = 0u64;
     while pos + 8 <= len {
@@ -89,7 +107,7 @@ fn find_moov(file: &mut File) -> Result<Option<Vec<u8>>> {
             }
             let mut moov = vec![0u8; (size - header) as usize];
             file.read_exact(&mut moov)?;
-            return Ok(Some(moov));
+            return Ok(Some((moov, pos + header)));
         }
         pos += size;
     }
@@ -98,6 +116,11 @@ fn find_moov(file: &mut File) -> Result<Option<Vec<u8>>> {
 
 /// The boxes directly inside `data`: (type, contents).
 fn boxes(data: &[u8]) -> Vec<(&[u8], &[u8])> {
+    boxes_at(data).into_iter().map(|(_, kind, body)| (kind, body)).collect()
+}
+
+/// The boxes directly inside `data`: (where the box starts in `data`, type, contents).
+fn boxes_at(data: &[u8]) -> Vec<(usize, &[u8], &[u8])> {
     let mut out = Vec::new();
     let mut pos = 0usize;
     while pos + 8 <= data.len() {
@@ -113,7 +136,7 @@ fn boxes(data: &[u8]) -> Vec<(&[u8], &[u8])> {
         if size < header || pos + size > data.len() {
             break;
         }
-        out.push((kind, &data[pos + header..pos + size]));
+        out.push((pos, kind, &data[pos + header..pos + size]));
         pos += size;
     }
     out
@@ -174,8 +197,12 @@ fn parse_moov(moov: &[u8]) -> VideoInfo {
     info
 }
 
+fn handler(trak: &[u8]) -> Option<&[u8]> {
+    child(trak, b"mdia").and_then(|m| child(m, b"hdlr")).and_then(|h| h.get(8..12))
+}
+
 fn is_video_track(trak: &[u8]) -> bool {
-    child(trak, b"mdia").and_then(|m| child(m, b"hdlr")).and_then(|h| h.get(8..12)) == Some(b"vide")
+    handler(trak) == Some(b"vide")
 }
 
 /// Width and height from a track header, turned when the matrix says the video is.
@@ -291,7 +318,11 @@ pub(crate) mod tests {
         hdlr.extend(b"vide");
         hdlr.extend([0u8; 13]);
         let trak = bx(b"trak", &[bx(b"tkhd", &tkhd), bx(b"mdia", &bx(b"hdlr", &hdlr))].concat());
-        let mut moov = [bx(b"mvhd", &mvhd), trak].concat();
+        let mut soun = vec![0u8; 8];
+        soun.extend(b"soun");
+        soun.extend([0u8; 13]);
+        let sound = bx(b"trak", &[bx(b"tkhd", &[0u8; 84]), bx(b"mdia", &bx(b"hdlr", &soun))].concat());
+        let mut moov = [bx(b"mvhd", &mvhd), trak, sound].concat();
         if apple {
             let key = |name: &str| bx(b"mdta", name.as_bytes());
             let mut keys = vec![0u8; 4];
@@ -349,6 +380,24 @@ pub(crate) mod tests {
         assert_eq!(read_bytes("clip.webm", b"\x1aE\xdf\xa3 not read").width, 0);
         assert_eq!(read_bytes("broken.mp4", b"\0\0\0\x05moov"), VideoInfo::default());
         assert_eq!(read_bytes("empty.mov", b""), VideoInfo::default());
+    }
+
+    #[test]
+    fn the_sound_track_is_found_where_it_is_in_the_file() {
+        for moov_last in [false, true] {
+            let bytes = sample(true, moov_last);
+            let dir = std::env::temp_dir().join(format!("imadive-sound-{}-{moov_last}", std::process::id()));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("clip.mov");
+            std::fs::write(&path, &bytes).unwrap();
+            let at = sound_track_types(&path).unwrap();
+            assert_eq!(at.len(), 1, "one sound track");
+            let at = at[0] as usize;
+            assert_eq!(&bytes[at..at + 4], b"trak");
+            // the box after it holds the sound handler
+            assert!(bytes[at..].windows(4).take(200).any(|w| w == b"soun"));
+            std::fs::remove_dir_all(&dir).unwrap();
+        }
     }
 
     #[test]

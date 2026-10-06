@@ -218,11 +218,17 @@ pub(super) async fn reveal_photo(State(s): State<Shared>, Path(id): Path<i64>) -
 pub(super) struct OriginalQuery {
     /// `download=1`: save as a file (Content-Disposition: attachment) instead of showing it
     download: Option<String>,
+    /// `silent=1`: a video without its sound, for when the sound stops the browser playing it
+    silent: Option<String>,
 }
 
 impl OriginalQuery {
     fn download(&self) -> bool {
         self.download.as_deref().is_some_and(|v| !matches!(v, "0" | "false"))
+    }
+
+    fn silent(&self) -> bool {
+        self.silent.as_deref().is_some_and(|v| !matches!(v, "0" | "false"))
     }
 }
 
@@ -256,7 +262,7 @@ pub(super) async fn original(
         return Err(ApiError::not_found("file in its folder"));
     }
     if crate::video::is_video(&path) {
-        return serve_video(&path, q.download(), request).await;
+        return serve_video(&path, q.download(), q.silent(), request).await;
     }
     let ext = imaging::extension(&path);
     if imaging::BROWSER_EXTENSIONS.contains(&ext.as_str()) {
@@ -299,14 +305,69 @@ pub(super) async fn original(
 
 /// A video, streamed from disk with range requests: the browser's player asks for the parts
 /// it needs, so it can start at once and seek, and nothing is read into memory.
-async fn serve_video(path: &std::path::Path, download: bool, request: axum::extract::Request) -> ApiResult<Response> {
+/// A video, in the parts the browser asks for (Range). `silent`: with its sound tracks
+/// relabelled as filler as the bytes go out (see `video::sound_track_types`).
+async fn serve_video(
+    path: &std::path::Path,
+    download: bool,
+    silent: bool,
+    request: axum::extract::Request,
+) -> ApiResult<Response> {
     use tower::ServiceExt;
     let service = tower_http::services::ServeFile::new_with_mime(path, &crate::video::mime(path).parse()?);
     let mut response = service.oneshot(request).await?.map(axum::body::Body::new);
+    if silent {
+        let owned = path.to_path_buf();
+        let at = tokio::task::spawn_blocking(move || crate::video::sound_track_types(&owned)).await??;
+        response = without_sound(response, at);
+    }
     response.headers_mut().insert(header::CACHE_CONTROL, "public, max-age=3600".parse()?);
     if download {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| "video".into());
         response.headers_mut().insert(header::CONTENT_DISPOSITION, attachment(&name).parse()?);
     }
     Ok(response)
+}
+
+/// The response with `free` written over the four bytes at each of `at` (file offsets)
+/// that it carries. A part (206) starts where its Content-Range says.
+fn without_sound(response: Response, at: Vec<u64>) -> Response {
+    use futures_util::StreamExt;
+    if at.is_empty() {
+        return response;
+    }
+    let mut offset = match response.status() {
+        StatusCode::OK => 0,
+        StatusCode::PARTIAL_CONTENT => {
+            let range = response.headers().get(header::CONTENT_RANGE).and_then(|v| v.to_str().ok());
+            match range.and_then(|r| r.strip_prefix("bytes ")?.split('-').next()?.parse::<u64>().ok()) {
+                Some(start) => start,
+                None => return response,
+            }
+        }
+        _ => return response,
+    };
+    let (parts, body) = response.into_parts();
+    let patched = body.into_data_stream().map(move |chunk| {
+        chunk.map(|bytes| {
+            let end = offset + bytes.len() as u64;
+            let inside = |pos: u64| (offset..end).contains(&pos);
+            let out = if at.iter().any(|&p| (p..p + 4).any(inside)) {
+                let mut copy = bytes.to_vec();
+                for &p in &at {
+                    for (pos, b) in (p..p + 4).zip(b"free") {
+                        if inside(pos) {
+                            copy[(pos - offset) as usize] = *b;
+                        }
+                    }
+                }
+                axum::body::Bytes::from(copy)
+            } else {
+                bytes
+            };
+            offset = end;
+            out
+        })
+    });
+    Response::from_parts(parts, axum::body::Body::from_stream(patched))
 }

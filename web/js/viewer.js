@@ -3,7 +3,7 @@
 import { t } from "./i18n.js";
 import { $, api, del, esc, fmtFull, icon, loadMeta, personById, personName, photoDetail, post, pref, regionName, state } from "./core.js";
 import { renderPeopleList } from "./sidebar.js";
-import { VIDEO_PICTURE, fmtDuration, isVideo, mediaCount, onePhotoLess, originalUrl, photos, shownPhotoCount, thumbUrl, versionOf } from "./photos.js";
+import { VIDEO_PICTURE, fmtDuration, isVideo, mediaCount, onePhotoLess, originalUrl, photos, shownPhotoCount, silentUrl, thumbUrl, versionOf } from "./photos.js";
 import { makeVideoThumb } from "./videothumbs.js";
 import { openAssign, refreshPeopleViews, renamePerson, toast } from "./people.js";
 import { render } from "./views.js";
@@ -65,8 +65,19 @@ function showViewerVideo(i, id, w, h, v) {
   // Plays at once: opening it was the click (or key) that browsers want before playing with
   // sound. If one refuses anyway (some phones), the player waits for a tap as before.
   video.play().catch(() => {});
+  let silent = false;
   video.onerror = () => {
     if (viewerIndex !== i) return;
+    if (!silent) {
+      // Often it's the sound the browser can't decode (a broken first packet, in many phones'
+      // videos): the picture alone, then.
+      silent = true;
+      video.src = silentUrl(id, v);
+      video.play().catch(() => {});
+      note.textContent = t("Playing without sound: its sound can't be played here.");
+      note.hidden = false;
+      return;
+    }
     // The player would spin for ever: the video's picture instead, and the way to get it.
     stopVideo();
     video.hidden = true;

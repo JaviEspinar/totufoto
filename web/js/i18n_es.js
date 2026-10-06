@@ -322,6 +322,7 @@ export default {
   "Video": "Vídeo",
   "This video can't be played here.": "Este vídeo no se puede reproducir aquí.",
   "Download it": "Descárgalo",
+  "Playing without sound: its sound can't be played here.": "Se reproduce sin sonido: su sonido no se puede reproducir aquí.",
   "This file can't be moved to a bin on its drive, so it can't be recovered once deleted.": "Este archivo no se puede mover a una papelera en su disco, así que no se podrá recuperar una vez borrado.",
   "Delete it permanently?": "¿Borrarla definitivamente?",
   "Couldn't delete the photo: {error}": "No se pudo borrar la foto: {error}",
