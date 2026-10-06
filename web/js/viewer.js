@@ -3,7 +3,8 @@
 import { t } from "./i18n.js";
 import { $, api, del, esc, fmtFull, icon, loadMeta, personById, personName, photoDetail, post, pref, regionName, state } from "./core.js";
 import { renderPeopleList } from "./sidebar.js";
-import { fmtDuration, isVideo, mediaCount, onePhotoLess, originalUrl, photos, shownPhotoCount, thumbUrl, versionOf } from "./photos.js";
+import { VIDEO_PICTURE, fmtDuration, isVideo, mediaCount, onePhotoLess, originalUrl, photos, shownPhotoCount, thumbUrl, versionOf } from "./photos.js";
+import { makeVideoThumb } from "./videothumbs.js";
 import { openAssign, refreshPeopleViews, renamePerson, toast } from "./people.js";
 import { render } from "./views.js";
 import { folderInfo } from "./settings.js";
@@ -51,12 +52,22 @@ function showViewerVideo(i, id, w, h, v) {
   note.hidden = true;
   video.hidden = false;
   fitViewerImage(w, h);
+  // Its thumbnail before it plays; the generic picture (and a thumbnail made now) without one.
+  video.poster = thumbUrl(id, v);
+  const probe = new Image();
+  probe.onerror = () => {
+    if (viewerIndex !== i) return;
+    video.poster = VIDEO_PICTURE;
+    makeVideoThumb(id, v);
+  };
+  probe.src = video.poster;
   video.src = originalUrl(id, v);
   video.onerror = () => {
     if (viewerIndex !== i) return;
     // The player would spin for ever: the video's picture instead, and the way to get it.
     stopVideo();
     video.hidden = true;
+    img.onerror = () => { img.onerror = null; img.src = VIDEO_PICTURE; };
     img.src = thumbUrl(id, v);
     img.classList.add("generic");
     img.hidden = false;

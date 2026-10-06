@@ -256,27 +256,48 @@ pub fn photo_path(conn: &Connection, id: i64) -> Result<Option<String>> {
     Ok(conn.prepare_cached("SELECT path FROM photos WHERE id = ?")?.query_row([id], |r| r.get(0)).optional()?)
 }
 
-/// A picture for the grid: a photo's thumbnail, or the sign that it is a video (which has
-/// none; the server draws a generic one).
-pub enum Thumbnail {
-    Jpeg(Vec<u8>),
-    Video,
+/// A photo's thumbnail (JPEG) and the photo's current version. The thumbnail is None for a
+/// video whose thumbnail the page hasn't made yet; None overall when there is no such photo.
+pub fn thumbnail(conn: &Connection, photo: i64) -> Result<Option<(Option<Vec<u8>>, i64)>> {
+    Ok(conn
+        .prepare_cached(
+            "SELECT t.data, p.version FROM photos p LEFT JOIN thumbs t ON t.photo_id = p.id WHERE p.id = ?",
+        )?
+        .query_row([photo], |r| Ok((r.get(0)?, r.get(1)?)))
+        .optional()?)
 }
 
-/// A photo's or video's picture for the grid, and its current version.
-pub fn thumbnail(conn: &Connection, photo: i64) -> Result<Option<(Thumbnail, i64)>> {
-    let row: Option<(Option<Vec<u8>>, i64, bool)> = conn
-        .prepare_cached(
-            "SELECT t.data, p.version, p.duration IS NOT NULL FROM photos p
-             LEFT JOIN thumbs t ON t.photo_id = p.id WHERE p.id = ?",
-        )?
-        .query_row([photo], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+/// What became of a video thumbnail the page made.
+pub enum SetThumbnail {
+    /// Stored; the video's new version.
+    Saved(i64),
+    NotFound,
+    NotAVideo,
+    /// The file changed since the page saw it (another version): the frame may be stale.
+    Changed,
+}
+
+/// Stores a video's thumbnail, made by the page from the video at `version`, and raises the
+/// version so browsers fetch it instead of what they had.
+pub fn set_video_thumbnail(conn: &mut Connection, id: i64, version: i64, jpeg: &[u8]) -> Result<SetThumbnail> {
+    let tx = conn.transaction()?;
+    let row: Option<(bool, i64)> = tx
+        .query_row("SELECT duration IS NOT NULL, version FROM photos WHERE id = ?", [id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
         .optional()?;
-    Ok(row.and_then(|(data, version, video)| match (data, video) {
-        (Some(jpeg), _) => Some((Thumbnail::Jpeg(jpeg), version)),
-        (None, true) => Some((Thumbnail::Video, version)),
-        (None, false) => None,
-    }))
+    let outcome = match row {
+        None => SetThumbnail::NotFound,
+        Some((false, _)) => SetThumbnail::NotAVideo,
+        Some((true, current)) if current != version => SetThumbnail::Changed,
+        Some((true, current)) => {
+            tx.execute("INSERT OR REPLACE INTO thumbs (photo_id, data) VALUES (?, ?)", rusqlite::params![id, jpeg])?;
+            tx.execute("UPDATE photos SET version = version + 1 WHERE id = ?", [id])?;
+            SetThumbnail::Saved(current + 1)
+        }
+    };
+    tx.commit()?;
+    Ok(outcome)
 }
 
 /// A face's picture (JPEG).

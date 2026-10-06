@@ -99,7 +99,7 @@ Only files inside the photo folders can be deleted. The gallery has no login, so
 
 ## Videos
 
-Videos are part of the timeline, places and Upcoming like photos: their date and place come from the file (MP4 and MOV, as phones and most cameras record them), or the file's date otherwise. In the grid they have a generic picture with a play sign and their length.
+Videos are part of the timeline, places and Upcoming like photos: their date and place come from the file (MP4 and MOV, as phones and most cameras record them), or the file's date otherwise. In the grid they show a frame from about a second in, made by the gallery the first time it shows them in a browser that can play them (and kept for everyone), or the picture the camera saved beside them (`.THM`); until then, and for formats no browser plays, a generic picture with a play sign. Their length shows in a corner.
 
 The viewer plays them with your browser's player. Formats a browser can't play (AVI, WMV, MPEG, and iPhone HEVC videos in some browsers) show a note with a link to download the file instead. Videos have no people: faces are only looked for in photos.
 

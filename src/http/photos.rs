@@ -126,18 +126,40 @@ pub(super) fn jpeg(bytes: Vec<u8>, cache: &'static str) -> Response {
 pub(super) async fn thumb(State(s): State<Shared>, Path((id, version)): Path<(i64, i64)>) -> ApiResult<Response> {
     let data = db(&s, move |conn| photos::thumbnail(conn, id)).await?;
     let (picture, current) = data.ok_or_else(|| ApiError::not_found("picture"))?;
-    let cache = if current == version { IMMUTABLE } else { "no-cache" };
-    Ok(match picture {
-        photos::Thumbnail::Jpeg(bytes) => jpeg(bytes, cache),
-        photos::Thumbnail::Video => {
-            ([(header::CONTENT_TYPE, "image/svg+xml"), (header::CACHE_CONTROL, cache)], VIDEO_THUMB).into_response()
-        }
-    })
+    // A video whose thumbnail the page hasn't made yet: nothing, and the page draws its own.
+    let Some(bytes) = picture else {
+        return Ok(([(header::CACHE_CONTROL, "no-store")], StatusCode::NO_CONTENT).into_response());
+    };
+    Ok(jpeg(bytes, if current == version { IMMUTABLE } else { "no-cache" }))
 }
 
-/// The picture of a video in the grid, until videos get thumbnails of their own: a dark
-/// tile with a play sign, cropped to the shape of the tile.
-const VIDEO_THUMB: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b3a55"/><stop offset="1" stop-color="#151b28"/></linearGradient></defs><rect width="160" height="90" fill="url(#g)"/><circle cx="80" cy="45" r="17" fill="#fff" fill-opacity="0.16"/><path d="M74.5 36.5v17l14-8.5z" fill="#fff" fill-opacity="0.9"/></svg>"##;
+#[derive(Deserialize)]
+pub(super) struct ThumbQuery {
+    /// The video's version the frame was taken from.
+    v: i64,
+}
+
+/// A video's thumbnail, made by the page from a frame of the video (the server can't decode
+/// videos). It is made over like a photo's, which also refuses anything but a JPEG image.
+pub(super) async fn set_video_thumb(
+    State(s): State<Shared>,
+    Path(id): Path<i64>,
+    Query(q): Query<ThumbQuery>,
+    body: axum::body::Bytes,
+) -> ApiResult<Json<JsonValue>> {
+    let thumb = tokio::task::spawn_blocking(move || -> Result<Option<Vec<u8>>> {
+        let Ok(frame) = image::load_from_memory_with_format(&body, image::ImageFormat::Jpeg) else { return Ok(None) };
+        Ok(Some(crate::scan::thumbnail(&frame.into_rgb8())?))
+    })
+    .await??;
+    let Some(thumb) = thumb else { return Err(ApiError::bad_request("the picture must be a JPEG image")) };
+    match db(&s, move |conn| photos::set_video_thumbnail(conn, id, q.v, &thumb)).await? {
+        photos::SetThumbnail::Saved(version) => Ok(Json(json!({ "version": version }))),
+        photos::SetThumbnail::NotFound => Err(ApiError::not_found("photo")),
+        photos::SetThumbnail::NotAVideo => Err(ApiError::conflict("only videos get their thumbnail from the page")),
+        photos::SetThumbnail::Changed => Err(ApiError::conflict("the video changed; its thumbnail will be made again")),
+    }
+}
 
 pub(super) async fn face_thumb(State(s): State<Shared>, Path(id): Path<i64>) -> ApiResult<Response> {
     let data = db(&s, move |conn| photos::face_picture(conn, id)).await?;

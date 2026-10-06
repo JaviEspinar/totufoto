@@ -85,7 +85,8 @@ A face's `box` is `[x, y, width, height]` as fractions of the photo as shown.
 
 | | |
 |---|---|
-| `GET /thumb/{id}/{version}` | the thumbnail, JPEG; for a video, a generic picture (SVG) |
+| `GET /thumb/{id}/{version}` | the thumbnail, JPEG. `204 No Content` for a video whose thumbnail the page hasn't made yet |
+| `PUT /api/photos/{id}/thumb?v={version}` | a video's thumbnail, made by the page: a JPEG frame of the video at that version as the body. The server makes its own thumbnail from it and raises the version: `{"version": n}`. `409` for a photo or when the video changed, `400` for a body that isn't a JPEG |
 | `GET /face/{id}` | a face's picture, JPEG |
 | `GET /original/{id}` | the file itself (HEIC and TIFF converted to JPEG); `?download=1` to save it with its own name. Videos are streamed and answer range requests (`Range: bytes=...`), for seeking |
 

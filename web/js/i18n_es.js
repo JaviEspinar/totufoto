@@ -371,4 +371,7 @@ export default {
   "{path} is already in the gallery": "{path} ya está en la galería",
   "{path} is already included: it is inside {folder}": "{path} ya está incluida: está dentro de {folder}",
   "{path} is not a folder": "{path} no es una carpeta",
+  "the picture must be a JPEG image": "la imagen debe ser un JPEG",
+  "only videos get their thumbnail from the page": "solo los vídeos reciben su miniatura desde la página",
+  "the video changed; its thumbnail will be made again": "el vídeo ha cambiado; su miniatura se volverá a crear",
 };

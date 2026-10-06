@@ -12,7 +12,7 @@ use anyhow::Result;
 use axum::http::{StatusCode, header};
 use axum::middleware;
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{delete, get, patch, post, put};
 use axum::{Json, Router};
 use rusqlite::Connection;
 use serde_json::json;
@@ -31,12 +31,13 @@ const FAVICON_SVG: &str = include_str!("../../web/favicon.svg");
 
 /// The page's script: ES modules, one per area. The page loads main.js, which imports the
 /// others (see web/tests/script-order.mjs for the order they run in).
-const SCRIPTS: [(&str, &str); 12] = [
+const SCRIPTS: [(&str, &str); 13] = [
     ("i18n", include_str!("../../web/js/i18n.js")),
     ("i18n_es", include_str!("../../web/js/i18n_es.js")),
     ("core", include_str!("../../web/js/core.js")),
     ("sidebar", include_str!("../../web/js/sidebar.js")),
     ("photos", include_str!("../../web/js/photos.js")),
+    ("videothumbs", include_str!("../../web/js/videothumbs.js")),
     ("optimization", include_str!("../../web/js/optimization.js")),
     ("people", include_str!("../../web/js/people.js")),
     ("views", include_str!("../../web/js/views.js")),
@@ -222,6 +223,7 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
         .route("/api/faces/{id}/cover", post(people::cover_face))
         .route("/api/faces/{id}/assign", post(people::assign_face))
         .route("/thumb/{id}/{version}", get(photos::thumb))
+        .route("/api/photos/{id}/thumb", put(photos::set_video_thumb))
         .route("/face/{id}", get(photos::face_thumb))
         .route("/original/{id}", get(photos::original))
         // Not videos: they are already compressed, and range requests (seeking) need the
@@ -574,9 +576,10 @@ mod tests {
             }
             app.clone().oneshot(b.body(axum::body::Body::empty()).unwrap())
         };
-        // A generic picture instead of a thumbnail.
+        // No thumbnail until the page makes one (and none at all for a photo that isn't there).
         let thumb = get(format!("/thumb/{id}/0"), None).await.unwrap();
-        assert_eq!(thumb.headers()[header::CONTENT_TYPE], "image/svg+xml");
+        assert_eq!(thumb.status(), StatusCode::NO_CONTENT);
+        assert_eq!(get("/thumb/9999/0".into(), None).await.unwrap().status(), StatusCode::NOT_FOUND);
         // The file in parts, uncompressed, for the browser's player.
         let part = get(format!("/original/{id}"), Some("bytes=0-99")).await.unwrap();
         assert_eq!(part.status(), StatusCode::PARTIAL_CONTENT);
@@ -584,6 +587,65 @@ mod tests {
         assert!(part.headers().get(header::CONTENT_ENCODING).is_none());
         let bytes = axum::body::to_bytes(part.into_body(), 1 << 20).await.unwrap();
         assert_eq!(bytes.len(), 100);
+    }
+
+    #[tokio::test]
+    async fn the_page_gives_a_video_its_thumbnail() {
+        use tower::ServiceExt;
+        let (lib, photo) = library_with_a_photo();
+        std::fs::write(lib.root().join("clip.mp4"), crate::video::tests::sample(false, false)).unwrap();
+        lib.scan();
+        let app = app(&lib);
+        let video = lib.id("clip.mp4");
+        let put = |uri: String, body: Vec<u8>| {
+            let req = axum::http::Request::builder()
+                .method("PUT")
+                .uri(uri)
+                .header("host", "127.0.0.1:7878")
+                .header("sec-fetch-site", "same-origin")
+                .header("content-type", "image/jpeg")
+                .body(axum::body::Body::from(body))
+                .unwrap();
+            app.clone().oneshot(req)
+        };
+        let frame = crate::testutil::Photo { width: 320, height: 180, ..Default::default() }.jpeg();
+
+        // Refused: not an image, a photo, a frame from another version of the video.
+        let r = put(format!("/api/photos/{video}/thumb?v=0"), b"not a picture".to_vec()).await.unwrap();
+        assert_eq!(r.status(), StatusCode::BAD_REQUEST);
+        let r = put(format!("/api/photos/{photo}/thumb?v=0"), frame.clone()).await.unwrap();
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+        let r = put(format!("/api/photos/{video}/thumb?v=5"), frame.clone()).await.unwrap();
+        assert_eq!(r.status(), StatusCode::CONFLICT);
+
+        // Stored, at a new version, and served as a JPEG from then on.
+        let r = put(format!("/api/photos/{video}/thumb?v=0"), frame).await.unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        let body: JsonValue =
+            serde_json::from_slice(&axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap()).unwrap();
+        assert_eq!(body["version"], 1);
+        let req = axum::http::Request::builder()
+            .uri(format!("/thumb/{video}/1"))
+            .header("host", "127.0.0.1:7878")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let thumb = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(
+            (thumb.status(), thumb.headers()[header::CONTENT_TYPE].to_str().unwrap()),
+            (StatusCode::OK, "image/jpeg")
+        );
+    }
+
+    #[test]
+    fn a_cameras_thm_beside_a_video_is_its_thumbnail() {
+        let lib = crate::testutil::Library::new();
+        std::fs::write(lib.root().join("GOPR0001.MP4"), crate::video::tests::sample(false, false)).unwrap();
+        crate::testutil::Photo::default().write(&lib.root().join("GOPR0001.THM"));
+        lib.scan();
+        let conn = lib.conn();
+        let id = lib.id("GOPR0001.MP4");
+        let (picture, _) = crate::db::photos::thumbnail(&conn, id).unwrap().unwrap();
+        assert!(picture.is_some(), "the .THM became the thumbnail");
     }
 
     #[tokio::test]

@@ -40,6 +40,8 @@ copyFileSync(join(library, "2025/city.jpg"), join(other, "street.jpg"));
 const clips = join(dir, "clips");
 mkdirSync(clips);
 writeFileSync(join(clips, "clip.mov"), sampleMov());
+// And one the test browser can decode (VP8, recorded with MediaRecorder), to make a thumbnail of.
+copyFileSync(join(here, "fixtures/videos/clip.webm"), join(clips, "green.webm"));
 writeFileSync(join(dir, "README"), "Temporary library for Imadive's UI tests.\n");
 
 const index = spawnSync(bin, [library, "--data", data, "--no-faces", "--scan-only"], { stdio: "inherit" });

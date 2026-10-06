@@ -7,6 +7,7 @@ import { toast } from "./people.js";
 import { currentJob, render, syncRangeInputs } from "./views.js";
 import { addFolder, browseForFolder, folderInfo } from "./settings.js";
 import { firstIndexHtml, lastStatus } from "./status.js";
+import { makeVideoThumb } from "./videothumbs.js";
 
 // ---- photo grid ------------------------------------------------------------
 /** A photo as /api/photos sends it (an array, to keep large libraries small), with names.
@@ -60,6 +61,25 @@ function thumbLoaded(img) { loadedThumbs.add(img.dataset.thumb); img.classList.a
 for (const type of ["load", "error"]) {
   document.addEventListener(type, e => { if (e.target.matches?.("img[data-thumb]")) thumbLoaded(e.target); }, true);
 }
+/** A video's picture until it has a thumbnail: a dark tile with a play sign, cropped to fill
+ *  whatever shape it is shown in. */
+export const VIDEO_PICTURE = "data:image/svg+xml," + encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 90" preserveAspectRatio="xMidYMid slice">` +
+  `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2b3a55"/><stop offset="1" stop-color="#151b28"/></linearGradient></defs>` +
+  `<rect width="160" height="90" fill="url(#g)"/><circle cx="80" cy="45" r="17" fill="#fff" fill-opacity="0.16"/>` +
+  `<path d="M74.5 36.5v17l14-8.5z" fill="#fff" fill-opacity="0.9"/></svg>`);
+// A video without a thumbnail gets nothing from the server (204): it shows the generic
+// picture, and the page makes the thumbnail from the video.
+document.addEventListener("error", e => {
+  const img = e.target;
+  if (!img.matches?.("img[data-thumb], img[data-cover]")) return;
+  const isTile = img.dataset.thumb != null;
+  if (isTile ? !img.closest(".tile.video") : !(+img.dataset.videos > 0)) return;
+  const id = +(isTile ? img.dataset.thumb : img.dataset.cover);
+  img.classList.add("generic");
+  img.src = VIDEO_PICTURE;
+  makeVideoThumb(id, isTile ? versionOf(id) : +img.dataset.v);
+}, true);
 /** Picture URLs with the photo's version: a rotated photo gets new ones, so browsers don't
  *  show the old (cached) picture. */
 /** A thumbnail's address, with the photo's version (a new version is a new address). */
@@ -293,7 +313,7 @@ function renderGroupCards(container, groups, mode) {
     const place = mode === "place" && g.key !== 0 ? placeById.get(g.key) : null;
     const where = place ? `${esc([place.region, regionName(place.country)].filter(Boolean).join(", "))} · ` : "";
     return `<button type="button" class="card group-card" data-group="${esc(String(g.key))}">
-      <img src="${thumbUrl(g.cover, g.v)}" loading="lazy" decoding="async" alt="">
+      <img src="${thumbUrl(g.cover, g.v)}" loading="lazy" decoding="async" alt="" data-cover="${g.cover}" data-v="${g.v}" data-videos="${g.videos ?? 0}">
       <span class="meta"><span class="t">${esc(title(g.key))}</span>
       <span class="s">${where}${mediaCount(g.count, g.videos ?? 0)}</span></span>
     </button>`;

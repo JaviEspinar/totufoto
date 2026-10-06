@@ -197,7 +197,7 @@ Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP, and HEIC/HEIF on macOS (deco
 ## Limitations
 
 - **Formats**: JPEG, PNG, WebP, TIFF, GIF and BMP everywhere, and HEIC/HEIF only on macOS. No RAW files.
-- **Videos** show with a generic picture, not a frame of their own, and nobody is looked for in them. They play in the browser when it can play their format: MP4 (H.264) and WebM everywhere, iPhone videos (HEVC) on Apple devices and in Chrome on most recent computers; others (AVI, WMV, MPEG...) can be downloaded.
+- **Videos** get their thumbnail from a browser that can play them, the first time they show in one (formats no browser plays keep a generic picture), and nobody is looked for in them. They play in the browser when it can play their format: MP4 (H.264) and WebM everywhere, iPhone videos (HEVC) on Apple devices and in Chrome on most recent computers; others (AVI, WMV, MPEG...) can be downloaded.
 - **Photos are tracked by path**: moving or renaming a photo folder makes its photos look new, so they are indexed again (named people are matched again automatically).
 - **No login**: anyone who can reach the gallery can use all of it (see [Privacy and security](#privacy-and-security)).
 - **Desktop app**: Windows and Linux only, not signed. On macOS use the command-line app.

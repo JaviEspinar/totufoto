@@ -472,6 +472,14 @@ fn process_inner(file: FileEntry, models: Option<&ModelPaths>) -> Result<Process
     })
 }
 
+/// The small JPEG some cameras (GoPro, Canon, Sony) write beside a video, as `clip.THM`, made
+/// into a thumbnail. A missing or broken one is none.
+fn sidecar_thumbnail(video: &Path) -> Option<Vec<u8>> {
+    let sidecar = ["THM", "thm"].iter().map(|ext| video.with_extension(ext)).find(|p| p.is_file())?;
+    let frame = image::load_from_memory(&std::fs::read(sidecar).ok()?).ok()?;
+    thumbnail(&frame.into_rgb8()).ok()
+}
+
 /// A video: what its container says, without decoding it. The page shows a generic picture
 /// for it and the browser plays the file. Without a size it is taken as 16:9.
 fn process_video(file: FileEntry) -> Result<Processed> {
@@ -482,6 +490,8 @@ fn process_video(file: FileEntry) -> Result<Processed> {
         let t = DateTime::from_timestamp(file.mtime, 0).unwrap_or_default().with_timezone(&Local);
         t.format("%Y-%m-%d %H:%M:%S").to_string()
     });
+    // The page makes the thumbnail from a frame, unless the camera left one beside the video.
+    let thumb = sidecar_thumbnail(&file.path).unwrap_or_default();
     Ok(Processed {
         file,
         width,
@@ -489,7 +499,7 @@ fn process_video(file: FileEntry) -> Result<Processed> {
         taken,
         from_exif: from_container,
         gps: info.gps,
-        thumb: Vec::new(),
+        thumb,
         faces: Vec::new(),
         // nothing to look for faces in, so a later run with face recognition skips it
         faces_scanned: true,
