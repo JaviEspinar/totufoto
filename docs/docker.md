@@ -65,6 +65,8 @@ Folders can also be added in the gallery's Settings, from any folder mounted in 
 
 **Another port**: change the first number, `-p 8080:7878`.
 
+**Uploading from the browser** (the *Upload* tab) writes into `imaDive-uploads` inside the photo folder: mount it without `:ro`, and run the container as a user that can write there (see [Permissions](#permissions)).
+
 ## Permissions
 
 The container runs as user 65532 by default. That user can read photos that everyone may read (the usual case), and write to the `imadive-data` volume.

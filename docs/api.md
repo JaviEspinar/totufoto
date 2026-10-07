@@ -17,6 +17,7 @@ The gallery shows videos as well as photos, so what the API calls a photo is now
 | | videos: `duration` as the seventh value of each row, `videos` in `/api/groups`, `duration` in `/api/items/{id}` |
 | | `PUT /api/items/{id}/thumb` (a video's thumbnail, made by the page), `/thumb` answering `204` for a video without one |
 | | `?silent=1` on `/original/{id}`: a video without its sound |
+| | `GET` and `PUT /api/uploads`: uploading photos and videos (server only) |
 
 ## Changes in 0.2
 
@@ -174,6 +175,15 @@ Progress of the current or last scan, cheap enough to poll. `phase` is `listing 
 | `POST /api/folders/pick` | opens the folder picker and adds the folder chosen (desktop app only; `204` when cancelled) |
 | `DELETE /api/folders?path=...` | takes the folder's items out of the gallery (the files stay), and answers `{"removed", "kept"}` when done; `kept` are items another folder still includes. One at a time (`409`) |
 | `GET /api/folders/browse?path=` | the folders inside `path` on the computer running Imadive: `{"path", "parent", "dirs": [{"name", "path"}]}`. Without `path`: next to the first photo folder |
+
+### Uploads
+
+Only on the server (`501` in the desktop app). Uploads go into an `imaDive-uploads` folder inside one of the gallery's folders; a scan (`POST /api/scan`) adds them to the gallery afterwards.
+
+| | |
+|---|---|
+| `GET /api/uploads` | `{"folders": [...], "subfolder": "imaDive-uploads", "extensions": ["jpg", ...]}`: the gallery folders that can take uploads now (reachable, or empty and not a drive mount point in `/etc/fstab`), and the file types the gallery shows |
+| `PUT /api/uploads?folder=...&path=...` | one file, as the body (any size; streamed to disk, and only put in place once complete). `folder`: one of `folders`. `path`: the file's name, or its path inside the folder chosen in the browser (`Holidays/beach/1.jpg`); plain names only, no `..` or hidden parts. Answers `201` with `{"status": "saved"}`, or `"renamed"` when another file had the name (it gets ` (2)`), and the `path` it was saved at; `200` with `"same"` when that very file is already there. `400` for a bad path or an empty file, `403` for a folder that isn't in the gallery or can't be written, `415` for a file that isn't a photo or video |
 
 ### Identical files
 

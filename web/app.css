@@ -203,6 +203,28 @@ body.no-aside aside { display: none; }
 .opt-progress { padding: 18px; border-radius: 12px; background: var(--panel); border: 1px solid var(--line); }
 #dupDeleting { margin-bottom: 18px; }
 .opt-progress progress { width: 100%; height: 10px; margin-top: 10px; accent-color: var(--accent); }
+/* Upload: the drop zone, the progress and the result. */
+.upload .drop {
+  display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center;
+  padding: 40px 20px; border: 2px dashed var(--line); border-radius: 16px; background: var(--panel); color: var(--muted);
+}
+.upload .drop.over { border-color: var(--accent); background: var(--hover); }
+.upload .drop .icon { color: var(--accent); }
+.upload .drop .big { font-size: 16px; font-weight: 600; color: var(--ink); }
+.upload .drop .acts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.upload .opt-progress { margin-bottom: 16px; }
+/* Phones and tablets can't choose a folder (nor drop one): only photos and videos. */
+@media (pointer: coarse) { .upload [data-pick="folder"] { display: none; } .upload [data-pick="files"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); } }
+.up-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.up-bytes { color: var(--muted); font-size: 13px; }
+.up-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
+.up-file { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.up-result small { display: block; color: var(--muted); margin-top: 4px; }
+.up-result.has-errors { border-color: var(--danger); }
+.up-failures { margin: 10px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); max-height: 200px; overflow: auto; }
+.up-targets { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+/* Long paths lose their start, not the folder's own name at the end. */
+.up-targets .up-target { text-align: left; justify-content: flex-start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }
 .dup-group { display: flex; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); margin-bottom: 10px; }
 .dup-group img { width: 76px; height: 76px; border-radius: 8px; object-fit: cover; background: var(--chip); flex: none; }
 .dup-group .files { flex: 1; min-width: 0; display: grid; gap: 4px; }

@@ -5,6 +5,7 @@ import { $, esc, saveHash, state } from "./core.js";
 import { renderPeopleList, setDrawer, updateRailCount } from "./sidebar.js";
 import { items, onChipClick, rememberCards, renderPhotos, renderUpcoming } from "./items.js";
 import { renderOptimization } from "./optimization.js";
+import { renderUpload } from "./upload.js";
 import { openMerge, renamePerson, renderPeople, toggleHidden, unmountPeopleGrid } from "./people.js";
 import { openViewer } from "./viewer.js";
 
@@ -18,8 +19,8 @@ export async function render() {
     b.classList.toggle("on", b.dataset.view === state.view);
     if (b.dataset.view === state.view) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   }
-  // People and Optimization have no "People in the photo" column.
-  const noAside = state.view === "people" || state.view === "optimization";
+  // People, Optimization and Upload have no "People in the photo" column.
+  const noAside = ["people", "optimization", "upload"].includes(state.view);
   document.body.classList.toggle("no-aside", noAside);
   if (noAside) setDrawer(false);
   updateRailCount();
@@ -38,6 +39,7 @@ export async function render() {
     if (state.view === "photos") await renderPhotos(main, job);
     else if (state.view === "upcoming") await renderUpcoming(main, job);
     else if (state.view === "optimization") await renderOptimization(main, job);
+    else if (state.view === "upload") await renderUpload(main, job);
     else await renderPeople(main, job);
   } catch (err) {
     if (err.name === "AbortError" || !job.alive()) return;
@@ -86,7 +88,7 @@ for (const id of ["fromDate", "toDate"]) {
     // A reversed range (typed by hand) is put the right way round.
     [state.from, state.to] = from && to && from > to ? [to, from] : [from, to];
     syncRangeInputs();
-    if (state.view === "people" || state.view === "optimization") state.view = "photos";
+    if (["people", "optimization", "upload"].includes(state.view)) state.view = "photos";
     render();
   });
 }

@@ -4,6 +4,7 @@ mod folders;
 mod items;
 mod people;
 mod system;
+mod uploads;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -31,7 +32,7 @@ const FAVICON_SVG: &str = include_str!("../../web/favicon.svg");
 
 /// The page's script: ES modules, one per area. The page loads main.js, which imports the
 /// others (see web/tests/script-order.mjs for the order they run in).
-const SCRIPTS: [(&str, &str); 13] = [
+const SCRIPTS: [(&str, &str); 14] = [
     ("i18n", include_str!("../../web/js/i18n.js")),
     ("i18n_es", include_str!("../../web/js/i18n_es.js")),
     ("core", include_str!("../../web/js/core.js")),
@@ -39,6 +40,7 @@ const SCRIPTS: [(&str, &str); 13] = [
     ("items", include_str!("../../web/js/items.js")),
     ("videothumbs", include_str!("../../web/js/videothumbs.js")),
     ("optimization", include_str!("../../web/js/optimization.js")),
+    ("upload", include_str!("../../web/js/upload.js")),
     ("people", include_str!("../../web/js/people.js")),
     ("views", include_str!("../../web/js/views.js")),
     ("viewer", include_str!("../../web/js/viewer.js")),
@@ -229,6 +231,11 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
         .route("/api/items/{id}/thumb", put(items::set_video_thumb))
         .route("/face/{id}", get(items::face_thumb))
         .route("/original/{id}", get(items::original))
+        // Files of any size (videos): no limit on the body, which is streamed to disk.
+        .route(
+            "/api/uploads",
+            get(uploads::targets).put(uploads::upload).layer(axum::extract::DefaultBodyLimit::disable()),
+        )
         // Not videos: they are already compressed, and range requests (seeking) need the
         // bytes as they are on disk.
         .layer(
@@ -606,6 +613,70 @@ mod tests {
         let part = axum::body::to_bytes(part.into_body(), 1 << 20).await.unwrap();
         assert_eq!(&part[..2], b"ee");
         assert_eq!(&part[2..], &file[sound + 4..sound + 10]);
+    }
+
+    #[tokio::test]
+    async fn uploads_go_into_imadive_uploads_in_the_folder_chosen() {
+        use tower::ServiceExt;
+        let (lib, _) = library_with_a_photo();
+        let app = app(&lib);
+        let root = lib.root();
+        let folder = root.to_string_lossy().into_owned();
+        let put = |path: &str, body: Vec<u8>, folder: &str| {
+            let uri = format!("/api/uploads?folder={}&path={}", urlencode(folder), urlencode(path));
+            let req = axum::http::Request::builder()
+                .method("PUT")
+                .uri(uri)
+                .header("host", "127.0.0.1:7878")
+                .header("sec-fetch-site", "same-origin")
+                .body(axum::body::Body::from(body))
+                .unwrap();
+            let app = app.clone();
+            async move {
+                let res = app.oneshot(req).await.unwrap();
+                let status = res.status();
+                let bytes = axum::body::to_bytes(res.into_body(), 1 << 20).await.unwrap();
+                (status, serde_json::from_slice::<JsonValue>(&bytes).unwrap_or(JsonValue::Null))
+            }
+        };
+        let photo = crate::testutil::Photo { color: [200, 40, 40], ..Default::default() }.jpeg();
+        let other = crate::testutil::Photo { color: [40, 200, 40], ..Default::default() }.jpeg();
+
+        let (_, targets) = call(&app, "GET", "/api/uploads", None).await;
+        assert_eq!(targets["folders"], json!([folder]));
+        assert_eq!(targets["subfolder"], json!("imaDive-uploads"));
+        assert!(targets["extensions"].as_array().unwrap().contains(&json!("jpg")));
+
+        // A folder chosen in the browser keeps its folders; the same file again is kept once,
+        // and another one with the same name gets a number.
+        let (status, body) = put("Trip/day 1/red.jpg", photo.clone(), &folder).await;
+        assert_eq!((status, &body["status"]), (StatusCode::CREATED, &json!("saved")));
+        assert!(root.join("imaDive-uploads/Trip/day 1/red.jpg").is_file());
+        let (status, body) = put("Trip/day 1/red.jpg", photo.clone(), &folder).await;
+        assert_eq!((status, &body["status"]), (StatusCode::OK, &json!("same")));
+        let (_, body) = put("Trip/day 1/red.jpg", other, &folder).await;
+        assert_eq!(body, json!({ "status": "renamed", "path": "imaDive-uploads/Trip/day 1/red (2).jpg" }));
+
+        // Refused: outside the uploads folder, not a photo or video, a folder not in the gallery.
+        assert_eq!(put("../escape.jpg", photo.clone(), &folder).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(put("notes.txt", b"hello".to_vec(), &folder).await.0, StatusCode::UNSUPPORTED_MEDIA_TYPE);
+        assert_eq!(put("a.jpg", photo.clone(), "/etc").await.0, StatusCode::FORBIDDEN);
+        assert_eq!(put("empty.jpg", Vec::new(), &folder).await.0, StatusCode::BAD_REQUEST);
+        assert!(!root.join("imaDive-uploads/empty.jpg").exists());
+
+        // The next scan indexes them.
+        assert_eq!(lib.scan().total, 2, "the two uploads");
+        let (_, list) = call(&app, "GET", "/api/items", None).await;
+        assert_eq!(list["items"].as_array().unwrap().len(), 3);
+    }
+
+    fn urlencode(text: &str) -> String {
+        text.bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => (b as char).to_string(),
+                _ => format!("%{b:02X}"),
+            })
+            .collect()
     }
 
     #[tokio::test]

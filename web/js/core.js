@@ -1,6 +1,6 @@
 // Shared helpers, the view state and the address it lives in, and loading people and places.
 // One of the page's modules; main.js starts the page.
-import { lang, t, tn, translateMessage, translatePage } from "./i18n.js";
+import { lang, num, t, tn, translateMessage, translatePage } from "./i18n.js";
 
 translatePage();
 
@@ -32,6 +32,9 @@ export const pref = {
   get(key) { try { return localStorage.getItem(`imadive.${key}`); } catch { return null; } },
   set(key, value) { try { localStorage.setItem(`imadive.${key}`, value); } catch {} },
 };
+/** A size in bytes, in the page's language: "820 KB", "1.4 GB". */
+export const fmtBytes = n => n < 1024 ? `${num(n)} B` : n < 1048576 ? `${num(Math.round(n / 1024))} KB`
+  : n < 1073741824 ? `${num(+(n / 1048576).toFixed(1))} MB` : `${num(+(n / 1073741824).toFixed(2))} GB`;
 export const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 export const regionName = (() => {
   try { const d = new Intl.DisplayNames([lang], { type: "region" }); return cc => { try { return d.of(cc); } catch { return cc; } }; }

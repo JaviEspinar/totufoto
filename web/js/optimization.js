@@ -1,15 +1,13 @@
 // The Optimization view: identical files and deleting the copies.
 // One of the page's modules; main.js starts the page.
 import { lang, num, t, tn } from "./i18n.js";
-import { $, api, esc, loadMeta, plural, post, state } from "./core.js";
+import { $, api, esc, fmtBytes, loadMeta, plural, post, state } from "./core.js";
 import { thumbUrl } from "./items.js";
 import { toast } from "./people.js";
 import { render } from "./views.js";
 import { askChoice } from "./viewer.js";
 
 // ---- optimization: identical files ------------------------------------------------------
-const fmtBytes = n => n < 1024 ? `${num(n)} B` : n < 1048576 ? `${num(Math.round(n / 1024))} KB`
-  : n < 1073741824 ? `${num(+(n / 1048576).toFixed(1))} MB` : `${num(+(n / 1073741824).toFixed(2))} GB`;
 const fmtFileDate = secs => new Date(secs * 1000).toLocaleString(lang, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 const DUP_BATCH = 100;
 export async function renderOptimization(main, job) {
