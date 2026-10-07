@@ -29,8 +29,9 @@ struct Args {
     host: String,
     /// A host name to accept in the address bar (repeatable), when the server is reached
     /// through a name other than an IP address or this computer's name, for example
-    /// photos.home. Other names are refused, which protects against DNS rebinding.
-    #[arg(long = "allow-host", value_name = "NAME")]
+    /// photos.home. Other names are refused, which protects against DNS rebinding. Also read
+    /// from IMADIVE_ALLOW_HOST (names separated by commas), handy in a container.
+    #[arg(long = "allow-host", value_name = "NAME", env = "IMADIVE_ALLOW_HOST", value_delimiter = ',')]
     allow_host: Vec<String>,
     #[arg(long, default_value_t = 7878)]
     port: u16,

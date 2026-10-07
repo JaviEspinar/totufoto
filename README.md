@@ -102,7 +102,7 @@ cargo build --release -p imadive-desktop --features custom-protocol
 
 ## Command-line app
 
-The command-line app serves the gallery at `http://127.0.0.1:7878` for your browser. It is handy on a server or NAS, or on macOS. **On a Linux server, one command installs it as a service**, with a wizard that asks the few things it needs (no compiling): see [Running it on a home server](docs/server.md). The steps below build it from source.
+The command-line app serves the gallery at `http://127.0.0.1:7878` for your browser. It is handy on a server or NAS, or on macOS. **On a Linux server, one command installs it as a service**, with a wizard that asks the few things it needs (no compiling): see [Running it on a home server](docs/server.md). It is also [a Docker image](docs/docker.md) (`ghcr.io/javiespinar/imadive`). The steps below build it from source.
 
 ### 1. Install Rust
 
@@ -228,6 +228,7 @@ Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP, and HEIC/HEIF on macOS (deco
 
 - [User guide](docs/user-guide.md): the gallery, tab by tab.
 - [Running it on a home server](docs/server.md): the command-line app as a systemd service.
+- [Running it with Docker](docs/docker.md): the server as a container image.
 - [How it works](docs/architecture.md): the code, for people who want to change it.
 - [HTTP API](docs/api.md).
 - [Releasing](docs/releasing.md).

@@ -29,6 +29,8 @@ Without questions, for scripts: add `--yes` and the options you want (`sudo imad
 curl -fsSL https://raw.githubusercontent.com/JaviEspinar/totufoto/main/scripts/install.sh | sh -s -- --yes --folder /srv/photos
 ```
 
+**With Docker** instead: see [Running Imadive with Docker](docker.md).
+
 The rest of this guide does the same by hand, building the program from source: for other systems, or to see every step.
 
 ## By hand

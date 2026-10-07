@@ -24,7 +24,9 @@ There is one version for both packages, in `[workspace.package]` in `Cargo.toml`
    The script checks that you are on a clean `main`, that the notes exist, have a Downloads section and name this version's files, then sets the version, updates `Cargo.lock` and the README's download links (checked by `scripts/check-download-links.sh`, which CI and the release workflow run too), commits "Release X.Y.Z" and tags `vX.Y.Z`. It doesn't push.
 4. **Publish**: `git push origin main vX.Y.Z`.
 5. **Watch the Desktop apps run**. It fails before building anything if the tag doesn't match `Cargo.toml` or the notes are missing.
-6. **Check the release page**: the five files (exe, AppImage, .deb, and the server for x86-64 and ARM64), `SHA256SUMS`, and the notes.
+6. **Check the release page**: the five files (exe, AppImage, .deb, and the server for x86-64 and ARM64), `SHA256SUMS`, and the notes; and the image on `ghcr.io/javiespinar/imadive` with the version's tags.
+
+The first time an image is published, GitHub makes its package private: on the repository's page, Packages → imadive → Package settings → Change visibility → Public, once.
 
 If something goes wrong after pushing the tag, fix it on `main` and release the next patch version rather than moving the tag: people may already have downloaded the files.
 

@@ -45,7 +45,7 @@ anyhow = "1"
 axum = "0.8"
 chrono = "0.4"
 dunce = "1"
-clap = { version = "4", features = ["derive"], optional = true }
+clap = { version = "4", features = ["derive", "env"], optional = true }
 fast_image_resize = { version = "6", features = ["image"] }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp", "tiff", "gif", "bmp", "rayon"] }
 kamadak-exif = "0.6"
