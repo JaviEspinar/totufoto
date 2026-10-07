@@ -87,6 +87,17 @@ body.no-aside .range, body.no-aside .tools { display: none; }
 .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .dlg-body h4 { margin: 18px 0 4px; font-size: 13px; }
 .dlg-body h4:first-child { margin-top: 4px; }
+/* Settings: one card per part (Folders, Library, People...), with its title above. */
+.set-part { background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-top: 12px; }
+.dlg-body > .set-part:first-child { margin-top: 4px; }
+.dlg-body .set-part h4 {
+  margin: 0 0 10px; font-size: 11px; font-weight: 650; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted);
+}
+.set-part > p:first-of-type { margin-top: 0; }
+.set-part .scan-state:first-of-type { margin-top: 0; }
+.set-part .folder:has(+ :not(.folder)) { border-bottom: 0; }
+.set-part .err:empty { display: none; }
+.set-part > :last-child { margin-bottom: 0; }
 .scan-state { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
 .scan-state .what { flex: 1; font-size: 13px; }
 .scan-state .what small { display: block; color: var(--muted); font-size: 12px; }

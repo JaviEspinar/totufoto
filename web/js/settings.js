@@ -146,14 +146,15 @@ export function renderSettings(error = "") {
         : `<button class="btn" data-remove="${esc(f.path)}" ${removing ? `disabled title="${t("Wait for the folder being removed")}"` : ""}>${t("Remove")}</button>`}
     </div>`).join("") : `<p>${t("No folders yet.")}</p>`;
   const add = `<div class="add-row"><button class="btn primary" ${desktop ? "data-pick" : "data-browse"} ${removing ? "disabled" : ""}>${t("Add folder…")}</button></div>`;
-  body.innerHTML = `<h4>${t("Folders")}</h4><p>${t("Subfolders are included. Files are only changed when you rotate or delete them.")}</p>${list}${add}<div class="err">${esc(error)}</div>
-    <h4>${t("Library")}</h4><div class="scan-state" id="settingsScan">${scanStateHtml(lastStatus)}</div>
+  // One card per part, so each is easy to tell apart.
+  body.innerHTML = `<section class="set-part"><h4>${t("Folders")}</h4><p>${t("Subfolders are included. Files are only changed when you rotate or delete them.")}</p>${list}${add}<div class="err">${esc(error)}</div></section>
+    <section class="set-part"><h4>${t("Library")}</h4><div class="scan-state" id="settingsScan">${scanStateHtml(lastStatus)}</div>
     <div id="settingsFailures">${failuresHtml()}</div>
-    <div id="settingsExcluded">${excludedHtml(lastStatus)}</div>
-    <h4>${t("People")}</h4><div class="scan-state"><div class="what">${t("Regroup all faces")}
+    <div id="settingsExcluded">${excludedHtml(lastStatus)}</div></section>
+    <section class="set-part"><h4>${t("People")}</h4><div class="scan-state"><div class="what">${t("Regroup all faces")}
       <small>${t("New faces are placed into people after every scan. This groups every face again from scratch instead: named people and faces you placed stay where they are, unnamed groups may change. It can take a long time on large libraries.")}</small></div>
-      <button class="btn" data-regroup>${t("Regroup")}</button></div>
-    ${appearanceHtml()}
+      <button class="btn" data-regroup>${t("Regroup")}</button></div></section>
+    <section class="set-part">${appearanceHtml()}</section>
     <div id="settingsAbout">${aboutHtml(lastStatus)}</div>`;
 }
 /** The theme and the language, remembered in this browser. */
@@ -185,11 +186,11 @@ $("#settingsDlg").addEventListener("change", e => {
 function aboutHtml(st) {
   if (!st?.version) return "";
   const link = (path, text) => `<a href="${esc(st.project)}/${path}" target="_blank" rel="noopener">${text}</a>`;
-  return `<h4>${t("About")}</h4><div class="about">
+  return `<section class="set-part"><h4>${t("About")}</h4><div class="about">
     <p>${t("<b>Imadive {version}</b>. Free for personal and other non-commercial use under the PolyForm Noncommercial License 1.0.0. The face recognition models are for non-commercial use only.", { version: esc(st.version) })}</p>
     <p>${link("blob/main/LICENSE", t("License"))} · ${link("blob/main/THIRD_PARTY.md", t("Third-party components"))} ·
       ${link("releases", t("Releases"))}</p>
-    ${st.logs ? `<p><button class="btn" data-logs>${t("Open log folder")}</button> <small>${t("For reporting a problem: the log of this run, and of the one before.")}</small></p>` : ""}</div>`;
+    ${st.logs ? `<p><button class="btn" data-logs>${t("Open log folder")}</button> <small>${t("For reporting a problem: the log of this run, and of the one before.")}</small></p>` : ""}</div></section>`;
 }
 export function openSettings() {
   renderSettings();
