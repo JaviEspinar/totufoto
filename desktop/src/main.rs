@@ -99,7 +99,13 @@ fn adopt_old_folder(folder: &Path) -> PathBuf {
     }
 }
 
-/// Starts the gallery server on a free local port and opens the window on it.
+/// The window's address is always the same, so what the page saves (the language, the
+/// theme...) is there next time: browsers keep it per address, port included. Only when
+/// something else holds this port does the app take a free one, and those settings wait
+/// until the next start.
+const PORT: u16 = 47878;
+
+/// Starts the gallery server on its local port and opens the window on it.
 fn start(app: &mut tauri::App) -> Result<()> {
     let data_dir = adopt_old_folder(&app.path().app_data_dir().context("finding the app data folder")?);
     // On Windows the window's own data (saved preferences) is in a second folder.
@@ -134,7 +140,13 @@ fn start(app: &mut tauri::App) -> Result<()> {
     })?;
     gallery.start_scan();
 
-    let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+    let listener = match std::net::TcpListener::bind(("127.0.0.1", PORT)) {
+        Ok(listener) => listener,
+        Err(e) => {
+            tracing::warn!("port {PORT} is taken ({e}); saved settings won't apply this time");
+            std::net::TcpListener::bind("127.0.0.1:0")?
+        }
+    };
     listener.set_nonblocking(true)?;
     let port = listener.local_addr()?.port();
     tauri::async_runtime::spawn(async move {

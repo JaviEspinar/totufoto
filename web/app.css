@@ -239,12 +239,14 @@ main { overflow-y: auto; min-height: 0; padding: 0 16px 40px; overscroll-behavio
 
 .group h2 {
   font-size: 15px; font-weight: 650; margin: 0; padding: 18px 0 8px; position: sticky; top: var(--head-h, 0px);
-  background: linear-gradient(var(--bg) 75%, transparent); z-index: 2;
+  background: linear-gradient(var(--bg) 75%, transparent); z-index: 2; will-change: transform;
 }
 /* The filters bar (chips, Clear all, count) stays visible while scrolling; group headers
    stick just below it (--head-h is its height, kept current by beginViewLoad). */
+/* will-change gives sticky bars a layer of their own: WebKitGTK (the Linux desktop app)
+   otherwise paints the tiles, which have layers for their fade-in, over them while scrolling. */
 .view-head {
-  position: sticky; top: 0; z-index: 3; background: var(--bg);
+  position: sticky; top: 0; z-index: 3; background: var(--bg); will-change: transform;
   margin: 0 -16px; padding: 0 16px 8px; border-bottom: 1px solid transparent;
 }
 .view-head.stuck { border-bottom-color: var(--line); }
