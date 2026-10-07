@@ -32,6 +32,8 @@ jobs:
           toolchain: stable
           components: rustfmt
       - run: cargo fmt --all --check
+      # The README's download links name the version in Cargo.toml (the last release).
+      - run: scripts/check-download-links.sh "$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)"
 
   clippy:
     name: Lints

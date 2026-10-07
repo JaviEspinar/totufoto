@@ -35,7 +35,7 @@ CURRENT=$current VERSION=$version perl -0pi -e 's/^version = "\Q$ENV{CURRENT}\E"
 cargo update --workspace --quiet
 # The README's download links point at this version's files.
 CURRENT=$current VERSION=$version perl -pi -e 's{releases/download/v\Q$ENV{CURRENT}\E/Imadive-\Q$ENV{CURRENT}\E-}{releases/download/v$ENV{VERSION}/Imadive-$ENV{VERSION}-}g' README.md
-grep -q "releases/download/v$version/Imadive-$version-" README.md || fail "could not update the download links in README.md"
+scripts/check-download-links.sh "$version" || fail "could not update the download links in README.md"
 
 git add Cargo.toml Cargo.lock README.md "$notes"
 git commit -q -m "Release $version"
