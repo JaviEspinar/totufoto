@@ -102,7 +102,7 @@ cargo build --release -p imadive-desktop --features custom-protocol
 
 ## Command-line app
 
-The command-line app serves the gallery at `http://127.0.0.1:7878` for your browser. It is handy on a server or NAS, or on macOS. To keep it running on a Linux server, see [Running it on a home server](docs/server.md).
+The command-line app serves the gallery at `http://127.0.0.1:7878` for your browser. It is handy on a server or NAS, or on macOS. **On a Linux server, one command installs it as a service**, with a wizard that asks the few things it needs (no compiling): see [Running it on a home server](docs/server.md). The steps below build it from source.
 
 ### 1. Install Rust
 

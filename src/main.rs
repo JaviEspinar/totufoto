@@ -1,13 +1,17 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use imadive::{Config, Gallery};
+
+mod setup;
 
 /// Fast local photo gallery with timeline, places and face grouping.
 #[derive(Parser)]
-#[command(version)]
+#[command(version, args_conflicts_with_subcommands = true)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Commands>,
     /// Folders containing photos (scanned recursively). Without folders, the ones added
     /// from the web UI are used.
     library: Vec<PathBuf>,
@@ -45,10 +49,24 @@ struct Args {
     scan_only: bool,
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    imadive::init_logging();
+#[derive(Subcommand)]
+enum Commands {
+    /// Install the gallery as a service on a Linux server (with sudo), or update, change or
+    /// uninstall it: a wizard with an answer ready for every question.
+    Setup(setup::SetupArgs),
+}
+
+fn main() -> Result<()> {
     let args = Args::parse();
+    if let Some(Commands::Setup(setup)) = args.command {
+        return setup::run(setup);
+    }
+    serve(args)
+}
+
+#[tokio::main]
+async fn serve(args: Args) -> Result<()> {
+    imadive::init_logging();
     let models = if args.no_faces { None } else { imadive::enable_faces(&args.models, args.onnxruntime.as_deref()) };
     let gallery = Gallery::open(Config {
         data_dir: args.data.unwrap_or_else(default_data_dir),

@@ -4,6 +4,35 @@ How to run the command-line app on a Linux machine that is always on (a NAS, a m
 
 **Before you start**: the gallery has no login. Anyone who can reach it can see, rotate and delete your photos, and add any folder of the server to the gallery. Run it only on a network you trust, and never forward its port on your router. See [Privacy and security](../README.md#privacy-and-security).
 
+## Quick install
+
+On Debian 12, Ubuntu 22.04, Raspberry Pi OS (64-bit) or newer, on an x86-64 or ARM64 machine (a Raspberry Pi 4 or 5 included):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/JaviEspinar/totufoto/main/scripts/install.sh | sh
+```
+
+It downloads the latest release's server build for the machine, checks it against the release's checksums, and starts **`imadive setup`**, a wizard in the terminal. Every question has an answer ready (press Enter to keep it):
+
+- the user it runs as (yours, or a new system user `imadive`), which must be able to read the photos;
+- the photo folders (or none, to add them later in the gallery's Settings);
+- where the index goes, who can open it (your network or only this computer) and the port;
+- face recognition on or off, and, if you want them, advanced options: other names the gallery is opened by (`--allow-host`), how alike faces must be, and the priority of indexing.
+
+Before installing it shows a summary, and lets you **see or edit the systemd service file** it is about to write. It then installs the program in `/opt/imadive`, the service in `/etc/systemd/system/imadive.service`, starts it, waits for the gallery to answer, and shows its address.
+
+Run it again to **update** (the same `curl` line), **change the settings** or **uninstall** (`sudo imadive setup`). An update keeps the settings, and a service file you edited. Uninstalling never touches the photos, and asks before deleting the index.
+
+Without questions, for scripts: add `--yes` and the options you want (`sudo imadive setup --help` lists them):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/JaviEspinar/totufoto/main/scripts/install.sh | sh -s -- --yes --folder /srv/photos
+```
+
+The rest of this guide does the same by hand, building the program from source: for other systems, or to see every step.
+
+## By hand
+
 The examples use the user `ana`, the code in `/home/ana/imadive`, the index in `/home/ana/imadive-data` and photos in `/srv/photos`. Change them to yours.
 
 ## 1. Build it

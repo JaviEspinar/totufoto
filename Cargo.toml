@@ -30,10 +30,10 @@ keywords = ["photos", "gallery", "face-recognition", "exif", "self-hosted"]
 categories = ["multimedia::images", "web-programming::http-server"]
 publish = false
 
-# The command-line app needs clap; the desktop app uses the library without it.
+# The command-line app needs clap and cliclack; the desktop app uses the library without them.
 [features]
 default = ["cli"]
-cli = ["dep:clap"]
+cli = ["dep:clap", "dep:cliclack"]
 
 [[bin]]
 name = "imadive"
@@ -67,6 +67,8 @@ blake3 = "1"
 trash = "5"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 walkdir = "2"
+# The server's setup wizard (`imadive setup`), in the command-line app only.
+cliclack = { version = "0.5.6", optional = true }
 
 [target.'cfg(windows)'.dependencies]
 libloading = "0.9"

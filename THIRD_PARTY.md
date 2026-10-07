@@ -2,13 +2,13 @@
 
 Imadive's own code is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). The release downloads also contain, or the build fetches, the following components under their own terms. These terms apply on their own, whatever license you have for Imadive's code.
 
-## Face recognition models (desktop app; fetched by `scripts/fetch-models.*`)
+## Face recognition models (desktop app and server archives; fetched by `scripts/fetch-models.*`)
 
-The InsightFace `buffalo_s` models (`det_500m.onnx`, an SCRFD face detector, and `w600k_mbf.onnx`, an ArcFace face recognition model), from <https://github.com/deepinsight/insightface>. InsightFace releases its pretrained models **for non-commercial research purposes only**. They are not stored in this repository; `scripts/fetch-models.sh` downloads them, and the desktop app embeds them.
+The InsightFace `buffalo_s` models (`det_500m.onnx`, an SCRFD face detector, and `w600k_mbf.onnx`, an ArcFace face recognition model), from <https://github.com/deepinsight/insightface>. InsightFace releases its pretrained models **for non-commercial research purposes only**. They are not stored in this repository; `scripts/fetch-models.sh` downloads them, the desktop app embeds them, and the server archives include them.
 
 For commercial use, build Imadive with models whose license allows it: any SCRFD-style detector with 5 landmarks and a 112x112 ArcFace-style embedder works (see `src/faces.rs`).
 
-## ONNX Runtime (desktop app; fetched by `scripts/fetch-onnxruntime.*`)
+## ONNX Runtime (desktop app and server archives; fetched by `scripts/fetch-onnxruntime.*`)
 
 Microsoft's [ONNX Runtime](https://github.com/microsoft/onnxruntime), which runs the face models. MIT License, Copyright (c) Microsoft Corporation. The full license text is downloaded next to the library as `onnxruntime/LICENSE`.
 

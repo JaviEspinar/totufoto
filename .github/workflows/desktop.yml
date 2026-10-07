@@ -1,7 +1,8 @@
 name: Desktop apps
 
 # Builds the Windows and Linux desktop apps (an exe; an AppImage for any distribution and a
-# .deb for Debian and Ubuntu) and checks each one with its self-test. For a
+# .deb for Debian and Ubuntu) and the Linux server archives (x86-64 and ARM64), and checks
+# each one: the apps with their self-test, the server by installing it as a service. For a
 # version tag (v*) it also publishes them as a GitHub Release, with checksums and build
 # provenance. A push to main builds them when Rust code, dependencies or packaging change,
 # not for documentation, UI or test changes (ci.yml covers those); it can also be run by
@@ -175,9 +176,80 @@ jobs:
           path: dist/*
           retention-days: 14
 
+  # The command-line server for Linux, as an archive with the face models and ONNX Runtime,
+  # which scripts/install.sh downloads and `imadive setup` installs as a service. Each one is
+  # installed on the runner (which has systemd) with `setup --yes`, opened, changed and
+  # uninstalled, as a person would.
+  server:
+    name: server-${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            os: ubuntu-22.04 # oldest supported glibc: runs on Debian 12, Ubuntu 22.04 and newer
+          - arch: aarch64
+            os: ubuntu-22.04-arm # Raspberry Pi 4 and 5 with a 64-bit system, ARM servers
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: server
+
+      # The build job checks a release's version and notes; this only names the files.
+      - name: Version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then v="${GITHUB_REF_NAME#v}"; else v="dev-${GITHUB_SHA::7}"; fi
+          echo "VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Face models and ONNX Runtime
+        run: scripts/fetch-models.sh && scripts/fetch-onnxruntime.sh
+
+      - name: Build and pack
+        run: |
+          cargo build --release -p imadive
+          dir="imadive-$VERSION"
+          mkdir -p "pack/$dir" dist
+          cp target/release/imadive LICENSE THIRD_PARTY.md "pack/$dir/"
+          cp -r models onnxruntime "pack/$dir/"
+          tar -czf "dist/Imadive-server-$VERSION-linux-${{ matrix.arch }}.tar.gz" -C pack "$dir"
+          tar -tzvf dist/*.tar.gz
+
+      - name: Install, use and uninstall it
+        run: |
+          set -x
+          tar -xzf dist/*.tar.gz -C "$RUNNER_TEMP"
+          program="$RUNNER_TEMP/imadive-$VERSION/imadive"
+          status() { curl -fsS "http://127.0.0.1:$1/api/status"; }
+          # Installs as the runner's user (the one running sudo), with the test photos.
+          sudo "$program" setup --yes --folder "$PWD/fixtures/photos"
+          systemctl is-active imadive
+          for i in $(seq 1 60); do status 7878 | grep -q '"running":false' && break; sleep 2; done
+          curl -fsS http://127.0.0.1:7878/api/items | grep -q '"items":\[\['
+          sudo journalctl -u imadive --no-pager | grep "face recognition enabled"
+          # Run again from the installed copy: a new port, then gone (with its index).
+          # (`!` doesn't stop a script under set -e, hence the ifs.)
+          sudo imadive setup --yes --port 7979
+          status 7979
+          if status 7878; then echo "still on the old port"; exit 1; fi
+          sudo imadive setup --uninstall --yes --delete-data
+          if systemctl is-active imadive; then echo "still running"; exit 1; fi
+          test ! -e /etc/systemd/system/imadive.service -a ! -e /opt/imadive -a ! -e "$HOME/imadive-data"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: imadive-server-${{ matrix.arch }}
+          path: dist/*
+          retention-days: 14
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
+    needs: [build, server]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Only this job writes: the release itself, and the signed provenance of each file.
