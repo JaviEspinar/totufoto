@@ -21,7 +21,7 @@ There is one version for both packages, in `[workspace.package]` in `Cargo.toml`
    ```sh
    just release X.Y.Z        # or: scripts/release.sh X.Y.Z
    ```
-   The script checks that you are on a clean `main`, that the notes exist, have a Downloads section and name this version's files, then sets the version, updates `Cargo.lock`, commits "Release X.Y.Z" and tags `vX.Y.Z`. It doesn't push.
+   The script checks that you are on a clean `main`, that the notes exist, have a Downloads section and name this version's files, then sets the version, updates `Cargo.lock` and the README's download links, commits "Release X.Y.Z" and tags `vX.Y.Z`. It doesn't push.
 4. **Publish**: `git push origin main vX.Y.Z`.
 5. **Watch the Desktop apps run**. It fails before building anything if the tag doesn't match `Cargo.toml` or the notes are missing.
 6. **Check the release page**: the three files (exe, AppImage, .deb), `SHA256SUMS`, and the notes.

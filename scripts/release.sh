@@ -33,8 +33,11 @@ current=$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)
 CURRENT=$current VERSION=$version perl -0pi -e 's/^version = "\Q$ENV{CURRENT}\E"/version = "$ENV{VERSION}"/m' Cargo.toml
 [ "$(grep -m1 '^version' Cargo.toml | cut -d'"' -f2)" = "$version" ] || fail "could not set the version in Cargo.toml"
 cargo update --workspace --quiet
+# The README's download links point at this version's files.
+CURRENT=$current VERSION=$version perl -pi -e 's{releases/download/v\Q$ENV{CURRENT}\E/Imadive-\Q$ENV{CURRENT}\E-}{releases/download/v$ENV{VERSION}/Imadive-$ENV{VERSION}-}g' README.md
+grep -q "releases/download/v$version/Imadive-$version-" README.md || fail "could not update the download links in README.md"
 
-git add Cargo.toml Cargo.lock "$notes"
+git add Cargo.toml Cargo.lock README.md "$notes"
 git commit -q -m "Release $version"
 git tag "$tag"
 

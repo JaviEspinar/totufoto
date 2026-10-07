@@ -4,6 +4,15 @@ A fast local photo and video gallery written in Rust. Point it at your photo fol
 
 It comes as a desktop app for Windows and Linux, and as a command-line app that serves the gallery to your browser. It is free for personal and other non-commercial use, and its source code is available ([license](#license)).
 
+<table>
+<tr>
+<td align="center" width="25%"><a href="https://github.com/JaviEspinar/totufoto/releases/download/v0.3.2/Imadive-0.3.2-windows-x64.exe"><img src="docs/icons/windows.svg" width="56" height="56" alt=""><br><b>Windows</b></a><br><sub>10 and 11 · .exe</sub></td>
+<td align="center" width="25%"><a href="https://github.com/JaviEspinar/totufoto/releases/download/v0.3.2/Imadive-0.3.2-linux-amd64.deb"><img src="docs/icons/debian.svg" width="56" height="56" alt=""><br><b>Debian and Ubuntu</b></a><br><sub>and Linux Mint · .deb</sub></td>
+<td align="center" width="25%"><a href="https://github.com/JaviEspinar/totufoto/releases/download/v0.3.2/Imadive-0.3.2-linux-x86_64.AppImage"><img src="docs/icons/linux.svg" width="56" height="56" alt=""><br><b>Other Linux</b></a><br><sub>x86-64 · AppImage</sub></td>
+<td align="center" width="25%"><a href="https://github.com/JaviEspinar/totufoto/blob/main/docs/server.md"><img src="docs/icons/server.svg" width="56" height="56" alt=""><br><b>Server</b></a><br><sub>a home server, shared on your network</sub></td>
+</tr>
+</table>
+
 ![The timeline: photos and videos in a justified grid, with the people found in them in the sidebar](docs/screenshots/photos.jpg)
 
 <p>
