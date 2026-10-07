@@ -104,7 +104,9 @@ pub(super) async fn upload(
     };
 
     let (status, place) = tokio::task::spawn_blocking(move || place_file(&partial, &wanted, size)).await??;
-    let saved = place.strip_prefix(&root).unwrap_or(&place).to_string_lossy().into_owned();
+    // With / between folders on every system, as the page sent it.
+    let saved = place.strip_prefix(&root).unwrap_or(&place);
+    let saved = saved.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/");
     let code = if status == "same" { StatusCode::OK } else { StatusCode::CREATED };
     Ok((code, Json(json!({ "status": status, "path": saved }))))
 }
