@@ -608,6 +608,7 @@ fn install_files(source: &Path) -> Result<()> {
     if fs::symlink_metadata(LINK).is_ok() {
         fs::remove_file(LINK)?;
     }
+    #[cfg(unix)]
     std::os::unix::fs::symlink(target.join("imadive"), LINK).with_context(|| format!("linking {LINK}"))?;
     Ok(())
 }
