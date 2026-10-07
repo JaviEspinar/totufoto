@@ -250,7 +250,8 @@ jobs:
 
   # The server as a container image, made from the archives above (x86-64 and ARM64). Every
   # run builds the x86-64 image and runs it with the test photos; a release also publishes
-  # both to ghcr.io/javiespinar/imadive, with signed build provenance.
+  # both to ghcr.io/<owner>/imadive, with signed build provenance. The owner is the
+  # repository's, so the image follows it if the repository moves.
   docker:
     needs: server
     runs-on: ubuntu-latest
@@ -260,9 +261,10 @@ jobs:
       packages: write
       id-token: write
       attestations: write
-    env:
-      IMAGE: ghcr.io/javiespinar/imadive
     steps:
+      # Image names are lowercase; GitHub user names may not be.
+      - name: Image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/imadive" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -300,6 +302,11 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
+          # Its own title, description and license, over the ones taken from the repository.
+          labels: |
+            org.opencontainers.image.title=Imadive
+            org.opencontainers.image.description=Fast local photo and video gallery: timeline, places, upcoming anniversaries and people found by face recognition
+            org.opencontainers.image.licenses=LicenseRef-PolyForm-Noncommercial-1.0.0
       - if: startsWith(github.ref, 'refs/tags/v')
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:

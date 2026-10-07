@@ -25,10 +25,10 @@ COPY --from=unpack /out/opt/imadive /opt/imadive
 COPY --from=unpack --chown=65532:65532 /out/data /data
 COPY --from=unpack /out/photos /photos
 
+# The repository's address (org.opencontainers.image.source, which links the package to it on
+# GitHub), version and revision are added by the workflow, from wherever the repository is.
 LABEL org.opencontainers.image.title="Imadive" \
       org.opencontainers.image.description="Fast local photo and video gallery: timeline, places, upcoming anniversaries and people found by face recognition" \
-      org.opencontainers.image.source="https://github.com/JaviEspinar/totufoto" \
-      org.opencontainers.image.documentation="https://github.com/JaviEspinar/totufoto/blob/main/docs/docker.md" \
       org.opencontainers.image.licenses="LicenseRef-PolyForm-Noncommercial-1.0.0"
 
 # The index (and its thumbnails) lives in /data; the photos are mounted at /photos (or
