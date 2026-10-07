@@ -81,6 +81,8 @@ export function saveHash() {
 export function loadHash() {
   const p = new URLSearchParams(location.hash.slice(1));
   state.view = p.get("view") || "photos";
+  // Optimization and Upload became the cards of Manage: old links open it.
+  if (state.view === "optimization" || state.view === "upload") state.view = "manage";
   // The Places tab became "Photos, grouped by place": old links still work.
   const oldPlaces = state.view === "places";
   if (oldPlaces) state.view = "photos";

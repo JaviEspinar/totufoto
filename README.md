@@ -180,7 +180,7 @@ Only photos stored on the Mac are found. Photos kept only in iCloud ("Optimize M
 - **Upcoming**: photos taken on the coming days in earlier years.
 - **The sidebar**: tick people to see only their photos, together, any of them, or only them.
 - **The viewer**: arrow keys to move, a click to zoom, the details and the people on the side, and buttons to rotate, download or delete a photo.
-- **Optimization**: identical files, and how much space deleting the copies frees.
+- **Manage**: upload photos and videos from a phone or another computer (on a server), and find identical files and how much space deleting the copies frees.
 - **Settings** (the gear at the top right): photo folders, the indexing progress, files that could not be read.
 
 On a phone, open the same address in the browser: the gallery adapts to small screens, and Back undoes one step at a time.

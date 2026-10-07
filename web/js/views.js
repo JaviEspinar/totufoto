@@ -5,6 +5,7 @@ import { $, esc, saveHash, state } from "./core.js";
 import { renderPeopleList, setDrawer, updateRailCount } from "./sidebar.js";
 import { items, onChipClick, rememberCards, renderPhotos, renderUpcoming } from "./items.js";
 import { renderOptimization } from "./optimization.js";
+import { folderInfo } from "./settings.js";
 import { renderUpload } from "./upload.js";
 import { openMerge, renamePerson, renderPeople, toggleHidden, unmountPeopleGrid } from "./people.js";
 import { openViewer } from "./viewer.js";
@@ -19,8 +20,8 @@ export async function render() {
     b.classList.toggle("on", b.dataset.view === state.view);
     if (b.dataset.view === state.view) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
   }
-  // People, Optimization and Upload have no "People in the photo" column.
-  const noAside = ["people", "optimization", "upload"].includes(state.view);
+  // People and Manage have no "People in the photo" column.
+  const noAside = ["people", "manage"].includes(state.view);
   document.body.classList.toggle("no-aside", noAside);
   if (noAside) setDrawer(false);
   updateRailCount();
@@ -38,14 +39,26 @@ export async function render() {
   try {
     if (state.view === "photos") await renderPhotos(main, job);
     else if (state.view === "upcoming") await renderUpcoming(main, job);
-    else if (state.view === "optimization") await renderOptimization(main, job);
-    else if (state.view === "upload") await renderUpload(main, job);
+    else if (state.view === "manage") await renderManage(main, job);
     else await renderPeople(main, job);
   } catch (err) {
     if (err.name === "AbortError" || !job.alive()) return;
     main.innerHTML = `<div class="blank">${t("Something went wrong: {error}", { error: esc(err.message) })}
       <p><button class="btn" data-rerender>${t("Try again")}</button></p></div>`;
   }
+}
+
+/** Manage: uploading (on a server; the desktop app's photos are on its computer) and the
+ *  identical files, each in its own card, drawn on their own. */
+async function renderManage(main, job) {
+  const upload = !folderInfo.desktop;
+  main.innerHTML = `<div class="manage">
+    ${upload ? `<section class="manage-card" id="uploadCard"></section>` : ""}
+    <section class="manage-card" id="dupCard"></section></div>`;
+  await Promise.all([
+    upload ? renderUpload($("#uploadCard"), job) : null,
+    renderOptimization($("#dupCard"), job),
+  ]);
 }
 
 // ---- main area events ---------------------------------------------------------
@@ -88,7 +101,7 @@ for (const id of ["fromDate", "toDate"]) {
     // A reversed range (typed by hand) is put the right way round.
     [state.from, state.to] = from && to && from > to ? [to, from] : [from, to];
     syncRangeInputs();
-    if (["people", "optimization", "upload"].includes(state.view)) state.view = "photos";
+    if (["people", "manage"].includes(state.view)) state.view = "photos";
     render();
   });
 }

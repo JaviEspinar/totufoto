@@ -20,7 +20,7 @@ export async function renderUpload(main, renderJob) {
     ? t("They are saved in <b>{subfolder}</b> in {folder}, in the folders they came in.", { subfolder: esc(targets.subfolder), folder: `<bdi>${esc(targets.folders[0])}</bdi>` })
     : t("They are saved in a folder called <b>{subfolder}</b>, in the gallery folder you choose, in the folders they came in.", { subfolder: esc(targets.subfolder) });
   main.innerHTML = `<div class="opt upload">
-    <h2>${t("Upload")}</h2>
+    <h2>${t("Upload photos and videos")}</h2>
     <p class="lead">${t("Photos and videos from this device into the gallery.")} ${where} ${t("Files that aren't photos or videos are left out.")}</p>
     <div id="uploadArea"></div>
     <input type="file" id="pickFolder" webkitdirectory multiple hidden>
@@ -39,7 +39,8 @@ function showArea(targets = null) {
   } else {
     area.innerHTML = (job ? resultHtml() : "") + `<div class="drop" id="dropZone">
       <svg class="icon" viewBox="0 0 24 24" width="40" height="40" aria-hidden="true"><use href="#i-upload"/></svg>
-      <div class="big">${t("Drop a folder, or photos and videos, here")}</div>
+      <div class="big for-pointer">${t("Drop a folder, or photos and videos, here")}</div>
+      <div class="big for-touch">${t("Add photos and videos from this device")}</div>
       <div class="acts">
         <button class="btn primary" data-pick="folder">${t("Choose a folder")}</button>
         <button class="btn" data-pick="files">${t("Choose photos and videos")}</button>
@@ -80,7 +81,7 @@ function resultHtml() {
 
 // ---- choosing files --------------------------------------------------------------------
 $("#main").addEventListener("click", e => {
-  if (state.view !== "upload") return;
+  if (state.view !== "manage") return;
   const pick = e.target.closest("[data-pick]")?.dataset.pick;
   if (pick) return $(pick === "folder" ? "#pickFolder" : "#pickFiles").click();
   if (e.target.closest("[data-upload-cancel]")) return cancel();
@@ -96,7 +97,7 @@ $("#main").addEventListener("change", e => {
 // Dropping anywhere on the view; elsewhere the browser would open the file instead.
 for (const type of ["dragenter", "dragover"]) {
   $("#main").addEventListener(type, e => {
-    if (state.view !== "upload" || job?.running || !e.dataTransfer?.types.includes("Files")) return;
+    if (state.view !== "manage" || job?.running || !e.dataTransfer?.types.includes("Files")) return;
     e.preventDefault();
     $("#dropZone")?.classList.add("over");
   });
@@ -105,7 +106,7 @@ $("#main").addEventListener("dragleave", e => {
   if (!e.relatedTarget || !$("#main").contains(e.relatedTarget)) $("#dropZone")?.classList.remove("over");
 });
 $("#main").addEventListener("drop", async e => {
-  if (state.view !== "upload" || job?.running) return;
+  if (state.view !== "manage" || job?.running) return;
   e.preventDefault();
   $("#dropZone")?.classList.remove("over");
   // The entries have to be taken now: the drop's data is gone after the first await.
@@ -205,7 +206,7 @@ function redraw() {
   if (drawing) return;
   drawing = requestAnimationFrame(() => {
     drawing = 0;
-    if (state.view === "upload" && job?.running && $("#uploadArea")) $("#uploadArea").innerHTML = progressHtml();
+    if (state.view === "manage" && job?.running && $("#uploadArea")) $("#uploadArea").innerHTML = progressHtml();
   });
 }
 
@@ -213,7 +214,7 @@ function finish() {
   job.running = false;
   // The new files join the gallery with the next scan: start it now.
   if (job.saved) post("/api/scan").catch(() => {});
-  if (state.view === "upload") showArea();
+  if (state.view === "manage") showArea();
 }
 
 function cancel() {

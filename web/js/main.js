@@ -1,7 +1,7 @@
 // The Back button, and startup. The page's entry point: the modules it imports (and
 // theirs) run first, so everything it starts is ready.
 import { t } from "./i18n.js";
-import { $, loadHash, loadMeta, saveHash, state } from "./core.js";
+import { loadHash, loadMeta, saveHash, state } from "./core.js";
 import { renderPeopleList, setDrawer, setViewPanel } from "./sidebar.js";
 import { render, syncRangeInputs } from "./views.js";
 import { askChoice, closeViewer, viewer } from "./viewer.js";
@@ -65,9 +65,6 @@ async function undoOneStep() {
 loadHash();
 syncRangeInputs();
 Promise.all([loadMeta(), loadFolders()]).then(() => {
-  // Uploading is for the gallery on a server; the desktop app's photos are on its computer.
-  $('#tabs [data-view="upload"]').hidden = folderInfo.desktop;
-  if (folderInfo.desktop && state.view === "upload") state.view = "photos";
   render();
 });
 pollStatus();

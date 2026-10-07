@@ -35,7 +35,7 @@ test.afterAll(async ({ request }) => {
 test("a folder is uploaded into imaDive-uploads, with a progress bar", async ({ page }) => {
   const before = await count(page);
   await page.goto("/");
-  await page.locator('#tabs [data-view="upload"]').click();
+  await page.locator('#tabs [data-view="manage"]').click();
   await expect(page.locator(".upload .drop")).toContainText("Drop a folder");
   await expect(page.locator(".upload .lead")).toContainText("imaDive-uploads");
 
@@ -58,7 +58,7 @@ test("with two gallery folders, the upload asks which one", async ({ page }) => 
   const added = await page.request.post("/api/folders", { data: { path: other } });
   expect(added.ok() || added.status() === 409).toBe(true);
   await page.goto("/");
-  await page.locator('#tabs [data-view="upload"]').click();
+  await page.locator('#tabs [data-view="manage"]').click();
   await page.locator("#pickFiles").setInputFiles(join(picked, "two.jpg"));
   const dialog = page.locator("#choiceDlg[open]");
   await expect(dialog).toContainText("imaDive-uploads");

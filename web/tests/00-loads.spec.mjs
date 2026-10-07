@@ -8,7 +8,7 @@ test("every tab opens without a script error", async ({ page }) => {
   page.on("console", m => { if (m.type() === "error") errors.push(m.text()); });
   await page.goto("/");
   await expect(page.locator(".group-card").first()).toBeVisible();
-  for (const view of ["upcoming", "people", "optimization", "photos"]) {
+  for (const view of ["upcoming", "people", "manage", "photos"]) {
     await page.locator(`nav [data-view="${view}"]`).click();
     await expect(page.locator("#main")).not.toBeEmpty();
   }

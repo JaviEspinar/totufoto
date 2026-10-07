@@ -1,4 +1,4 @@
-// Upcoming, Optimization and Settings.
+// Upcoming, Manage (identical files) and Settings.
 import { expect, test } from "@playwright/test";
 
 test("Upcoming shows the photo taken two years ago today", async ({ page }) => {
@@ -8,8 +8,10 @@ test("Upcoming shows the photo taken two years ago today", async ({ page }) => {
   await expect(page.locator("#main")).toContainText("2 years ago");
 });
 
-test("Optimization lists the identical files and keeps the oldest", async ({ page }) => {
+test("Manage lists the identical files and keeps the oldest", async ({ page }) => {
+  // The address of the old Optimization tab opens Manage.
   await page.goto("/#view=optimization");
+  await expect(page.locator('#tabs [data-view="manage"]')).toHaveClass(/on/);
   const set = page.locator(".dup-group");
   await expect(set).toHaveCount(1, { timeout: 15_000 });
   await expect(set.locator(".dup-file.keep")).toContainText("2021");

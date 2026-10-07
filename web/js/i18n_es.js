@@ -5,7 +5,7 @@ export default {
   "Photos": "Fotos",
   "Upcoming": "Aniversarios",
   "People": "Personas",
-  "Optimization": "Optimización",
+  "Manage": "Gestionar",
   "Settings": "Ajustes",
   "Settings: folders and indexing": "Ajustes: carpetas e indexación",
   "From": "Desde",
@@ -153,7 +153,7 @@ export default {
   "Saved as \"{name}\", a name that was free": "Guardado como «{name}», un nombre que estaba libre",
   "Couldn't save the name: {error}": "No se pudo guardar el nombre: {error}",
 
-  // Optimization
+  // Manage: identical files
   "Duplicate files": "Archivos duplicados",
   "Identical files (the very same bytes) take space twice. Of each set, the copy with the oldest file date is kept. Nothing is deleted until you click <b>Delete duplicates</b>.": "Los archivos idénticos (exactamente los mismos bytes) ocupan espacio dos veces. De cada grupo se conserva la copia con la fecha de archivo más antigua. No se borra nada hasta que pulses <b>Borrar duplicados</b>.",
   "Waiting for the scan to finish…": "Esperando a que termine el examen de las carpetas…",
@@ -332,7 +332,7 @@ export default {
   "This video can't be played here.": "Este vídeo no se puede reproducir aquí.",
   "Download it": "Descárgalo",
   // Upload
-  "Upload": "Subir",
+  "Upload photos and videos": "Subir fotos y vídeos",
   "Photos and videos from this device into the gallery.": "Fotos y vídeos de este dispositivo a la galería.",
   "They are saved in <b>{subfolder}</b> in {folder}, in the folders they came in.": "Se guardan en <b>{subfolder}</b> dentro de {folder}, en las carpetas en las que venían.",
   "They are saved in a folder called <b>{subfolder}</b>, in the gallery folder you choose, in the folders they came in.": "Se guardan en una carpeta llamada <b>{subfolder}</b>, dentro de la carpeta de la galería que elijas, en las carpetas en las que venían.",
@@ -340,6 +340,7 @@ export default {
   "Add a folder in Settings first: uploads go into one of the gallery's folders.": "Añade antes una carpeta en Ajustes: lo que se sube va a una de las carpetas de la galería.",
   "Drop a folder, or photos and videos, here": "Suelta aquí una carpeta, o fotos y vídeos",
   "Choose a folder": "Elegir una carpeta",
+  "Add photos and videos from this device": "Añade fotos y vídeos de este dispositivo",
   "Choose photos and videos": "Elegir fotos y vídeos",
   "Uploading {done} of {total} files": "Subiendo {done} de {total} archivos",
   "{sent} of {total}": "{sent} de {total}",

@@ -190,6 +190,11 @@ body.no-aside aside { display: none; }
 .gone-path { font-size: 12px; color: var(--muted); word-break: break-all; }
 /* Optimization tab */
 .opt { max-width: 900px; padding-top: 16px; }
+/* Manage: one card per task (uploading, identical files), on the page's background. */
+.manage { max-width: 900px; padding: 16px 0 24px; display: flex; flex-direction: column; gap: 16px; }
+.manage-card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px 20px; }
+.manage-card .opt { padding-top: 0; max-width: none; }
+.manage-card .opt-progress, .manage-card .opt-summary, .manage-card .dup-group, .manage-card .upload .drop { background: var(--bg); }
 .opt h2 { font-size: 18px; margin: 0 0 4px; }
 .opt .lead { color: var(--muted); margin: 0 0 16px; }
 .opt-summary {
@@ -214,7 +219,8 @@ body.no-aside aside { display: none; }
 .upload .drop .acts { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
 .upload .opt-progress { margin-bottom: 16px; }
 /* Phones and tablets can't choose a folder (nor drop one): only photos and videos. */
-@media (pointer: coarse) { .upload [data-pick="folder"] { display: none; } .upload [data-pick="files"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); } }
+.upload .for-touch { display: none; }
+@media (pointer: coarse) { .upload [data-pick="folder"], .upload .for-pointer { display: none; } .upload .for-touch { display: block; } .upload [data-pick="files"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); } }
 .up-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .up-bytes { color: var(--muted); font-size: 13px; }
 .up-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }

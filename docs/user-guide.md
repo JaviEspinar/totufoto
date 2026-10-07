@@ -10,8 +10,7 @@ How the gallery works, tab by tab. To install it, see the [README](../README.md)
 - [The viewer](#the-viewer)
 - [Rotating, downloading and deleting](#rotating-downloading-and-deleting)
 - [Videos](#videos)
-- [Optimization: identical files](#optimization-identical-files)
-- [Upload](#upload)
+- [Manage: uploading and identical files](#manage-uploading-and-identical-files)
 - [Settings: folders and the library](#settings-folders-and-the-library)
 - [Phones and tablets](#phones-and-tablets)
 - [The index](#the-index)
@@ -104,15 +103,19 @@ Videos are part of the timeline, places and Upcoming like photos: their date and
 
 The viewer plays them with your browser's player. Formats a browser can't play (AVI, WMV, MPEG, and iPhone HEVC videos in some browsers) show a note with a link to download the file instead. When it's only the sound the browser can't play (some phones' videos, often ones sent with WhatsApp), the video plays without sound, with a note saying so. Videos have no people: faces are only looked for in photos.
 
-## Optimization: identical files
+## Manage: uploading and identical files
+
+The *Manage* tab has two cards: uploading photos and videos (on the gallery served by a server), and the identical files. In the desktop app only the second one shows, since its photos are already on its computer.
+
+### Identical files
 
 After each scan, Imadive looks in the background for identical photo files (the very same bytes) and shows how much space they take. Only files that share their size with another are read, so the search is quick.
 
 *Delete duplicates* moves the copies to the bin, keeping the one with the oldest file date of each set (if two have the same date, one of them). A progress bar shows how far it has got; closing or reloading the page doesn't stop it. Each copy is checked just before it goes: it, and the file that is kept, must still be there and unchanged.
 
-## Upload
+### Uploading photos and videos
 
-On the gallery served by a server (not in the desktop app, whose photos are already on its computer), the *Upload* tab sends photos and videos from the device you are using: a phone, a laptop. Drop a folder, or photos and videos, on it, or use *Choose a folder* or *Choose photos and videos* (on phones, only the second: their browsers can't choose folders).
+On the gallery served by a server, the *Upload photos and videos* card sends photos and videos from the device you are using: a phone, a laptop. Drop a folder, or photos and videos, on it, or use *Choose a folder* or *Choose photos and videos* (on phones, only the second: their browsers can't choose folders).
 
 - They are saved in a folder called **`imaDive-uploads`** inside the gallery's folder, created the first time. With several gallery folders, a dialog asks which one.
 - A folder keeps its folders: dropping `Holidays` puts its photos in `imaDive-uploads/Holidays/...`.

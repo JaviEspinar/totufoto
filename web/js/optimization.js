@@ -1,4 +1,4 @@
-// The Optimization view: identical files and deleting the copies.
+// Manage's card of identical files: the search, and deleting the copies.
 // One of the page's modules; main.js starts the page.
 import { lang, num, t, tn } from "./i18n.js";
 import { $, api, esc, fmtBytes, loadMeta, plural, post, state } from "./core.js";
@@ -18,7 +18,7 @@ export async function renderOptimization(main, job) {
     // Deleting (started here or on another device): progress until it ends.
     main.innerHTML = `<div class="opt">${intro}<div class="opt-progress" id="dupDeleting">${deleteProgressHtml(null)}</div></div>`;
     const timer = setInterval(async () => {
-      if (!job.alive() || state.view !== "optimization") return clearInterval(timer);
+      if (!job.alive() || state.view !== "manage") return clearInterval(timer);
       const p = await api("/api/duplicates/progress").catch(() => null);
       if (!p || !job.alive()) return;
       if (!p.deleting) { clearInterval(timer); loadMeta().catch(() => {}); return render(); }
@@ -38,7 +38,7 @@ export async function renderOptimization(main, job) {
     main.innerHTML = `<div class="opt">${intro}<div class="opt-progress" id="dupSearch">${progress({ scanning: report.scanning, checked: report.done, to_check: report.total })}</div></div>`;
     // A failed request (the server busy for a moment) is tried again, not left on this screen.
     const again = async () => {
-      if (!job.alive() || state.view !== "optimization") return;
+      if (!job.alive() || state.view !== "manage") return;
       const p = await api("/api/duplicates/progress", { signal: job.signal }).catch(() => null);
       if (!job.alive()) return;
       if (p && !p.scanning && !p.searching) return renderOptimization(main, job).catch(() => setTimeout(again, 3000));
