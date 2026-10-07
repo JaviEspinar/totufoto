@@ -210,7 +210,7 @@ Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP, and HEIC/HEIF on macOS (deco
 
 - **Formats**: JPEG, PNG, WebP, TIFF, GIF and BMP everywhere, and HEIC/HEIF only on macOS. No RAW files.
 - **Videos** get their thumbnail from a browser that can play them, the first time they show in one (formats no browser plays keep a generic picture), and nobody is looked for in them. They play in the browser when it can play their format: MP4 (H.264) and WebM everywhere, iPhone videos (HEVC) on Apple devices and in Chrome on most recent computers; others (AVI, WMV, MPEG...) can be downloaded.
-- **Photos are tracked by path**: moving or renaming a photo folder makes its photos look new, so they are indexed again (named people are matched again automatically).
+- **Photos are tracked by path**: after moving a folder added in Settings, *Moved to…* points the gallery at its new place, keeping everything. A command-line folder that moves is indexed again (named people are matched again automatically).
 - **No login**: anyone who can reach the gallery can use all of it (see [Privacy and security](#privacy-and-security)).
 - **Desktop app**: Windows and Linux only, not signed. On macOS use the command-line app.
 - **Face recognition** needs ONNX Runtime, which Microsoft doesn't publish for Intel Macs, and its models are for non-commercial use only (see [License](#license)).

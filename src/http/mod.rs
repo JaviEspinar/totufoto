@@ -206,6 +206,7 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
         .route("/api/failures/retry", post(system::retry_failures))
         .route("/api/folders", get(folders::folders).post(folders::add_folder).delete(folders::remove_folder))
         .route("/api/folders/pick", post(folders::pick_folder))
+        .route("/api/folders/move", post(folders::move_folder))
         .route("/api/folders/browse", get(folders::browse_folders))
         .route("/api/open", post(system::open_url))
         .route("/api/logs/reveal", post(system::reveal_logs))
@@ -613,6 +614,17 @@ mod tests {
         let part = axum::body::to_bytes(part.into_body(), 1 << 20).await.unwrap();
         assert_eq!(&part[..2], b"ee");
         assert_eq!(&part[2..], &file[sound + 4..sound + 10]);
+    }
+
+    #[tokio::test]
+    async fn a_command_line_folder_cant_be_moved_from_the_page() {
+        let (lib, _) = library_with_a_photo();
+        let app = app(&lib);
+        let from = lib.root().to_string_lossy().into_owned();
+        let body = json!({ "from": from, "to": std::env::temp_dir().to_string_lossy() });
+        let (status, answer) = call(&app, "POST", "/api/folders/move", Some(body)).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(answer["error"], json!("this folder is given on the command line: change it there"));
     }
 
     #[tokio::test]

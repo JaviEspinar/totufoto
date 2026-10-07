@@ -228,6 +228,7 @@ body.no-aside aside { display: none; }
 .up-result small { display: block; color: var(--muted); margin-top: 4px; }
 .up-result.has-errors { border-color: var(--danger); }
 .up-failures { margin: 10px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); max-height: 200px; overflow: auto; }
+.browse-was { display: block; margin-top: 8px; color: var(--ink); font-size: 12px; overflow-wrap: anywhere; }
 .up-targets { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
 /* Long paths lose their start, not the folder's own name at the end. */
 .up-targets .up-target { text-align: left; justify-content: flex-start; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; }

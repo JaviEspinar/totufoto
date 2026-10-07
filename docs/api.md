@@ -18,6 +18,7 @@ The gallery shows videos as well as photos, so what the API calls a photo is now
 | | `PUT /api/items/{id}/thumb` (a video's thumbnail, made by the page), `/thumb` answering `204` for a video without one |
 | | `?silent=1` on `/original/{id}`: a video without its sound |
 | | `GET` and `PUT /api/uploads`: uploading photos and videos (server only) |
+| | `POST /api/folders/move`: a folder moved elsewhere keeps its items; `{"save": false}` on `/api/folders/pick` |
 
 ## Changes in 0.2
 
@@ -172,7 +173,8 @@ Progress of the current or last scan, cheap enough to poll. `phase` is `listing 
 |---|---|
 | `GET /api/folders` | `{"folders": [{"path", "available", "items", "fixed"}], "desktop": bool}`. `fixed`: given on the command line. `desktop`: running in the desktop app |
 | `POST /api/folders` | `{"path": "/home/ana/Pictures"}` adds a folder and scans it. `409` when it is already in, or inside a folder that is |
-| `POST /api/folders/pick` | opens the folder picker and adds the folder chosen (desktop app only; `204` when cancelled) |
+| `POST /api/folders/pick` | opens the folder picker and adds the folder chosen (desktop app only; `204` when cancelled). With `{"save": false}` it only answers `{"path"}`, the folder chosen |
+| `POST /api/folders/move` | `{"from", "to"}`: the folder added in Settings at `from` is now at `to` (moved, renamed or copied). Its items keep their ids and everything about them under their new paths; one counts as the same file when `to` has a file of the same name and size. Answers `{"path", "moved", "changed", "missing"}`: `changed` files are read again by the scan that follows, `missing` ones leave the gallery. `409` for a command-line folder, a place that overlaps another gallery folder, or while a folder is removed |
 | `DELETE /api/folders?path=...` | takes the folder's items out of the gallery (the files stay), and answers `{"removed", "kept"}` when done; `kept` are items another folder still includes. One at a time (`409`) |
 | `GET /api/folders/browse?path=` | the folders inside `path` on the computer running Imadive: `{"path", "parent", "dirs": [{"name", "path"}]}`. Without `path`: next to the first photo folder |
 

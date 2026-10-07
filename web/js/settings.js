@@ -15,9 +15,13 @@ export async function loadFolders() {
   return folderInfo;
 }
 /** Picks a folder on the server by browsing its folders (the browser has no picker for
- *  those). Resolves to true once one was added. */
-export function browseForFolder() {
+ *  those). Resolves to true once one was added, or, with `choose` (an async function of the
+ *  path), once it accepted one; `title`, `intro` and `button` then say what for. */
+export function browseForFolder({ choose = addFolder, title, intro, button } = {}) {
   const dlg = $("#browseDlg"), list = $(".browse-list", dlg), input = $("#browsePath"), err = $(".err", dlg);
+  const texts = [[$("#browseTitle"), title], [$(".dlg-body > p", dlg), intro], [$("[data-add-here]", dlg), button]];
+  const before = texts.map(([el]) => el.innerHTML);
+  for (const [el, text] of texts) if (text) el.innerHTML = text;
   const folderIcon = icon("folder", 16);
   let here = null, token = 0;
   const open = async path => {
@@ -52,7 +56,7 @@ export function browseForFolder() {
       if (target.dataset.up != null && here?.parent != null) return open(here.parent);
       if (target.dataset.addHere != null && here?.path) {
         target.disabled = true;
-        try { await addFolder(here.path); added = true; dlg.close(); }
+        try { await choose(here.path); added = true; dlg.close(); }
         catch (e2) { err.textContent = e2.message; target.disabled = false; }
       }
     };
@@ -62,10 +66,37 @@ export function browseForFolder() {
     dlg.addEventListener("close", () => {
       dlg.removeEventListener("click", onClick);
       dlg.removeEventListener("keydown", onKey);
+      texts.forEach(([el], i) => { el.innerHTML = before[i]; });
       resolve(added);
     }, { once: true });
     dlg.showModal();
     open(null);
+  });
+}
+/** Tells the gallery where a folder that can't be found is now (moved, renamed, or copied
+ *  to another drive): its photos and videos keep everything instead of being indexed again. */
+async function moveFolder(from) {
+  const move = async to => {
+    const r = await post("/api/folders/move", { from, to });
+    const parts = [tn(r.moved, "{n} file found in its new place", "{n} files found in their new place")];
+    if (r.changed) parts.push(t("{n} changed, to be read again", { n: num(r.changed) }));
+    if (r.missing) parts.push(t("{n} not there, removed from the gallery", { n: num(r.missing) }));
+    toast(parts.join(" · "));
+    await Promise.all([loadFolders(), loadMeta()]);
+    renderSettings();
+    render();
+    setTimeout(pollStatus, 300);
+  };
+  if (folderInfo.desktop) {
+    const picked = await post("/api/folders/pick", { save: false });
+    if (picked) await move(picked.path);
+    return;
+  }
+  await browseForFolder({
+    choose: move,
+    title: t("Where is this folder now?"),
+    intro: `${t("Open the folder where its photos and videos are now. They keep their people, the faces you placed and everything else; files that changed are read again, and missing ones leave the gallery.")}<span class="browse-was">${t("It was in: {path}", { path: `<bdi>${esc(from)}</bdi>` })}</span>`,
+    button: t("It's this one"),
   });
 }
 export async function addFolder(path) {
@@ -143,7 +174,7 @@ export function renderSettings(error = "") {
       ${f.available ? `<span class="c">${plural(f.items, "file")}</span>` : `<span class="off" title="${t("The folder can't be found right now. Its photos and videos are kept until it's back or you remove it.")}">${t("not available")}</span>`}
       ${f.fixed
         ? `<span class="fixed" title="${t("Given on the command line when Imadive was started; remove it there")}">${t("command line")}</span>`
-        : `<button class="btn" data-remove="${esc(f.path)}" ${removing ? `disabled title="${t("Wait for the folder being removed")}"` : ""}>${t("Remove")}</button>`}
+        : `${f.available ? "" : `<button class="btn" data-move="${esc(f.path)}" title="${t("Tell the gallery where it is now: its photos keep their people and everything else, without being indexed again")}" ${removing ? "disabled" : ""}>${t("Moved to…")}</button>`}<button class="btn" data-remove="${esc(f.path)}" ${removing ? `disabled title="${t("Wait for the folder being removed")}"` : ""}>${t("Remove")}</button>`}
     </div>`).join("") : `<p>${t("No folders yet.")}</p>`;
   const add = `<div class="add-row"><button class="btn primary" ${desktop ? "data-pick" : "data-browse"} ${removing ? "disabled" : ""}>${t("Add folder…")}</button></div>`;
   // One card per part, so each is easy to tell apart.
@@ -268,6 +299,7 @@ $("#settingsDlg").addEventListener("click", async e => {
   try {
     if (e.target.dataset.pick != null) { if (await addFolder(null)) renderSettings(); }
     else if (e.target.dataset.browse != null) { if (await browseForFolder()) { await loadFolders(); renderSettings(); } }
+    else if (e.target.dataset.move) await moveFolder(e.target.dataset.move);
     else if (e.target.dataset.remove) {
       const path = e.target.dataset.remove;
       const choice = await askChoice(`<p class="gone-path">${esc(path)}</p>

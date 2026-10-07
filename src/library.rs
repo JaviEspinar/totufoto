@@ -129,6 +129,109 @@ pub fn remove_folder(
     Ok(RemovedFolder { removed: gone.len(), kept: kept.len() })
 }
 
+/// What became of a folder's items when it was moved (see [`move_folder`]).
+#[derive(Debug, Default, PartialEq)]
+pub struct MovedFolder {
+    /// Found in the new place, the same file: everything about them is kept.
+    pub moved: usize,
+    /// Found there but changed (another size): kept, and read again by the next scan.
+    pub changed: usize,
+    /// Not there: removed from the gallery (named people remember their faces).
+    pub missing: usize,
+}
+
+#[derive(Debug)]
+pub enum MoveFolder {
+    Moved(MovedFolder, PathBuf),
+    /// Not a folder added in Settings (a command-line one, or not in the gallery).
+    NotSaved,
+    Missing,
+    NotAFolder,
+    /// The new place is inside another of the gallery's folders, or contains one.
+    Overlaps(PathBuf),
+}
+
+/// Tells the gallery that the saved folder `from` now is `to` (moved, renamed, or copied to
+/// another drive): its items keep everything (people, faces placed by hand, card photos,
+/// video thumbnails, items removed from the gallery) under their new paths, instead of
+/// being indexed again as new files. An item counts as the same file when the new place has
+/// a file of the same name and size; its date may differ (copies often get a new one).
+pub fn move_folder(conn: &mut Connection, fixed: &[PathBuf], from: &Path, to: &Path) -> Result<MoveFolder> {
+    let saved: Vec<String> =
+        conn.prepare("SELECT path FROM folders")?.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+    if !saved.iter().any(|p| Path::new(p) == from) || fixed.iter().any(|f| f == from) {
+        return Ok(MoveFolder::NotSaved);
+    }
+    let Ok(to) = dunce::canonicalize(to) else { return Ok(MoveFolder::Missing) };
+    if !to.is_dir() {
+        return Ok(MoveFolder::NotAFolder);
+    }
+    let others = roots_without(conn, fixed, Some(from))?;
+    if let Some(outer) = root_of(&others, &to).or_else(|| others.iter().find(|r| r.starts_with(&to))) {
+        return Ok(MoveFolder::Overlaps(outer.clone()));
+    }
+
+    let (len, old_prefix) = prefix(from);
+    let items: Vec<(i64, String, i64)> = conn
+        .prepare("SELECT id, path, size FROM items WHERE substr(path, 1, ?1) = ?2")?
+        .query_map(params![len, old_prefix], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+        .collect::<Result<_, _>>()?;
+    let mut result = MovedFolder::default();
+    let mut updates = Vec::new();
+    let mut missing = Vec::new();
+    for (id, path, size) in items {
+        let Ok(relative) = Path::new(&path).strip_prefix(from) else { continue };
+        let new = to.join(relative);
+        match std::fs::metadata(&new) {
+            Ok(meta) if meta.is_file() => {
+                let same = meta.len() as i64 == size;
+                let mtime = meta
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs() as i64);
+                if same {
+                    result.moved += 1;
+                } else {
+                    result.changed += 1;
+                }
+                // The same file takes the new date, so the scan doesn't read it again; a
+                // changed one keeps the old date, so it does.
+                updates.push((id, new.to_string_lossy().into_owned(), if same { mtime } else { None }));
+            }
+            _ => missing.push(id),
+        }
+    }
+    result.missing = missing.len();
+
+    let new_prefix = to.join("").to_string_lossy().into_owned();
+    let tx = conn.transaction()?;
+    {
+        let mut path_only = tx.prepare("UPDATE items SET path = ? WHERE id = ?")?;
+        let mut with_date = tx.prepare("UPDATE items SET path = ?, mtime = ? WHERE id = ?")?;
+        for (id, path, mtime) in &updates {
+            match mtime {
+                Some(mtime) => with_date.execute(params![path, mtime, id])?,
+                None => path_only.execute(params![path, id])?,
+            };
+        }
+        // Items removed from the gallery stay removed in the new place.
+        tx.execute(
+            "UPDATE excluded SET path = ?3 || substr(path, ?1 + 1) WHERE substr(path, 1, ?1) = ?2",
+            params![len, old_prefix, new_prefix],
+        )?;
+        // Files that couldn't be read are tried again where they are now.
+        tx.execute("DELETE FROM failures WHERE substr(path, 1, ?1) = ?2", params![len, old_prefix])?;
+        tx.execute(
+            "UPDATE folders SET path = ? WHERE path = ?",
+            params![to.to_string_lossy(), from.to_string_lossy()],
+        )?;
+    }
+    tx.commit()?;
+    crate::db::forget_items(conn, &missing)?;
+    Ok(MoveFolder::Moved(result, to))
+}
+
 pub enum CheckItem {
     /// The file is there.
     Present(String),
@@ -287,6 +390,72 @@ mod tests {
         assert_eq!(progress.last(), Some(&1));
         assert_eq!(lib.id("a.jpg"), a, "kept as it was, not indexed again");
         assert_eq!(roots(&conn, &fixed).unwrap(), fixed);
+    }
+
+    #[test]
+    fn a_moved_folder_keeps_its_items_instead_of_indexing_them_again() {
+        use crate::testutil::native;
+        // A gallery whose only folder was added in Settings.
+        let mut lib = Library::new();
+        lib.cfg.fixed_roots.clear();
+        let old = lib.dir.file("old/sub/.keep").parent().unwrap().parent().unwrap().to_path_buf();
+        for (rel, color) in [
+            ("same.jpg", [1, 2, 3]),
+            ("sub/changed.jpg", [4, 5, 6]),
+            ("gone.jpg", [7, 8, 9]),
+            ("hidden.jpg", [9, 9, 9]),
+        ] {
+            Photo { color, ..Photo::default() }.write(&old.join(native(rel)));
+        }
+        let mut conn = lib.conn();
+        assert!(matches!(add_folder(&conn, &[], &old).unwrap(), AddFolder::Added(_)));
+        let old = dunce::canonicalize(&old).unwrap();
+        lib.scan();
+        let id = |conn: &Connection, path: &Path| -> i64 {
+            conn.query_row("SELECT id FROM items WHERE path = ?", [path.to_string_lossy()], |r| r.get(0)).unwrap()
+        };
+        let (same, changed) = (id(&conn, &old.join("same.jpg")), id(&conn, &old.join(native("sub/changed.jpg"))));
+        // One item was removed from the gallery (its file stays).
+        let hidden = old.join("hidden.jpg");
+        conn.execute("INSERT INTO excluded (path) VALUES (?)", [hidden.to_string_lossy()]).unwrap();
+        let hidden_id = id(&conn, &hidden);
+        crate::db::forget_item(&mut conn, hidden_id).unwrap();
+
+        // The folder is moved; in the new place one file changed and one is missing.
+        let new = lib.dir.path().join("new");
+        std::fs::rename(&old, &new).unwrap();
+        Photo { color: [4, 5, 6], width: 400, ..Photo::default() }.write(&new.join(native("sub/changed.jpg")));
+        std::fs::remove_file(new.join("gone.jpg")).unwrap();
+
+        // Refused: not a saved folder, a missing place, a place inside the gallery already.
+        assert!(matches!(move_folder(&mut conn, &[], Path::new("/nowhere"), &new).unwrap(), MoveFolder::NotSaved));
+        assert!(matches!(move_folder(&mut conn, &[], &old, &new.join("nope")).unwrap(), MoveFolder::Missing));
+
+        let MoveFolder::Moved(r, to) = move_folder(&mut conn, &[], &old, &new).unwrap() else { panic!("not moved") };
+        assert_eq!(r, MovedFolder { moved: 1, changed: 1, missing: 1 });
+        let new = dunce::canonicalize(&new).unwrap();
+        assert_eq!(to, new);
+        assert_eq!(roots(&conn, &[]).unwrap(), std::slice::from_ref(&new));
+        assert_eq!(id(&conn, &new.join("same.jpg")), same, "the same item, under its new path");
+        assert_eq!(id(&conn, &new.join(native("sub/changed.jpg"))), changed);
+        assert_eq!(conn.query_row("SELECT COUNT(*) FROM items", [], |r| r.get::<_, i64>(0)).unwrap(), 2);
+
+        // The next scan only reads the changed file again; the removed one stays out.
+        let status = lib.scan();
+        assert_eq!(status.total, 1, "only the changed file");
+        assert_eq!(id(&conn, &new.join("same.jpg")), same);
+        let hidden_back: i64 = conn
+            .query_row("SELECT COUNT(*) FROM items WHERE path = ?", [new.join("hidden.jpg").to_string_lossy()], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(hidden_back, 0, "still removed from the gallery");
+
+        // A place inside another of the gallery's folders is refused.
+        let other = lib.dir.file("other/inside/.keep").parent().unwrap().parent().unwrap().to_path_buf();
+        assert!(matches!(add_folder(&conn, &[], &other).unwrap(), AddFolder::Added(_)));
+        let refused = move_folder(&mut conn, &[], &new, &other.join("inside")).unwrap();
+        assert!(matches!(refused, MoveFolder::Overlaps(o) if o == dunce::canonicalize(&other).unwrap()));
     }
 
     #[test]

@@ -64,10 +64,18 @@ pub(super) async fn add_folder(State(s): State<Shared>, Json(body): Json<FolderB
 }
 
 /// Opens the native folder picker (desktop app only).
-pub(super) async fn pick_folder(State(s): State<Shared>) -> ApiResult<Response> {
+#[derive(Deserialize, Default)]
+pub(super) struct PickBody {
+    /// false: only answer the folder chosen (`{"path"}`), to tell where a folder was moved.
+    save: Option<bool>,
+}
+
+pub(super) async fn pick_folder(State(s): State<Shared>, body: Option<Json<PickBody>>) -> ApiResult<Response> {
     let Some(host) = s.host.clone() else { return Err(ApiError::desktop_only("open a folder picker")) };
+    let save = body.map(|Json(b)| b).unwrap_or_default().save.unwrap_or(true);
     match tokio::task::spawn_blocking(move || host.pick_folder()).await? {
-        Some(path) => save_folder(&s, path).await,
+        Some(path) if save => save_folder(&s, path).await,
+        Some(path) => Ok(Json(json!({ "path": path.to_string_lossy() })).into_response()),
         None => Ok(StatusCode::NO_CONTENT.into_response()),
     }
 }
@@ -81,6 +89,67 @@ pub(super) struct RemovalGuard {
 impl Drop for RemovalGuard {
     fn drop(&mut self) {
         *self.s.status.removing.lock().unwrap() = None;
+        self.s.status.hold.store(false, std::sync::atomic::Ordering::SeqCst);
+        scan::spawn(self.s.scan.clone(), self.s.status.clone());
+    }
+}
+
+#[derive(Deserialize)]
+pub(super) struct MoveBody {
+    from: String,
+    to: String,
+}
+
+/// A saved folder moved elsewhere (or renamed, or copied to another drive): its items keep
+/// everything under their new paths instead of being indexed again (see
+/// `library::move_folder`). Scans wait while it runs; one starts afterwards, for files that
+/// are new or changed in the new place.
+pub(super) async fn move_folder(State(s): State<Shared>, Json(body): Json<MoveBody>) -> ApiResult<Response> {
+    use std::sync::atomic::Ordering::SeqCst;
+    if s.scan.is_fixed(std::path::Path::new(&body.from)) {
+        return Err(ApiError::conflict("this folder is given on the command line: change it there"));
+    }
+    if s.status.removing.lock().unwrap().is_some() || s.status.hold.swap(true, SeqCst) {
+        return Err(ApiError::conflict("a folder is being removed or moved; wait for it to finish"));
+    }
+    let _guard = HoldGuard { s: s.clone() };
+    while s.status.running.load(SeqCst) {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    let scan_cfg = s.scan.clone();
+    let (from, to) = (PathBuf::from(&body.from), PathBuf::from(&body.to));
+    let moved = db(&s, move |conn| library::move_folder(conn, &scan_cfg.fixed_roots, &from, &to)).await?;
+    match moved {
+        library::MoveFolder::Moved(r, to) => {
+            tracing::info!(
+                "moved folder {} to {} ({} items kept, {} changed, {} missing)",
+                body.from,
+                to.display(),
+                r.moved,
+                r.changed,
+                r.missing
+            );
+            let to = to.to_string_lossy();
+            Ok(Json(json!({ "path": to, "moved": r.moved, "changed": r.changed, "missing": r.missing }))
+                .into_response())
+        }
+        library::MoveFolder::NotSaved => Err(ApiError::conflict("that folder isn't in the gallery")),
+        library::MoveFolder::Missing => Err(ApiError::bad_request(format!("{} does not exist", body.to))),
+        library::MoveFolder::NotAFolder => Err(ApiError::bad_request(format!("{} is not a folder", body.to))),
+        library::MoveFolder::Overlaps(other) => {
+            let other = other.display();
+            Err(ApiError::conflict(format!("{} overlaps {other}, which is already in the gallery", body.to)))
+        }
+    }
+}
+
+/// Ends a folder move however it goes: scans may run again, and one starts.
+struct HoldGuard {
+    s: Shared,
+}
+
+impl Drop for HoldGuard {
+    fn drop(&mut self) {
         self.s.status.hold.store(false, std::sync::atomic::Ordering::SeqCst);
         scan::spawn(self.s.scan.clone(), self.s.status.clone());
     }

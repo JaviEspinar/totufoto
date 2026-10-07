@@ -136,6 +136,7 @@ Settings is the gear at the top right. (The ImaDive logo at the top left shows t
 - *Remove* takes a folder's photos out of the gallery (the files stay on disk), except photos another folder still includes. Its row shows the progress. A scan still running stops first, and continues with the other folders afterwards. One folder is removed at a time.
 - Folders given on the command line are marked *command line* and can't be removed here.
 - A folder that can't be reached (an unplugged drive) shows as *not available*, and its photos stay in the gallery.
+- **Moved a folder** (to another drive, another place, or renamed it)? Its row shows *not available* and a *Moved to…* button: choose where it is now. Its photos and videos keep everything, people, faces you placed, card photos, items removed from the gallery and video thumbnails, under their new paths, instead of being indexed again as new files. A file counts as the same one when the new place has a file with the same name and size (its date may differ, as copies often get a new one). Files that changed are read again by the next scan, and files that aren't there leave the gallery. Only for folders added here: a command-line folder is changed where it is given.
 
 **The library**
 
@@ -167,7 +168,7 @@ Everything the gallery learns is stored in one file, `index.sqlite` in the data 
 - A photo folder that is missing or completely empty is taken for an unplugged drive (on Linux an unmounted drive leaves an empty folder behind), so its photos stay in the gallery and Settings shows it as *not available*. If you really emptied it, remove it in Settings.
 - A photo whose file changes (edited in another app, say) is read again and keeps its place in the gallery; its faces are found again.
 - People you have named are remembered even when all their photos are gone: if the photos come back, or new ones appear, their faces rejoin the name.
-- Photos are tracked by path. Moving or renaming the photo folder makes them look new, so they are indexed again. Named people are matched to the re-indexed faces automatically.
+- Photos are tracked by path. After moving or renaming a folder added in Settings, use its *Moved to…* button so nothing is indexed again (see [Settings](#settings-folders-and-the-library)). Otherwise, or for a command-line folder, the photos look new and are indexed again; named people are matched to the re-indexed faces automatically.
 - With the command-line app, `--data DIR` keeps separate indexes for separate libraries. Delete the data folder to start from scratch.
 
 Where the data folder is: `imadive-data` in the folder you start the command-line app from (or `--data`), and for the desktop app the folders listed in the [README](../README.md#desktop-app-windows-and-linux).
