@@ -251,16 +251,25 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
         tracing::info!("no photo folders yet; add one in Settings");
         return Ok(());
     }
-    let files = list_files(&roots);
+    let Listing { files, unreadable } = list_files(&roots);
     if status.hold.load(Ordering::SeqCst) {
         tracing::info!("scan stopped: a folder is being removed");
         return Ok(());
     }
-    // Photos on a folder that is currently unavailable (say, an unplugged drive) are kept.
-    let offline: Vec<&PathBuf> = roots.iter().filter(|r| !crate::library::reachable(r)).collect();
+    // Photos on a folder that is currently unavailable (say, an unplugged drive) are kept, and
+    // so are those in a folder or file that couldn't be read (a disk error, say): their files
+    // are still there, the scan just couldn't see them this time.
+    let mut offline: Vec<PathBuf> = roots.iter().filter(|r| !crate::library::reachable(r)).cloned().collect();
     for r in &offline {
         tracing::warn!("folder {} is not available; keeping its photos", r.display());
     }
+    for path in unreadable.iter().take(20) {
+        tracing::warn!("{} couldn't be read; keeping the photos indexed in it", path.display());
+    }
+    if unreadable.len() > 20 {
+        tracing::warn!("and {} more that couldn't be read", unreadable.len() - 20);
+    }
+    offline.extend(unreadable);
 
     let models = cfg.models.clone().filter(ModelPaths::exist);
     let known: HashMap<String, (i64, i64, i64, bool)> = {
@@ -394,24 +403,59 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     Ok(())
 }
 
-fn list_files(roots: &[PathBuf]) -> Vec<FileEntry> {
-    roots
+/// The files found in the folders, and the folders and files that couldn't be read.
+struct Listing {
+    files: Vec<FileEntry>,
+    unreadable: Vec<PathBuf>,
+}
+
+fn list_files(roots: &[PathBuf]) -> Listing {
+    let per_root: Vec<Listing> = roots
         .par_iter()
-        .flat_map_iter(|root| {
-            WalkDir::new(root)
+        .map(|root| {
+            let mut listing = Listing { files: Vec::new(), unreadable: Vec::new() };
+            let walk = WalkDir::new(root)
                 .follow_links(true)
                 .into_iter()
-                .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
-                .filter_map(|e| e.ok())
-                .filter(|e| e.file_type().is_file())
-                .filter(|e| imaging::is_supported(e.path()) || crate::video::is_video(e.path()))
-                .filter_map(|e| {
-                    let meta = e.metadata().ok()?;
+                .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'));
+            for entry in walk {
+                let entry = match entry {
+                    Ok(entry) => entry,
+                    // A folder (or file) that can't be read: noted, so its photos aren't taken
+                    // for deleted. A loop of links has nothing new behind it.
+                    Err(e) if e.loop_ancestor().is_some() => continue,
+                    Err(e) => {
+                        if let Some(path) = e.path() {
+                            listing.unreadable.push(path.to_path_buf());
+                        }
+                        continue;
+                    }
+                };
+                if !entry.file_type().is_file()
+                    || !(imaging::is_supported(entry.path()) || crate::video::is_video(entry.path()))
+                {
+                    continue;
+                }
+                let found = entry.metadata().ok().and_then(|meta| {
                     let mtime = meta.modified().ok()?.duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
-                    Some(FileEntry { path: e.into_path(), mtime, size: meta.len() as i64, known: None })
-                })
+                    Some((mtime, meta.len() as i64))
+                });
+                match found {
+                    Some((mtime, size)) => {
+                        listing.files.push(FileEntry { path: entry.into_path(), mtime, size, known: None })
+                    }
+                    None => listing.unreadable.push(entry.into_path()),
+                }
+            }
+            listing
         })
-        .collect()
+        .collect();
+    let mut all = Listing { files: Vec::new(), unreadable: Vec::new() };
+    for listing in per_root {
+        all.files.extend(listing.files);
+        all.unreadable.extend(listing.unreadable);
+    }
+    all
 }
 
 enum Outcome {
@@ -826,6 +870,30 @@ mod tests {
         std::fs::remove_dir_all(dir.path().join("photos")).unwrap();
         scan_now(&cfg);
         assert_eq!(indexed(&cfg, &dir), ["/photos/a.jpg"]);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn items_in_a_folder_that_cant_be_read_are_kept() {
+        // A folder the scan can't list (a disk or filesystem error, say): its photos are still
+        // on disk, so they stay in the gallery, and the rest of the library is scanned as usual.
+        use std::os::unix::fs::PermissionsExt;
+        let dir = TempDir::new();
+        let cfg = library(&dir, true);
+        Photo::default().write(&dir.file("photos/a.jpg"));
+        Photo { color: [1, 2, 3], ..Photo::default() }.write(&dir.file("photos/phone/b.jpg"));
+        scan_now(&cfg);
+        let phone = dir.path().join("photos/phone");
+        std::fs::set_permissions(&phone, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read_dir(&phone).is_ok() {
+            // Running as root, which reads it anyway: nothing to test here.
+            std::fs::set_permissions(&phone, std::fs::Permissions::from_mode(0o755)).unwrap();
+            return;
+        }
+        std::fs::remove_file(dir.path().join("photos/a.jpg")).unwrap();
+        scan_now(&cfg);
+        std::fs::set_permissions(&phone, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(indexed(&cfg, &dir), ["/photos/phone/b.jpg"], "a.jpg is gone; b.jpg couldn't be read, so it stays");
     }
 
     #[test]
