@@ -60,11 +60,12 @@ impl Gallery {
             let faces = if moved == 1 { "face" } else { "faces" };
             tracing::info!("gave {moved} {faces} marked \"Not them\" a group of their own");
         }
-        let folders = cfg
-            .folders
-            .iter()
-            .map(|p| dunce::canonicalize(p).with_context(|| format!("folder {}", p.display())))
-            .collect::<Result<Vec<_>>>()?;
+        let folders = cfg.folders.iter().map(|p| resolve_folder(p)).collect::<Result<Vec<_>>>()?;
+        for folder in folders.iter().filter(|f| !f.is_dir()) {
+            // An unplugged drive, say: the gallery starts anyway, keeps the folder's photos and
+            // finds the folder again with a scan once it's back.
+            tracing::warn!("folder {} can't be found; its photos are kept until it's back", folder.display());
+        }
         Ok(Self {
             scan: Arc::new(ScanConfig {
                 fixed_roots: folders,
@@ -189,5 +190,57 @@ impl Write for DesktopLog {
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+/// A command-line folder as the index writes paths: absolute and resolved (symlinks, `..`),
+/// as `dunce::canonicalize` does. A folder that isn't there right now (a drive that isn't
+/// mounted) can't be resolved itself: its nearest parent that exists is, and the rest is
+/// added as given, so the photos indexed in it are still found inside it.
+fn resolve_folder(path: &Path) -> Result<PathBuf> {
+    if let Ok(resolved) = dunce::canonicalize(path) {
+        return Ok(resolved);
+    }
+    let absolute = std::path::absolute(path).with_context(|| format!("folder {}", path.display()))?;
+    let mut rest = Vec::new();
+    let mut base = absolute.as_path();
+    while let (Some(parent), Some(name)) = (base.parent(), base.file_name()) {
+        rest.push(name);
+        base = parent;
+        if let Ok(resolved) = dunce::canonicalize(base) {
+            return Ok(rest.iter().rev().fold(resolved, |path, part| path.join(part)));
+        }
+    }
+    Ok(absolute)
+}
+
+#[cfg(test)]
+mod folder_tests {
+    use super::*;
+
+    #[test]
+    fn a_folder_that_isnt_there_is_resolved_as_far_as_it_exists() {
+        let base = std::env::temp_dir(); // /var/... is a link to /private/var/... on macOS
+        let resolved = dunce::canonicalize(&base).unwrap();
+        let missing = base.join("imadive-unplugged-drive").join("Imagenes");
+        assert_eq!(resolve_folder(&missing).unwrap(), resolved.join("imadive-unplugged-drive").join("Imagenes"));
+        assert_eq!(resolve_folder(&base).unwrap(), resolved);
+    }
+
+    #[test]
+    fn the_gallery_starts_with_a_command_line_folder_that_isnt_there() {
+        let dir = crate::testutil::TempDir::new();
+        let missing = dir.path().join("drive/photos");
+        let gallery = Gallery::open(Config {
+            data_dir: dir.path().join("data"),
+            folders: vec![missing.clone()],
+            models: None,
+            face_threshold: DEFAULT_FACE_THRESHOLD,
+            host: None,
+            allowed_names: Vec::new(),
+        })
+        .expect("starts anyway");
+        assert_eq!(gallery.scan.fixed_roots, [resolve_folder(&missing).unwrap()]);
+        gallery.scan_blocking().expect("a scan with the folder away keeps going");
     }
 }
