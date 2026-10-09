@@ -78,8 +78,14 @@ $("#main").addEventListener("click", e => {
   if (e.target.dataset.merge) return openMerge(+e.target.dataset.merge);
   if (e.target.dataset.hide) return toggleHidden(+e.target.dataset.hide);
   if (e.target.closest(".face-card:not(.skeleton) .avatar, .face-row:not(.skeleton) .avatar")) {
+    // That person's photos and nothing else: the filters set before go. (Combining people
+    // with other filters is what the "People in the photo" column is for.)
+    Object.assign(state, { place: null, date: null, from: null, to: null });
     state.people = new Set([+e.target.closest("[data-person]").dataset.person]);
-    state.view = "photos"; renderPeopleList(); return render();
+    state.view = "photos";
+    syncRangeInputs();
+    renderPeopleList();
+    return render();
   }
 });
 $("#main").addEventListener("change", e => {

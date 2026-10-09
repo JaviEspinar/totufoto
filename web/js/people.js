@@ -10,14 +10,16 @@ import { openViewer, viewerIndex } from "./viewer.js";
 // Libraries can have tens of thousands of people, so only the cards on screen exist in the
 // page. Everything else (opening dialogs, merging, searching) stays cheap because of that.
 const CARD_MIN_W = 150, GRID_GAP = 14, OVERSCAN_ROWS = 2;
-let peopleGrid = null, peopleQuery = "";
+// Two grids: people with a name ("Classified") and without one ("Not classified").
+let peopleGrids = null, peopleQuery = "";
 // The People tab opened before there was anyone: show them once there are.
 onPeopleLoaded(() => {
-  if (state.view === "people" && !peopleGrid && people.length && $("#peopleHost .blank, #peopleHost .skeleton")) render();
+  if (state.view === "people" && !peopleGrids && people.length && $("#peopleHost .blank, #peopleHost .skeleton")) render();
 });
 export function unmountPeopleGrid() {
-  peopleGrid?.destroy();
-  peopleGrid = null;
+  peopleGrids?.named.destroy();
+  peopleGrids?.unnamed.destroy();
+  peopleGrids = null;
 }
 
 // Faces fade in the first time they load; after that they show at once.
@@ -175,11 +177,14 @@ function mountPeopleGrid(host, { fadeIn = false, layout: L = peopleLayoutFor("ca
     const top = outer.getBoundingClientRect().top - main.getBoundingClientRect().top;
     return Math.max(0, Math.floor(-top / rowH)) * grid.cols;
   };
-  grid.scrollToIndex = i => {
-    const top = outer.getBoundingClientRect().top - main.getBoundingClientRect().top;
-    if (i > 0) main.scrollTop += top + Math.floor(i / grid.cols) * rowH;
+  /** Scrolls to show person `i` at the top; at `i` 0, to `start` (its section's title). */
+  grid.scrollToIndex = (i, start = outer) => {
+    const top = (i > 0 ? outer : start).getBoundingClientRect().top - main.getBoundingClientRect().top;
+    main.scrollTop += top + (i > 0 ? Math.floor(i / grid.cols) * rowH : 0);
     draw();
   };
+  /** Whether the whole grid is above the visible part of the page. */
+  grid.isAbove = () => outer.getBoundingClientRect().bottom <= main.getBoundingClientRect().top;
   grid.destroy = () => { main.removeEventListener("scroll", onScroll); resize.disconnect(); clearTimeout(animateTimer); };
   return grid;
 }
@@ -191,9 +196,21 @@ function peopleCountText(n) {
  *  cards slide to their new places, for changes like a merge. */
 export function refreshPeopleViews({ animate = true } = {}) {
   renderPeopleList();
-  if (!peopleGrid) return;
+  if (!peopleGrids) return;
   const items = matchPeople(peopleQuery);
-  peopleGrid.setItems(items, { animate });
+  // Named people in the order chosen; the others by their number of photos (the display
+  // order already puts them so, see sidebar.js).
+  const named = items.filter(p => p.name), unnamed = items.filter(p => !p.name);
+  peopleGrids.named.setItems(named, { animate });
+  peopleGrids.unnamed.setItems(unnamed, { animate });
+  for (const [id, list] of [["#peopleNamed", named], ["#peopleUnnamed", unnamed]]) {
+    const section = $(id);
+    section.querySelector("h2 small").textContent = num(list.length);
+    section.querySelector(".people-empty").hidden = list.length > 0;
+  }
+  // A search that finds nobody in a section hides it; without a search both always show.
+  $("#peopleNamed").hidden = !!peopleQuery && !named.length;
+  $("#peopleUnnamed").hidden = !!peopleQuery && !unnamed.length;
   $("#peopleCount").textContent = peopleCountText(items.length);
 }
 
@@ -202,7 +219,7 @@ export async function renderPeople(main, job) {
   main.innerHTML = `<div class="people-bar">
       <input class="search" id="peopleSearch" type="search" placeholder="${t("Search people")}" autocomplete="off" value="${esc(peopleQuery)}">
       <span id="peopleCount"></span>
-      <select id="peopleSort" title="${t("Sort people")}" aria-label="${t("Sort people")}">
+      <select id="peopleSort" title="${t("Sort the classified people")}" aria-label="${t("Sort the classified people")}">
         <option value="count" ${peopleSort === "count" ? "selected" : ""}>${t("Most photos")}</option>
         <option value="name" ${peopleSort === "name" ? "selected" : ""}>${t("Name")}</option>
       </select>
@@ -221,14 +238,15 @@ export async function renderPeople(main, job) {
     zoom.value = peopleZoom[peopleLayout];
     applyPeopleSize(host);
   };
-  // Rebuilds the grid for the current layout and size, keeping the same people on screen.
+  // Rebuilds the grids for the current layout and size, keeping the same people on screen.
   const remount = () => {
-    if (!peopleGrid) return;
-    const anchor = peopleGrid.firstVisible();
-    peopleGrid.destroy();
-    peopleGrid = mountPeopleGrid(host, { layout: peopleLayoutFor(peopleLayout) });
+    if (!peopleGrids) return;
+    const which = peopleGrids.named.isAbove() ? "unnamed" : "named";
+    const anchor = peopleGrids[which].firstVisible();
+    mountGrids();
     refreshPeopleViews({ animate: false });
-    peopleGrid.scrollToIndex(anchor);
+    $("#main").scrollTop = 0;
+    peopleGrids[which].scrollToIndex(anchor, $(which === "named" ? "#peopleNamed" : "#peopleUnnamed"));
   };
   syncZoom();
   let zoomFrame = 0;
@@ -259,14 +277,31 @@ export async function renderPeople(main, job) {
     main.scrollTop = 0;
     refreshPeopleViews({ animate: false });
   });
+  /** The two sections, each with its title and its own grid of cards (or rows). */
+  function mountGrids({ fadeIn = false } = {}) {
+    unmountPeopleGrid();
+    host.innerHTML = `<section class="people-section" id="peopleNamed">
+        <h2>${t("Classified")} <small></small></h2>
+        <p class="people-empty" hidden>${t("Nobody has a name yet: give one to a person below and they move here.")}</p>
+        <div class="people-grid-host"></div></section>
+      <section class="people-section" id="peopleUnnamed">
+        <h2>${t("Not classified")} <small></small><span class="people-order">${t("most photos first")}</span></h2>
+        <p class="people-empty" hidden>${t("Everyone has a name.")}</p>
+        <div class="people-grid-host"></div></section>`;
+    const layout = peopleLayoutFor(peopleLayout);
+    peopleGrids = {
+      named: mountPeopleGrid($("#peopleNamed .people-grid-host"), { fadeIn, layout }),
+      unnamed: mountPeopleGrid($("#peopleUnnamed .people-grid-host"), { fadeIn, layout }),
+    };
+  }
   let placeholders = false, shown = false;
   const show = () => {
     if (!job.alive()) return;
     shown = true;
     if (!people.length) { host.innerHTML = `<div class="blank">${t("No faces found yet.")}</div>`; $("#peopleCount").textContent = ""; return; }
-    if (!peopleGrid) {
+    if (!peopleGrids) {
       resetPeopleOrder(); // opening the tab is when the list gets sorted again
-      peopleGrid = mountPeopleGrid(host, { fadeIn: placeholders, layout: peopleLayoutFor(peopleLayout) });
+      mountGrids({ fadeIn: placeholders });
     }
     refreshPeopleViews({ animate: false });
   };
@@ -283,7 +318,7 @@ export async function renderPeople(main, job) {
   }
   await loadMeta();
   if (!job.alive()) return;
-  if (peopleGrid) refreshPeopleViews({ animate: true }); // fresh counts, in place
+  if (peopleGrids) refreshPeopleViews({ animate: true }); // fresh counts, in place
   else show();
 }
 

@@ -20,6 +20,26 @@ test("together, any and only them", async ({ page }) => {
   await expect(page.locator(".view-head .count")).toContainText("12 photos");
 });
 
+test("People: classified and not, and a person's photos without the filters set before", async ({ page }) => {
+  // A date range set before opening People.
+  await page.goto("/#view=people&from=2025-01-01");
+  await expect(page.locator(".face-card:not(.skeleton)")).toHaveCount(3);
+  await expect(page.locator("#peopleNamed h2")).toContainText("Classified 2");
+  await expect(page.locator("#peopleUnnamed h2")).toContainText("Not classified 1");
+  await expect(page.locator("#peopleUnnamed .face-card input")).toHaveValue("");
+  const ana = page.locator("#peopleNamed .face-card", { has: page.locator('input[value="Ana"]') });
+  const photos = (await ana.locator(".s").textContent()).trim();
+  await ana.locator(".avatar").click();
+  // Only Ana: the date range is gone, and so is any other filter.
+  await expect(page.locator(".view-head .count")).toContainText(photos);
+  expect(page.url()).not.toContain("from=");
+  await expect(page.locator(".chip")).toHaveCount(1);
+  // Ticking people in the sidebar still combines with the other filters.
+  await page.goto("/#group=none&from=2025-01-01");
+  await select(page, "Ana");
+  expect(page.url()).toContain("from=2025-01-01");
+});
+
 test("the People tab, and names stay unique", async ({ page }) => {
   await page.goto("/#view=people");
   await expect(page.locator(".face-card:not(.skeleton)")).toHaveCount(3);

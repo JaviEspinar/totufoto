@@ -30,13 +30,14 @@ Every filter lives in the address, so a view can be bookmarked or shared with so
 
 ## People
 
-Faces are found in every photo and grouped into people automatically.
+Faces are found in every photo and grouped into people automatically. The tab shows them in two parts: **Classified**, the people you have named, and **Not classified**, the groups without a name yet, always with the most photos first (so the people who matter most come up first).
 
-- Name each person by typing under their face.
+- Name each person by typing under their face: they move to *Classified*.
+- Click a face to see that person's photos in Photos. It shows only them: filters set before (dates, a place, other people) are cleared. To combine people with other filters, tick them in the *People in the photo* column instead.
 - *Same as…* merges two groups of the same person.
 - *Hide* is for people you don't care about.
 - Switch between *Cards* (big faces) and *List* (compact rows, several times more people on screen; the actions show when you point at a row). The size slider next to it makes cards or rows bigger or smaller.
-- Sort people by *Most photos* or by *Name* (A to Z, unnamed last); the sidebar uses the same order.
+- Sort the classified people by *Most photos* or by *Name* (A to Z); the sidebar uses the same order.
 
 Names are unique: using a name someone already has asks whether they are the same person (*Merge them*) or not (*Keep separate* adds a number, like "Ana (1)").
 

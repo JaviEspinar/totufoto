@@ -325,6 +325,12 @@ button.candidate { background: none; border: 0; padding: 6px; }
 /* People grid: only the visible cards exist in the page (see mountPeopleGrid). Cards are
    kept while they stay on screen and slide to new places instead of being rebuilt. */
 .vgrid { position: relative; margin-top: 16px; }
+/* People: "Classified" (with a name) and "Not classified", each with its own grid. */
+.people-section h2 { font-size: 15px; font-weight: 650; margin: 24px 0 0; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.people-section h2 small { font-weight: 400; color: var(--muted); font-size: 12px; }
+.people-section .people-order { font-weight: 400; color: var(--muted); font-size: 12px; margin-left: auto; }
+.people-section .people-empty { color: var(--muted); margin: 8px 0 0; }
+.people-section .vgrid { margin-top: 12px; }
 .vcard { position: absolute; left: 0; top: 0; }
 .vgrid.animate .vcard { transition: transform 0.28s cubic-bezier(0.2, 0.7, 0.3, 1); }
 .vcard.enter, .vgrid.fade-in { animation: fade-in 0.22s ease both; }

@@ -11,18 +11,20 @@ import { viewer } from "./viewer.js";
 // first) or refreshing counts must not reshuffle the list under you. The order is taken
 // fresh from the server when the People tab is opened; new people are added at the end.
 export let peopleOrder = [], orderedCache = null;
-// The People tab's sort: "count" (most photos first) or "name" (A to Z, unnamed last).
+// The People tab's sort of named people: "count" (most photos first) or "name" (A to Z).
+// People without a name always go by their number of photos.
 export let peopleSort = "count";
 if (pref.get("peopleSort") === "name") peopleSort = "name";
 export function setPeopleSort(sort) {
   peopleSort = sort;
   pref.set("peopleSort", sort);
 }
+const byCount = (a, b) => b.count - a.count
+  || (!a.name !== !b.name ? (a.name ? -1 : 1) : a.name ? nameCollator.compare(a.name, b.name) : 0)
+  || a.id - b.id;
 function sortedPeople() {
-  if (peopleSort === "name") return peopleAlphabetical();
-  return [...people].sort((a, b) => b.count - a.count
-    || (!a.name !== !b.name ? (a.name ? -1 : 1) : a.name ? nameCollator.compare(a.name, b.name) : 0)
-    || a.id - b.id);
+  if (peopleSort === "name") return [...peopleAlphabetical().filter(p => p.name), ...people.filter(p => !p.name).sort(byCount)];
+  return [...people].sort(byCount);
 }
 export function resetPeopleOrder() { restorePeopleOrder(sortedPeople().map(p => p.id)); }
 /** Puts back an order saved before (after a change that failed, say). */
