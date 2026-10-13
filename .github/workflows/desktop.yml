@@ -111,8 +111,9 @@ jobs:
           # file (developer, description, screenshots), valid and inside the package.
           dpkg-deb -f ../dist/*.deb Maintainer | grep -qE '^[^<]+ <[^@ ]+@[^> ]+>$'
           dpkg-deb -c ../dist/*.deb | grep -q 'usr/share/metainfo/com.waiting4timeout.imadive.metainfo.xml'
-          sudo apt-get install -y -qq appstream > /dev/null
-          appstreamcli validate --no-net --explain linux/com.waiting4timeout.imadive.metainfo.xml
+          # With a current validator (Ubuntu 22.04's is too old for today's format).
+          docker run --rm -v "$PWD/linux:/m:ro" ubuntu:24.04 bash -c \
+            'apt-get update -qq && apt-get install -y -qq appstream > /dev/null && appstreamcli validate --no-net --explain /m/com.waiting4timeout.imadive.metainfo.xml'
 
       - name: Build exe
         if: runner.os == 'Windows'

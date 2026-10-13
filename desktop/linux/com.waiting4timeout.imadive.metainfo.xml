@@ -8,6 +8,8 @@
   <project_license>PolyForm-Noncommercial-1.0.0</project_license>
   <name>Imadive</name>
   <summary>Fast local photo and video gallery with places and people</summary>
+  <!-- developer_name for older software centres (Ubuntu 22.04), developer for newer ones -->
+  <developer_name>waiting4timeout</developer_name>
   <developer id="io.github.waiting4timeout">
     <name>waiting4timeout</name>
   </developer>
