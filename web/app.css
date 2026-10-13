@@ -220,7 +220,14 @@ body.no-aside aside { display: none; }
 .upload .opt-progress { margin-bottom: 16px; }
 /* Phones and tablets can't choose a folder (nor drop one): only photos and videos. */
 .upload .for-touch { display: none; }
-@media (pointer: coarse) { .upload [data-pick="folder"], .upload .for-pointer { display: none; } .upload .for-touch { display: block; } .upload [data-pick="files"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); } }
+.upload .drop .hint { margin: 0; max-width: 460px; font-size: 13px; }
+.upload .lead { overflow-wrap: anywhere; } /* long folder paths wrap instead of overflowing */
+@media (pointer: coarse) {
+  .upload [data-pick="folder"], .upload .for-pointer { display: none; }
+  .upload .for-touch { display: block; }
+  .upload .acts .for-touch { display: inline-flex; }
+  .upload [data-pick="any"] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+}
 .up-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .up-bytes { color: var(--muted); font-size: 13px; }
 .up-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }

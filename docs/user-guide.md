@@ -116,7 +116,7 @@ After each scan, Imadive looks in the background for identical photo files (the 
 
 ### Uploading photos and videos
 
-On the gallery served by a server, the *Upload photos and videos* card sends photos and videos from the device you are using: a phone, a laptop. Drop a folder, or photos and videos, on it, or use *Choose a folder* or *Choose photos and videos* (on phones, only the second: their browsers can't choose folders).
+On the gallery served by a server, the *Upload photos and videos* card sends photos and videos from the device you are using: a phone, a laptop. Drop a folder, or photos and videos, on it, or use *Choose a folder* or *Choose photos and videos*. Phones can't choose folders, and their *Choose photos and videos* opens the photo picker, one photo at a time and at most 100 (on Android). For many at once, use *Choose files*: it opens the file manager, where you open the folder (for example DCIM › Camera) and use *Select all* in its menu; files that aren't photos or videos are left out.
 
 - They are saved in a folder called **`imaDive-uploads`** inside the gallery's folder, created the first time. With several gallery folders, a dialog asks which one.
 - A folder keeps its folders: dropping `Holidays` puts its photos in `imaDive-uploads/Holidays/...`.

@@ -359,6 +359,8 @@ export default {
   "Drop a folder, or photos and videos, here": "Suelta aquí una carpeta, o fotos y vídeos",
   "Choose a folder": "Elegir una carpeta",
   "Add photos and videos from this device": "Añade fotos y vídeos de este dispositivo",
+  "Choose files": "Elegir archivos",
+  "Many at once: <b>Choose files</b>, open the folder (for example DCIM › Camera) and use <b>Select all</b> in its menu. <b>Choose photos and videos</b> takes up to 100.": "Muchas a la vez: <b>Elegir archivos</b>, abre la carpeta (por ejemplo DCIM › Camera) y usa <b>Seleccionar todo</b> en su menú. <b>Elegir fotos y vídeos</b> admite hasta 100.",
   "Choose photos and videos": "Elegir fotos y vídeos",
   "Uploading {done} of {total} files": "Subiendo {done} de {total} archivos",
   "{sent} of {total}": "{sent} de {total}",

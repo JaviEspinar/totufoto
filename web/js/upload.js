@@ -25,6 +25,7 @@ export async function renderUpload(main, renderJob) {
     <div id="uploadArea"></div>
     <input type="file" id="pickFolder" webkitdirectory multiple hidden>
     <input type="file" id="pickFiles" multiple accept="image/*,video/*" hidden>
+    <input type="file" id="pickAny" multiple hidden>
   </div>`;
   showArea(targets);
 }
@@ -44,7 +45,9 @@ function showArea(targets = null) {
       <div class="acts">
         <button class="btn primary" data-pick="folder">${t("Choose a folder")}</button>
         <button class="btn" data-pick="files">${t("Choose photos and videos")}</button>
+        <button class="btn for-touch" data-pick="any">${t("Choose files")}</button>
       </div>
+      <p class="hint for-touch">${t("Many at once: <b>Choose files</b>, open the folder (for example DCIM › Camera) and use <b>Select all</b> in its menu. <b>Choose photos and videos</b> takes up to 100.")}</p>
     </div>`;
   }
 }
@@ -83,12 +86,15 @@ function resultHtml() {
 $("#main").addEventListener("click", e => {
   if (state.view !== "manage") return;
   const pick = e.target.closest("[data-pick]")?.dataset.pick;
-  if (pick) return $(pick === "folder" ? "#pickFolder" : "#pickFiles").click();
+  // On phones, "files" opens the photo picker (a few at a time, at most 100) and "any" the
+  // file manager, where a whole folder can be selected; files that aren't photos or videos
+  // are left out afterwards.
+  if (pick) return $({ folder: "#pickFolder", files: "#pickFiles", any: "#pickAny" }[pick]).click();
   if (e.target.closest("[data-upload-cancel]")) return cancel();
   if (e.target.closest("[data-upload-show]")) { state.view = "photos"; return render(); }
 });
 $("#main").addEventListener("change", e => {
-  if (e.target.id !== "pickFolder" && e.target.id !== "pickFiles") return;
+  if (!["pickFolder", "pickFiles", "pickAny"].includes(e.target.id)) return;
   // A folder's files carry their path inside it; single files just their name.
   const files = [...e.target.files].map(file => ({ file, path: file.webkitRelativePath || file.name }));
   e.target.value = "";

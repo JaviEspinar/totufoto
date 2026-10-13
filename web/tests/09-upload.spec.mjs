@@ -5,7 +5,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, test } from "@playwright/test";
+import { devices, expect, test } from "@playwright/test";
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), "fixtures/library");
 const count = async page => (await (await page.request.get("/api/items")).json()).items.length;
@@ -66,3 +66,23 @@ test("with two gallery folders, the upload asks which one", async ({ page }) => 
   await expect(page.locator(".up-result")).toContainText("1 file uploaded", { timeout: 15_000 });
   expect(existsSync(join(other, "imaDive-uploads/two.jpg"))).toBe(true);
 });
+
+test("on a phone: no folder button, and Choose files opens the file manager", async ({ browser }) => {
+  // Phones open their photo picker for "Choose photos and videos" (at most 100, one by one):
+  // "Choose files" asks for any file, which opens the file manager, where a whole folder can
+  // be selected. What isn't a photo or video is left out.
+  const { defaultBrowserType, ...pixel } = devices["Pixel 7"];
+  const context = await browser.newContext({ ...pixel, baseURL: test.info().project.use.baseURL });
+  const page = await context.newPage();
+  await page.goto("/#view=manage");
+  await expect(page.locator('.upload [data-pick="any"]')).toBeVisible();
+  await expect(page.locator('.upload [data-pick="folder"]')).toBeHidden();
+  await expect(page.locator(".upload .drop .hint")).toContainText("Select all");
+  expect(await page.locator("#pickAny").getAttribute("accept")).toBeNull();
+  await page.locator("#pickAny").setInputFiles([join(picked, "beach", "one.jpg"), join(picked, "notes.txt")]);
+  const dialog = page.locator("#choiceDlg[open]");
+  if (await dialog.isVisible().catch(() => false)) await dialog.locator(".up-target").first().click();
+  await expect(page.locator(".up-result")).toContainText("left out", { timeout: 15_000 });
+  await context.close();
+});
+
