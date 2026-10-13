@@ -26,14 +26,19 @@ export function browseForFolder({ choose = addFolder, title, intro, button } = {
   let here = null, token = 0;
   const open = async path => {
     const mine = ++token;
+    // What the field says now: if it changes while this loads (a path typed or pasted
+    // meanwhile), the answer doesn't overwrite it.
+    const before = input.value;
     err.textContent = "";
     list.innerHTML = `<div class="empty">${t("Loading…")}</div>`;
     try {
       const r = await api(`/api/folders/browse${path == null ? "" : `?path=${encodeURIComponent(path)}`}`);
       if (mine !== token) return;
       here = r;
-      input.value = r.path;
-      input.scrollLeft = input.scrollWidth; // the end of a long path is the folder you're in
+      if (input.value === before) {
+        input.value = r.path;
+        input.scrollLeft = input.scrollWidth; // the end of a long path is the folder you're in
+      }
       $("[data-up]", dlg).disabled = r.parent == null;
       $("[data-add-here]", dlg).disabled = !r.path;
       list.innerHTML = r.dirs.length

@@ -34,11 +34,22 @@ test("a folder moved on disk is pointed at its new place, keeping its photos", a
   await page.locator("#settingsBtn").click();
   const row = page.locator("#settingsDlg .folder", { hasText: "other" });
   await expect(row).toContainText("not available");
+  // A path typed while the browser is still loading its first folder isn't overwritten by
+  // that folder when it arrives.
+  let firstLoad;
+  const loaded = new Promise(resolve => { firstLoad = resolve; });
+  await page.route(url => url.pathname.endsWith("/api/folders/browse") && !url.searchParams.has("path"), async route => {
+    await new Promise(r => setTimeout(r, 700));
+    await route.continue();
+    firstLoad();
+  });
   await row.locator("[data-move]").click();
 
   const browse = page.locator("#browseDlg[open]");
   await expect(browse.locator("#browseTitle")).toHaveText("Where is this folder now?");
   await browse.locator("#browsePath").fill(moved);
+  await loaded.catch(() => {});
+  await expect(browse.locator("#browsePath")).toHaveValue(moved);
   await browse.locator("#browsePath").press("Enter");
   await expect(browse.locator("#browsePath")).toHaveValue(moved);
   await browse.locator("[data-add-here]").click();
