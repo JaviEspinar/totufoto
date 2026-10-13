@@ -37,7 +37,12 @@ cargo update --workspace --quiet
 CURRENT=$current VERSION=$version perl -pi -e 's{releases/download/v\Q$ENV{CURRENT}\E/Imadive-\Q$ENV{CURRENT}\E-}{releases/download/v$ENV{VERSION}/Imadive-$ENV{VERSION}-}g' README.md
 scripts/check-download-links.sh "$version" || fail "could not update the download links in README.md"
 
-git add Cargo.toml Cargo.lock README.md "$notes"
+# Software centres list the releases from the app's AppStream file: this one goes on top.
+metainfo=desktop/linux/com.waiting4timeout.imadive.metainfo.xml
+VERSION=$version DATE=$(date +%F) perl -0pi -e 's{<releases>\n}{<releases>\n    <release version="$ENV{VERSION}" date="$ENV{DATE}"/>\n}' "$metainfo"
+grep -q "<release version=\"$version\"" "$metainfo" || fail "could not add $version to $metainfo"
+
+git add Cargo.toml Cargo.lock README.md "$notes" "$metainfo"
 git commit -q -m "Release $version"
 git tag "$tag"
 

@@ -13,13 +13,28 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["appimage", "deb"],
+    "targets": [
+      "appimage",
+      "deb"
+    ],
+    "publisher": "waiting4timeout",
+    "homepage": "https://github.com/JaviEspinar/totufoto",
+    "copyright": "© 2026 waiting4timeout",
+    "license": "PolyForm-Noncommercial-1.0.0",
     "category": "Photography",
-    "shortDescription": "Fast local photo gallery with places and people",
-    "longDescription": "Imadive indexes your photo folders and shows them as a timeline, by place, with upcoming anniversaries and the people found by face recognition. Everything runs on your computer; nothing is uploaded.",
+    "shortDescription": "Fast local photo and video gallery with places and people",
+    "longDescription": "Imadive indexes your photo and video folders and shows them as a timeline, by place, with upcoming anniversaries and the people found by face recognition. Everything runs on your computer; nothing is uploaded.",
     "linux": {
       "deb": {
-        "section": "graphics"
+        "section": "graphics",
+        "files": {
+          "/usr/share/metainfo/com.waiting4timeout.imadive.metainfo.xml": "linux/com.waiting4timeout.imadive.metainfo.xml"
+        }
+      },
+      "appimage": {
+        "files": {
+          "/usr/share/metainfo/com.waiting4timeout.imadive.metainfo.xml": "linux/com.waiting4timeout.imadive.metainfo.xml"
+        }
       }
     },
     "icon": [

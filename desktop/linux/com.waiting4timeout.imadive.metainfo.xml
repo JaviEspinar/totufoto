@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- What software centres (Ubuntu's App Center, GNOME Software, KDE Discover) show about the
+     app: installed by the .deb and the AppImage in /usr/share/metainfo (desktop/tauri.conf.json).
+     scripts/release.sh adds each release at the top of <releases>. -->
+<component type="desktop-application">
+  <id>com.waiting4timeout.imadive</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>PolyForm-Noncommercial-1.0.0</project_license>
+  <name>Imadive</name>
+  <summary>Fast local photo and video gallery with places and people</summary>
+  <developer id="io.github.waiting4timeout">
+    <name>waiting4timeout</name>
+  </developer>
+  <description>
+    <p>
+      Imadive indexes your photo and video folders and shows them as a timeline, grouped by
+      day, month, year or place, with upcoming anniversaries and the people found by face
+      recognition.
+    </p>
+    <ul>
+      <li>Places from the photos' GPS, turned into towns without any network access</li>
+      <li>People found and grouped automatically; name them, merge them, hide them</li>
+      <li>Videos with their date, place and length, played in the viewer</li>
+      <li>Identical files found, and the copies deleted if you want</li>
+      <li>In English or Spanish, with a light or dark theme</li>
+    </ul>
+    <p>
+      Everything runs on your computer: your photos are never uploaded, and the files only
+      change when you rotate or delete a photo. Free for personal and other non-commercial use.
+    </p>
+  </description>
+  <launchable type="desktop-id">Imadive.desktop</launchable>
+  <icon type="stock">imadive-desktop</icon>
+  <url type="homepage">https://github.com/JaviEspinar/totufoto</url>
+  <url type="bugtracker">https://github.com/JaviEspinar/totufoto/issues</url>
+  <url type="help">https://github.com/JaviEspinar/totufoto/blob/main/docs/user-guide.md</url>
+  <url type="donation">https://ko-fi.com/waiting4timeout</url>
+  <url type="vcs-browser">https://github.com/JaviEspinar/totufoto</url>
+  <screenshots>
+    <screenshot type="default">
+      <caption>The timeline, with the people found in the photos</caption>
+      <image>https://raw.githubusercontent.com/JaviEspinar/totufoto/main/docs/screenshots/photos.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>The viewer, with the faces named</caption>
+      <image>https://raw.githubusercontent.com/JaviEspinar/totufoto/main/docs/screenshots/viewer.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>Photos grouped by place</caption>
+      <image>https://raw.githubusercontent.com/JaviEspinar/totufoto/main/docs/screenshots/places.jpg</image>
+    </screenshot>
+    <screenshot>
+      <caption>The people found</caption>
+      <image>https://raw.githubusercontent.com/JaviEspinar/totufoto/main/docs/screenshots/people.jpg</image>
+    </screenshot>
+  </screenshots>
+  <categories>
+    <category>Graphics</category>
+    <category>Photography</category>
+    <category>Viewer</category>
+  </categories>
+  <keywords>
+    <keyword>photo</keyword>
+    <keyword>gallery</keyword>
+    <keyword>faces</keyword>
+    <keyword>video</keyword>
+  </keywords>
+  <provides>
+    <binary>imadive-desktop</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.3.2" date="2026-10-07"/>
+    <release version="0.3.1" date="2026-10-06"/>
+    <release version="0.3.0" date="2026-10-06"/>
+  </releases>
+</component>

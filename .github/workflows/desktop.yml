@@ -107,6 +107,12 @@ jobs:
           cp ../target/release/bundle/appimage/*.AppImage "../dist/Imadive-${VERSION}-linux-x86_64.AppImage"
           cp ../target/release/bundle/deb/*.deb "../dist/Imadive-${VERSION}-linux-amd64.deb"
           dpkg-deb --info ../dist/*.deb
+          # What software centres show: a Maintainer in "Name <email>" form, and the AppStream
+          # file (developer, description, screenshots), valid and inside the package.
+          dpkg-deb -f ../dist/*.deb Maintainer | grep -qE '^[^<]+ <[^@ ]+@[^> ]+>$'
+          dpkg-deb -c ../dist/*.deb | grep -q 'usr/share/metainfo/com.waiting4timeout.imadive.metainfo.xml'
+          sudo apt-get install -y -qq appstream > /dev/null
+          appstreamcli validate --no-net --explain linux/com.waiting4timeout.imadive.metainfo.xml
 
       - name: Build exe
         if: runner.os == 'Windows'
