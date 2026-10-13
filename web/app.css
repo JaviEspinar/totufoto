@@ -233,6 +233,11 @@ body.no-aside aside { display: none; }
 .up-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
 .up-file { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .up-result small { display: block; color: var(--muted); margin-top: 4px; }
+.up-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.up-preparing small { display: block; color: var(--muted); margin-top: 6px; }
+.up-preparing .spinner.small { width: 18px; height: 18px; border-width: 2px; margin: 0; }
+.up-conflicts { margin: 8px 0; padding-left: 18px; font-size: 13px; max-height: 160px; overflow: auto; overflow-wrap: anywhere; }
+.up-note { color: var(--muted); font-size: 12px; }
 .up-result.has-errors { border-color: var(--danger); }
 .up-failures { margin: 10px 0 0; padding-left: 18px; font-size: 12px; color: var(--muted); max-height: 200px; overflow: auto; }
 .browse-was { display: block; margin-top: 8px; color: var(--ink); font-size: 12px; overflow-wrap: anywhere; }

@@ -237,6 +237,7 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
             "/api/uploads",
             get(uploads::targets).put(uploads::upload).layer(axum::extract::DefaultBodyLimit::disable()),
         )
+        .route("/api/uploads/existing", post(uploads::existing))
         // Not videos: they are already compressed, and range requests (seeking) need the
         // bytes as they are on disk.
         .layer(
@@ -634,8 +635,10 @@ mod tests {
         let app = app(&lib);
         let root = lib.root();
         let folder = root.to_string_lossy().into_owned();
+        // `path` may end in `&option=value`, sent as it is.
         let put = |path: &str, body: Vec<u8>, folder: &str| {
-            let uri = format!("/api/uploads?folder={}&path={}", urlencode(folder), urlencode(path));
+            let (path, extra) = path.split_once('&').map_or((path, String::new()), |(p, e)| (p, format!("&{e}")));
+            let uri = format!("/api/uploads?folder={}&path={}{extra}", urlencode(folder), urlencode(path));
             let req = axum::http::Request::builder()
                 .method("PUT")
                 .uri(uri)
@@ -668,6 +671,17 @@ mod tests {
         assert_eq!((status, &body["status"]), (StatusCode::OK, &json!("same")));
         let (_, body) = put("Trip/day 1/red.jpg", other, &folder).await;
         assert_eq!(body, json!({ "status": "renamed", "path": "imaDive-uploads/Trip/day 1/red (2).jpg" }));
+
+        // Which names are there already, before sending anything; then skip or overwrite.
+        let body = json!({ "folder": folder, "paths": ["Trip/day 1/red.jpg", "new.jpg", "../x.jpg"] });
+        let (_, found) = call(&app, "POST", "/api/uploads/existing", Some(body)).await;
+        assert_eq!(found["existing"], json!(["Trip/day 1/red.jpg"]));
+        let blue = crate::testutil::Photo { color: [40, 40, 200], ..Default::default() }.jpeg();
+        let (_, body) = put("Trip/day 1/red.jpg&on_conflict=skip", blue.clone(), &folder).await;
+        assert_eq!(body["status"], json!("skipped"));
+        let (_, body) = put("Trip/day 1/red.jpg&on_conflict=overwrite", blue.clone(), &folder).await;
+        assert_eq!(body["status"], json!("overwritten"));
+        assert_eq!(std::fs::read(root.join("imaDive-uploads/Trip/day 1/red.jpg")).unwrap(), blue);
 
         // Refused: outside the uploads folder, not a photo or video, a folder not in the gallery.
         assert_eq!(put("../escape.jpg", photo.clone(), &folder).await.0, StatusCode::BAD_REQUEST);

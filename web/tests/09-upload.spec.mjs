@@ -1,7 +1,7 @@
 // Upload: a folder chosen in the browser goes into imaDive-uploads in the gallery's folder,
 // keeping its folder; files that aren't photos or videos are left out; with two gallery
 // folders, a dialog asks which one. The scan afterwards adds them to the gallery.
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -49,9 +49,47 @@ test("a folder is uploaded into imaDive-uploads, with a progress bar", async ({ 
   // The scan the page started adds them to the gallery.
   await expect.poll(() => count(page), { timeout: 15_000 }).toBe(before + 2);
 
-  // The same folder again: nothing new.
+  // The same folder again: the names are there, so it asks; identical files are never
+  // copied twice, whatever the choice.
+  const sameNames = page.locator("#choiceDlg[open]");
   await page.locator("#pickFolder").setInputFiles(picked);
+  await expect(sameNames).toContainText("2 files have the same names");
+  await sameNames.locator('[data-choice="keep"]').click();
   await expect(result).toContainText("2 were already there", { timeout: 15_000 });
+
+  // A different photo under a name that's there: Skip leaves the old one, Overwrite replaces it.
+  copyFileSync(join(fixtures, "plain.jpg"), join(picked, "two.jpg"));
+  await page.locator("#pickFolder").setInputFiles(picked);
+  await sameNames.locator('[data-choice="skip"]').click();
+  // Skip leaves out every name that's there, without sending them.
+  await expect(result).toContainText("2 skipped", { timeout: 15_000 });
+  await page.locator("#pickFolder").setInputFiles(picked);
+  await sameNames.locator('[data-choice="overwrite"]').click();
+  await expect(result).toContainText("1 replaced", { timeout: 15_000 });
+  expect(readFileSync(join(library, "imaDive-uploads/Holidays/two.jpg"))).toEqual(readFileSync(join(fixtures, "plain.jpg")));
+  copyFileSync(join(fixtures, "2025/city.jpg"), join(picked, "two.jpg")); // as it was, for the next tests
+});
+
+test("waiting for the files is shown, and failed files can be retried", async ({ page }) => {
+  await page.goto("/#view=manage");
+  // Nothing chosen yet: the card says it is waiting for the picker.
+  const chooser = page.waitForEvent("filechooser");
+  await page.locator('[data-pick="files"]').click();
+  await expect(page.locator(".up-preparing")).toContainText("Choose the files");
+  // The connection fails (both tries): the file is listed with a Retry button.
+  await page.route("**/api/uploads?*", route => route.abort());
+  const fresh = join(dirname(picked), "retry-me.jpg"); // a name not uploaded yet
+  copyFileSync(join(fixtures, "plain.jpg"), fresh);
+  await (await chooser).setFiles(fresh);
+  const result = page.locator(".up-result");
+  // With two gallery folders (the test before added one), the first.
+  const target = page.locator("#choiceDlg[open] .up-target").first();
+  if (await target.isVisible({ timeout: 2_000 }).catch(() => false)) await target.click();
+  await expect(result).toContainText("couldn't be uploaded", { timeout: 15_000 });
+  await page.unroute("**/api/uploads?*");
+  await result.locator("[data-upload-retry]").click();
+  await expect(result).not.toContainText("couldn't be uploaded", { timeout: 15_000 });
+  await expect(result.locator("[data-upload-retry]")).toHaveCount(0);
 });
 
 test("with two gallery folders, the upload asks which one", async ({ page }) => {

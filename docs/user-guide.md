@@ -120,8 +120,10 @@ On the gallery served by a server, the *Upload photos and videos* card sends pho
 
 - They are saved in a folder called **`imaDive-uploads`** inside the gallery's folder, created the first time. With several gallery folders, a dialog asks which one.
 - A folder keeps its folders: dropping `Holidays` puts its photos in `imaDive-uploads/Holidays/...`.
-- Files that aren't photos or videos the gallery shows are left out, without being sent. A file already there (the same name and the same content) isn't sent twice; a different file with the same name is saved with a number, `photo (2).jpg`.
-- A progress bar shows the files and bytes sent. The upload goes on while you look at other tabs; leaving the page asks first, since it would stop it. *Cancel* stops it, keeping what was already sent.
+- Files that aren't photos or videos the gallery shows are left out, without being sent.
+- When some files have the same names as ones already in `imaDive-uploads`, a dialog lists them and asks what to do with all of them: *Skip* them (they aren't sent), *Overwrite* the ones there, or *Keep both* (the new one is saved with a number, `photo (2).jpg`). A file exactly the same as the one there is never copied twice, whatever the choice.
+- From the moment you choose, the card says what is happening (a phone can take a while to hand over a big folder, and the names are checked before sending). Then a progress bar shows the files and bytes sent. The upload goes on while you look at other tabs; leaving the page asks first, since it would stop it. *Cancel* stops it, keeping what was already sent.
+- Files that couldn't be uploaded (a connection lost, say) are listed with the reason, and *Retry the ones that failed* sends them again, to the same folder.
 - When it ends, the gallery scans for the new files: they appear in Photos within moments, and their faces are found as usual.
 
 The server must be able to write in that folder: a gallery folder that is read-only (a Docker volume mounted with `:ro`, say) refuses uploads with an error saying so. An empty gallery folder takes uploads, unless `/etc/fstab` mounts a drive there that isn't connected: then they would end up on the system's disk.

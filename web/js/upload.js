@@ -30,11 +30,12 @@ export async function renderUpload(main, renderJob) {
   showArea(targets);
 }
 
-/** The drop zone, or the upload's progress, or its result. */
+/** The drop zone, or what is being prepared, or the upload's progress, or its result. */
 function showArea(targets = null) {
   const area = $("#uploadArea");
   if (!area) return;
-  if (job?.running) area.innerHTML = progressHtml();
+  if (preparing) area.innerHTML = preparingHtml();
+  else if (job?.running) area.innerHTML = progressHtml();
   else if (targets && !targets.folders.length) {
     area.innerHTML = `<div class="blank">${t("Add a folder in Settings first: uploads go into one of the gallery's folders.")}</div>`;
   } else {
@@ -52,8 +53,26 @@ function showArea(targets = null) {
   }
 }
 
+// ---- preparing: from choosing the files to the first one sent ---------------------------
+// Big selections take a while (a phone hands over a folder of thousands slowly, and they
+// are filtered and their names checked): the card says what is going on all along, and the
+// work is done in slices so the page keeps answering.
+let preparing = null; // { text, waiting } while preparing; null otherwise
+function setPreparing(text, waiting = false) {
+  preparing = text == null ? null : { text, waiting };
+  showArea();
+}
+function preparingHtml() {
+  return `<div class="opt-progress up-preparing">
+    <div class="up-head"><b>${esc(preparing.text)}</b>${preparing.waiting ? "" : `<span class="spinner small" aria-hidden="true"></span>`}</div>
+    ${preparing.waiting ? `<small>${t("A phone can take a little while to hand over a big folder.")}</small>` : `<progress></progress>`}
+  </div>`;
+}
+/** Lets the page draw and answer between slices of work. */
+const breathe = () => new Promise(resolve => setTimeout(resolve, 0));
+
 function progressHtml() {
-  const doneFiles = job.saved + job.same + job.failed.length;
+  const doneFiles = job.saved + job.same + job.existing + job.overwritten + job.failed.length;
   const sent = job.done + [...job.loading.values()].reduce((a, b) => a + b, 0);
   const current = [...job.current].slice(-1)[0];
   return `<div class="opt-progress">
@@ -68,16 +87,23 @@ function progressHtml() {
 function resultHtml() {
   const lines = [];
   if (job.saved) lines.push(tn(job.saved, "{n} file uploaded", "{n} files uploaded"));
+  if (job.overwritten) lines.push(tn(job.overwritten, "{n} replaced the file of the same name", "{n} replaced the files of the same name"));
+  if (job.renamed) lines.push(tn(job.renamed, "{n} kept beside the file of the same name", "{n} kept beside the files of the same name"));
+  if (job.existing) lines.push(tn(job.existing, "{n} skipped: a file with that name was there", "{n} skipped: files with those names were there"));
   if (job.same) lines.push(tn(job.same, "{n} was already there", "{n} were already there"));
-  if (job.skipped) lines.push(tn(job.skipped, "{n} left out: not a photo or video", "{n} left out: not photos or videos"));
+  if (job.left) lines.push(tn(job.left, "{n} left out: not a photo or video", "{n} left out: not photos or videos"));
   if (job.failed.length) lines.push(t("{n} couldn't be uploaded", { n: num(job.failed.length) }));
   if (job.cancelled) lines.push(t("Cancelled"));
-  const failures = job.failed.slice(0, 20).map(f => `<li><bdi>${esc(f.path)}</bdi>: ${esc(f.error)}</li>`).join("");
+  const failures = job.failed.slice(0, 20).map(f => `<li><bdi>${esc(f.item.path)}</bdi>: ${esc(f.error)}</li>`).join("");
   const more = job.failed.length > 20 ? `<li>${t("and {n} more", { n: num(job.failed.length - 20) })}</li>` : "";
+  const stored = job.saved + job.overwritten;
   return `<div class="opt-progress up-result${job.failed.length ? " has-errors" : ""}">
     <div class="up-head"><b>${lines.join(" · ") || t("Nothing to upload")}</b>
-      ${job.saved ? `<button class="btn" data-upload-show>${t("Show the photos")}</button>` : ""}</div>
-    ${job.saved ? `<small>${job.target ? t("In {folder}. They are being added to the gallery.", { folder: `<bdi>${esc(job.target)}</bdi>` }) : ""}</small>` : ""}
+      <span class="up-acts">
+        ${job.failed.length ? `<button class="btn primary" data-upload-retry>${t("Retry the ones that failed")}</button>` : ""}
+        ${stored ? `<button class="btn" data-upload-show>${t("Show the photos")}</button>` : ""}
+      </span></div>
+    ${stored ? `<small>${t("In {folder}. They are being added to the gallery.", { folder: `<bdi>${esc(job.target)}</bdi>` })}</small>` : ""}
     ${failures ? `<ul class="up-failures">${failures}${more}</ul>` : ""}
   </div>`;
 }
@@ -89,21 +115,42 @@ $("#main").addEventListener("click", e => {
   // On phones, "files" opens the photo picker (a few at a time, at most 100) and "any" the
   // file manager, where a whole folder can be selected; files that aren't photos or videos
   // are left out afterwards.
-  if (pick) return $({ folder: "#pickFolder", files: "#pickFiles", any: "#pickAny" }[pick]).click();
+  if (pick) {
+    const input = $({ folder: "#pickFolder", files: "#pickFiles", any: "#pickAny" }[pick]);
+    waitForPicker(input);
+    return input.click();
+  }
   if (e.target.closest("[data-upload-cancel]")) return cancel();
+  if (e.target.closest("[data-upload-retry]")) return retry();
   if (e.target.closest("[data-upload-show]")) { state.view = "photos"; return render(); }
 });
-$("#main").addEventListener("change", e => {
+/** From the tap until the files arrive (or the picker is closed without any). */
+function waitForPicker(input) {
+  setPreparing(t("Choose the files…"), true);
+  const done = () => { if (preparing?.waiting) setPreparing(null); };
+  input.addEventListener("cancel", done, { once: true });
+  // Browsers without the cancel event: back on the page with nothing chosen.
+  addEventListener("focus", () => setTimeout(() => { if (!input.files?.length) done(); }, 1500), { once: true });
+}
+$("#main").addEventListener("change", async e => {
   if (!["pickFolder", "pickFiles", "pickAny"].includes(e.target.id)) return;
+  const list = e.target.files;
+  setPreparing(tn(list.length, "Preparing {n} file…", "Preparing {n} files…"));
+  await breathe();
   // A folder's files carry their path inside it; single files just their name.
-  const files = [...e.target.files].map(file => ({ file, path: file.webkitRelativePath || file.name }));
+  const files = [];
+  for (let i = 0; i < list.length; i++) {
+    const file = list[i];
+    files.push({ file, path: file.webkitRelativePath || file.name });
+    if (i % 500 === 499) await breathe();
+  }
   e.target.value = "";
   start(files);
 });
 // Dropping anywhere on the view; elsewhere the browser would open the file instead.
 for (const type of ["dragenter", "dragover"]) {
   $("#main").addEventListener(type, e => {
-    if (state.view !== "manage" || job?.running || !e.dataTransfer?.types.includes("Files")) return;
+    if (state.view !== "manage" || job?.running || preparing || !e.dataTransfer?.types.includes("Files")) return;
     e.preventDefault();
     $("#dropZone")?.classList.add("over");
   });
@@ -112,12 +159,13 @@ $("#main").addEventListener("dragleave", e => {
   if (!e.relatedTarget || !$("#main").contains(e.relatedTarget)) $("#dropZone")?.classList.remove("over");
 });
 $("#main").addEventListener("drop", async e => {
-  if (state.view !== "manage" || job?.running) return;
+  if (state.view !== "manage" || job?.running || preparing) return;
   e.preventDefault();
   $("#dropZone")?.classList.remove("over");
   // The entries have to be taken now: the drop's data is gone after the first await.
   const entries = [...e.dataTransfer.items].map(i => i.webkitGetAsEntry?.()).filter(Boolean);
   const files = [];
+  setPreparing(t("Reading what was dropped…"));
   for (const entry of entries) await collect(entry, files);
   start(files);
 });
@@ -127,6 +175,7 @@ async function collect(entry, out) {
   if (entry.isFile) {
     const file = await new Promise((resolve, reject) => entry.file(resolve, reject)).catch(() => null);
     if (file) out.push({ file, path: entry.fullPath.replace(/^\/+/, "") });
+    if (out.length % 200 === 0) setPreparing(tn(out.length, "Reading what was dropped: {n} file…", "Reading what was dropped: {n} files…"));
     return;
   }
   const reader = entry.createReader();
@@ -139,31 +188,79 @@ async function collect(entry, out) {
 }
 
 // ---- uploading -------------------------------------------------------------------------
+/** Paths asked about at once when checking which names are already there. */
+const CHECK_AT_ONCE = 1000;
+
 async function start(chosen) {
-  if (job?.running || !chosen.length) return;
-  const targets = await api("/api/uploads").catch(err => { alertArea(err.message); return null; });
-  if (!targets) return;
-  const extensions = new Set(targets.extensions);
-  const ext = path => path.split(".").pop().toLowerCase();
-  const files = chosen.filter(f => !f.path.split("/").some(p => p.startsWith(".")) && extensions.has(ext(f.path)));
-  let target = targets.folders[0];
-  if (!target) return showArea(targets);
-  if (targets.folders.length > 1 && files.length) {
-    const buttons = targets.folders.map((f, i) => `<button class="btn up-target" data-choice="${i}"><bdi>${esc(f)}</bdi></button>`).join("");
-    const choice = await askChoice(`<p>${t("Which of the gallery's folders should they go to? They are saved in its <b>{subfolder}</b> folder, created if it isn't there.", { subfolder: esc(targets.subfolder) })}</p>
-      <div class="up-targets">${buttons}</div>
-      <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button></div>`, t("Upload to"));
-    if (choice === "cancel") return;
-    target = targets.folders[+choice];
+  if (job?.running) return setPreparing(null);
+  if (!chosen.length) return setPreparing(null);
+  try {
+    const targets = await api("/api/uploads");
+    const extensions = new Set(targets.extensions);
+    const ext = path => path.split(".").pop().toLowerCase();
+    const files = [];
+    for (let i = 0; i < chosen.length; i++) {
+      const f = chosen[i];
+      if (!f.path.split("/").some(p => p.startsWith(".")) && extensions.has(ext(f.path))) files.push(f);
+      if (i % 2000 === 1999) await breathe();
+    }
+    let folder = targets.folders[0];
+    if (!folder) { setPreparing(null); return showArea(targets); }
+    if (targets.folders.length > 1 && files.length) {
+      const buttons = targets.folders.map((f, i) => `<button class="btn up-target" data-choice="${i}"><bdi>${esc(f)}</bdi></button>`).join("");
+      const choice = await askChoice(`<p>${t("Which of the gallery's folders should they go to? They are saved in its <b>{subfolder}</b> folder, created if it isn't there.", { subfolder: esc(targets.subfolder) })}</p>
+        <div class="up-targets">${buttons}</div>
+        <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button></div>`, t("Upload to"));
+      if (choice === "cancel") return setPreparing(null);
+      folder = targets.folders[+choice];
+    }
+
+    // Names already in the uploads folder: ask once what to do with all of them.
+    const existing = new Set();
+    for (let i = 0; i < files.length; i += CHECK_AT_ONCE) {
+      setPreparing(t("Checking which names are already there: {done} of {total}", { done: num(i), total: num(files.length) }));
+      const r = await post("/api/uploads/existing", { folder, paths: files.slice(i, i + CHECK_AT_ONCE).map(f => f.path) });
+      for (const path of r.existing) existing.add(path);
+    }
+    let onConflict = "keep";
+    if (existing.size) {
+      const names = [...existing].sort().slice(0, 5).map(p => `<li><bdi>${esc(p)}</bdi></li>`).join("");
+      const more = existing.size > 5 ? `<li>${t("and {n} more", { n: num(existing.size - 5) })}</li>` : "";
+      onConflict = await askChoice(`<p>${tn(existing.size, "{n} file has the same name as one already in <b>{subfolder}</b>:", "{n} files have the same names as ones already in <b>{subfolder}</b>:", { subfolder: esc(targets.subfolder) })}</p>
+        <ul class="up-conflicts">${names}${more}</ul>
+        <p class="up-note">${t("Files that are exactly the same as the ones there are never copied twice.")}</p>
+        <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button>
+          <button class="btn" data-choice="skip">${t("Skip")}</button>
+          <button class="btn" data-choice="overwrite">${t("Overwrite")}</button>
+          <button class="btn primary" data-choice="keep">${t("Keep both")}</button></div>`, t("Files with the same name"));
+      if (onConflict === "cancel") return setPreparing(null);
+    }
+    // Skipped ones aren't even sent.
+    const toSend = onConflict === "skip" ? files.filter(f => !existing.has(f.path)) : files;
+    run(toSend, { folder, subfolder: targets.subfolder, onConflict, left: chosen.length - files.length, existing: files.length - toSend.length });
+  } catch (err) {
+    setPreparing(null);
+    alertArea(err.message);
   }
+}
+
+/** Sends `files` into `folder`'s uploads folder, AT_ONCE at a time. */
+function run(files, { folder, subfolder, onConflict, left = 0, existing = 0 }) {
   job = {
-    running: files.length > 0, files, queue: [...files], target: `${target}/${targets.subfolder}`, folder: target,
+    running: files.length > 0, files, queue: [...files], target: `${folder}/${subfolder}`, folder, subfolder, onConflict,
     bytes: files.reduce((a, f) => a + f.file.size, 0), done: 0, loading: new Map(), current: new Set(),
-    saved: 0, same: 0, skipped: chosen.length - files.length, failed: [], requests: new Set(), cancelled: false,
+    saved: 0, same: 0, overwritten: 0, renamed: 0, existing, left, failed: [], requests: new Set(), cancelled: false,
   };
-  if (!job.running) return showArea(targets);
+  preparing = null;
   showArea();
   for (let i = 0; i < AT_ONCE; i++) next();
+}
+
+/** The files that failed last time, again, into the same folder and with the same choice. */
+function retry() {
+  if (!job || job.running || !job.failed.length) return;
+  const { folder, subfolder, onConflict } = job;
+  run(job.failed.map(f => f.item), { folder, subfolder, onConflict });
 }
 
 function next() {
@@ -179,7 +276,7 @@ function next() {
 function send(item, tries) {
   const current = job;
   const xhr = new XMLHttpRequest();
-  const query = new URLSearchParams({ folder: current.folder, path: item.path });
+  const query = new URLSearchParams({ folder: current.folder, path: item.path, on_conflict: current.onConflict });
   xhr.open("PUT", `/api/uploads?${query}`);
   current.requests.add(xhr);
   current.current.add(item.path);
@@ -194,12 +291,15 @@ function send(item, tries) {
     if ((xhr.status === 0 || xhr.status >= 500) && tries < 1) return send(item, tries + 1);
     let body = null;
     try { body = JSON.parse(xhr.responseText); } catch {}
+    current.done += item.file.size;
     if (xhr.status === 200 || xhr.status === 201) {
-      current.done += item.file.size;
-      if (body?.status === "same") current.same++; else current.saved++;
+      const status = body?.status;
+      if (status === "same") current.same++;
+      else if (status === "skipped") current.existing++;
+      else if (status === "overwritten") current.overwritten++;
+      else { current.saved++; if (status === "renamed") current.renamed++; }
     } else {
-      current.done += item.file.size;
-      current.failed.push({ path: item.path, error: body?.error ? translateMessage(body.error) : xhr.status ? `HTTP ${xhr.status}` : t("the connection was lost") });
+      current.failed.push({ item, error: body?.error ? translateMessage(body.error) : xhr.status ? `HTTP ${xhr.status}` : t("the connection was lost") });
     }
     redraw();
     next();
@@ -219,7 +319,7 @@ function redraw() {
 function finish() {
   job.running = false;
   // The new files join the gallery with the next scan: start it now.
-  if (job.saved) post("/api/scan").catch(() => {});
+  if (job.saved || job.overwritten) post("/api/scan").catch(() => {});
   if (state.view === "manage") showArea();
 }
 
@@ -229,7 +329,7 @@ function cancel() {
   job.queue = [];
   for (const xhr of job.requests) xhr.abort();
   job.running = false;
-  if (job.saved) post("/api/scan").catch(() => {});
+  if (job.saved || job.overwritten) post("/api/scan").catch(() => {});
   showArea();
 }
 

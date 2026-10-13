@@ -59,12 +59,66 @@ pub(super) struct UploadQuery {
     folder: String,
     /// The file's path as it was chosen: `name.jpg`, or `Trip/day 1/name.jpg` for a folder.
     path: String,
+    /// What to do when a different file already has that name: `keep` both (the new one gets
+    /// a number; the default), `skip` the new one, or `overwrite` the old one.
+    #[serde(default)]
+    on_conflict: OnConflict,
+}
+
+#[derive(Deserialize, Default, Clone, Copy, PartialEq, Debug)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum OnConflict {
+    #[default]
+    Keep,
+    Skip,
+    Overwrite,
+}
+
+/// The gallery folder `folder` names, if uploads can go into it now.
+async fn upload_root(s: &Shared, folder: &str) -> Result<PathBuf, ApiError> {
+    let scan_cfg = s.scan.clone();
+    let roots = db(s, move |conn| scan_cfg.roots(conn)).await?;
+    let root = roots
+        .into_iter()
+        .find(|r| r.to_string_lossy() == folder)
+        .ok_or_else(|| ApiError::forbidden("that folder isn't in the gallery"))?;
+    if !can_receive(&root) {
+        return Err(ApiError::conflict(format!("{} can't be reached right now", root.display())));
+    }
+    Ok(root)
+}
+
+#[derive(Deserialize)]
+pub(super) struct ExistingBody {
+    folder: String,
+    paths: Vec<String>,
+}
+
+/// Which of these paths (as `PUT /api/uploads` takes them) already have a file in the uploads
+/// folder, so the page can ask what to do before sending anything.
+pub(super) async fn existing(State(s): State<Shared>, Json(body): Json<ExistingBody>) -> ApiResult<Json<JsonValue>> {
+    if s.host.is_some() {
+        return Err(not_on_desktop());
+    }
+    if body.paths.len() > 5000 {
+        return Err(ApiError::bad_request("at most 5000 paths at a time"));
+    }
+    let base = upload_root(&s, &body.folder).await?.join(UPLOADS);
+    let found = tokio::task::spawn_blocking(move || {
+        body.paths
+            .into_iter()
+            .filter(|p| clean_relative(p).is_some_and(|rel| base.join(rel).is_file()))
+            .collect::<Vec<_>>()
+    })
+    .await?;
+    Ok(Json(json!({ "existing": found })))
 }
 
 /// One file, as the request's body. It is written beside its place and renamed into it once
 /// complete, so a broken upload leaves nothing half written. A file of the same name that is
-/// the same file is kept (`"same"`); a different one keeps its name and the new one gets a
-/// number (`"renamed"`).
+/// the same file is kept (`"same"`). A different one is, as `on_conflict` says, kept with the
+/// new one getting a number (`"renamed"`), kept with the new one not saved (`"skipped"`, sent
+/// before the body is read), or replaced (`"overwritten"`).
 pub(super) async fn upload(
     State(s): State<Shared>,
     Query(q): Query<UploadQuery>,
@@ -77,17 +131,12 @@ pub(super) async fn upload(
     if !accepted(&relative) {
         return Err(ApiError::new(StatusCode::UNSUPPORTED_MEDIA_TYPE, "not a photo or video the gallery shows"));
     }
-    let scan_cfg = s.scan.clone();
-    let roots = db(&s, move |conn| scan_cfg.roots(conn)).await?;
-    let root = roots
-        .into_iter()
-        .find(|r| r.to_string_lossy() == q.folder)
-        .ok_or_else(|| ApiError::forbidden("that folder isn't in the gallery"))?;
-    if !can_receive(&root) {
-        return Err(ApiError::conflict(format!("{} can't be reached right now", root.display())));
-    }
+    let root = upload_root(&s, &q.folder).await?;
 
     let wanted = root.join(UPLOADS).join(&relative);
+    if q.on_conflict == OnConflict::Skip && wanted.exists() {
+        return Ok((StatusCode::OK, Json(json!({ "status": "skipped", "path": as_sent(&root, &wanted) }))));
+    }
     let dir = wanted.parent().context("a file without a folder")?.to_path_buf();
     tokio::fs::create_dir_all(&dir)
         .await
@@ -103,12 +152,17 @@ pub(super) async fn upload(
         }
     };
 
-    let (status, place) = tokio::task::spawn_blocking(move || place_file(&partial, &wanted, size)).await??;
-    // With / between folders on every system, as the page sent it.
-    let saved = place.strip_prefix(&root).unwrap_or(&place);
-    let saved = saved.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/");
+    let on_conflict = q.on_conflict;
+    let (status, place) =
+        tokio::task::spawn_blocking(move || place_file(&partial, &wanted, size, on_conflict)).await??;
     let code = if status == "same" { StatusCode::OK } else { StatusCode::CREATED };
-    Ok((code, Json(json!({ "status": status, "path": saved }))))
+    Ok((code, Json(json!({ "status": status, "path": as_sent(&root, &place) }))))
+}
+
+/// `place` inside `root`, with / between folders on every system (as the page sends paths).
+fn as_sent(root: &Path, place: &Path) -> String {
+    let inside = place.strip_prefix(root).unwrap_or(place);
+    inside.components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/")
 }
 
 /// Whether uploads may go into this gallery folder now. Elsewhere an empty folder counts as an
@@ -153,9 +207,15 @@ async fn receive(body: Body, path: &Path) -> Result<u64, ApiError> {
     Ok(size)
 }
 
-/// Moves the received file to its place: `"saved"` there, `"same"` when that file is already
-/// there, `"renamed"` (with a number) when another file has the name.
-fn place_file(partial: &Path, wanted: &Path, size: u64) -> anyhow::Result<(&'static str, PathBuf)> {
+/// Moves the received file to its place: `"saved"` there, `"same"` when that very file is
+/// already there; when another file has the name, `"renamed"` (with a number), `"skipped"`
+/// (not saved) or `"overwritten"`, as `on_conflict` says.
+fn place_file(
+    partial: &Path,
+    wanted: &Path,
+    size: u64,
+    on_conflict: OnConflict,
+) -> anyhow::Result<(&'static str, PathBuf)> {
     let mut target = wanted.to_path_buf();
     let mut n = 1;
     loop {
@@ -167,6 +227,15 @@ fn place_file(partial: &Path, wanted: &Path, size: u64) -> anyhow::Result<(&'sta
             Ok(meta) if meta.len() == size && same_content(partial, &target)? => {
                 std::fs::remove_file(partial)?;
                 return Ok(("same", target));
+            }
+            Ok(_) if on_conflict == OnConflict::Skip => {
+                std::fs::remove_file(partial)?;
+                return Ok(("skipped", target));
+            }
+            Ok(_) if on_conflict == OnConflict::Overwrite => {
+                // The new file takes the place in one step: the old one is never half replaced.
+                std::fs::rename(partial, &target)?;
+                return Ok(("overwritten", target));
             }
             Ok(_) => {
                 n += 1;
@@ -257,10 +326,19 @@ mod tests {
             std::fs::write(&p, content).unwrap();
             p
         };
-        assert_eq!(place_file(&part(b"one"), &wanted, 3).unwrap(), ("saved", wanted.clone()));
-        assert_eq!(place_file(&part(b"one"), &wanted, 3).unwrap(), ("same", wanted.clone()));
-        assert_eq!(place_file(&part(b"two"), &wanted, 3).unwrap(), ("renamed", dir.join("a (2).jpg")));
-        assert_eq!(place_file(&part(b"two"), &wanted, 3).unwrap(), ("same", dir.join("a (2).jpg")));
+        let keep = OnConflict::Keep;
+        assert_eq!(place_file(&part(b"one"), &wanted, 3, keep).unwrap(), ("saved", wanted.clone()));
+        assert_eq!(place_file(&part(b"one"), &wanted, 3, keep).unwrap(), ("same", wanted.clone()));
+        assert_eq!(place_file(&part(b"two"), &wanted, 3, keep).unwrap(), ("renamed", dir.join("a (2).jpg")));
+        assert_eq!(place_file(&part(b"two"), &wanted, 3, keep).unwrap(), ("same", dir.join("a (2).jpg")));
+        // Skip leaves the file that is there; overwrite replaces it.
+        assert_eq!(place_file(&part(b"six"), &wanted, 3, OnConflict::Skip).unwrap(), ("skipped", wanted.clone()));
+        assert_eq!(std::fs::read(&wanted).unwrap(), b"one");
+        assert_eq!(
+            place_file(&part(b"six"), &wanted, 3, OnConflict::Overwrite).unwrap(),
+            ("overwritten", wanted.clone())
+        );
+        assert_eq!(std::fs::read(&wanted).unwrap(), b"six");
         assert!(!dir.join(".part").exists());
         std::fs::remove_dir_all(&dir).unwrap();
     }
