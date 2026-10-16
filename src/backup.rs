@@ -11,6 +11,8 @@
 //! index it replaces is kept beside it (`index.before-restore.sqlite`), once.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
@@ -28,24 +30,144 @@ pub fn file_name() -> String {
     format!("Imadive backup {}.{EXTENSION}", chrono::Local::now().format("%Y-%m-%d"))
 }
 
+/// Progress of the backup being made, for the page to follow: rows copied of all the rows,
+/// and the file it went to (or why it failed) once it is done.
+#[derive(Default)]
+pub struct Job {
+    pub running: AtomicBool,
+    pub done: AtomicU64,
+    pub total: AtomicU64,
+    outcome: Mutex<Option<Result<String, String>>>,
+}
+
+#[derive(Serialize)]
+pub struct JobView {
+    pub running: bool,
+    pub done: u64,
+    pub total: u64,
+    /// Where the last backup went, once it is done.
+    pub path: Option<String>,
+    pub error: Option<String>,
+}
+
+impl Job {
+    pub fn view(&self) -> JobView {
+        let outcome = self.outcome.lock().unwrap().clone();
+        JobView {
+            running: self.running.load(Ordering::SeqCst),
+            done: self.done.load(Ordering::Relaxed),
+            total: self.total.load(Ordering::Relaxed),
+            path: outcome.as_ref().and_then(|o| o.as_ref().ok().cloned()),
+            error: outcome.and_then(|o| o.err()),
+        }
+    }
+
+    /// Makes a backup of `db_path` at `out` on a thread of its own. `false` when one is
+    /// already being made.
+    pub fn start(self: &Arc<Self>, db_path: PathBuf, fixed_roots: Vec<PathBuf>, out: PathBuf) -> bool {
+        if self.running.swap(true, Ordering::SeqCst) {
+            return false;
+        }
+        self.done.store(0, Ordering::Relaxed);
+        self.total.store(0, Ordering::Relaxed);
+        *self.outcome.lock().unwrap() = None;
+        let job = self.clone();
+        std::thread::spawn(move || {
+            let result = create(&db_path, &fixed_roots, &out, &job);
+            let outcome = match result {
+                Ok(()) => {
+                    tracing::info!("backup saved in {}", out.display());
+                    Ok(out.to_string_lossy().into_owned())
+                }
+                Err(e) => {
+                    tracing::error!("making a backup in {}: {e:#}", out.display());
+                    Err(format!("{e:#}"))
+                }
+            };
+            *job.outcome.lock().unwrap() = Some(outcome);
+            job.running.store(false, Ordering::SeqCst);
+        });
+        true
+    }
+}
+
+/// `name` in `folder`, or `name (2)`, `name (3)`... when a file already has it.
+pub fn unique_path(folder: &Path, name: &str) -> PathBuf {
+    let (stem, ext) = name.rsplit_once('.').unwrap_or((name, ""));
+    let mut path = folder.join(name);
+    let mut n = 2;
+    while path.exists() {
+        path = folder.join(format!("{stem} ({n}).{ext}"));
+        n += 1;
+    }
+    path
+}
+
+/// The tables a backup copies, with the rows it leaves out: the photos' thumbnails.
+const TABLES: &[(&str, &str)] = &[
+    ("excluded", ""),
+    ("failures", ""),
+    ("folders", ""),
+    ("places", ""),
+    ("items", ""),
+    ("thumbs", "AND item_id IN (SELECT id FROM src.items WHERE duration IS NOT NULL)"),
+    ("persons", ""),
+    ("faces", ""),
+];
+/// Rows copied at a time, so the progress moves steadily.
+const CHUNK: i64 = 2000;
+
 /// Writes a backup of the index at `db_path` to `out`. The command-line folders
-/// (`fixed_roots`) go in it too, so a restore elsewhere has every folder.
-pub fn create(db_path: &Path, fixed_roots: &[PathBuf], out: &Path) -> Result<()> {
+/// (`fixed_roots`) go in it too, so a restore elsewhere has every folder. Only what the backup
+/// keeps is read and written, inside one read of the index (a consistent copy, while the
+/// gallery keeps reading and scanning). `progress` counts the rows.
+pub fn create(db_path: &Path, fixed_roots: &[PathBuf], out: &Path, progress: &Job) -> Result<()> {
     let partial = out.with_extension("partial");
     let _ = std::fs::remove_file(&partial);
     let result = (|| -> Result<()> {
-        // A consistent copy, even while the gallery is being used and scanned.
-        let conn = Connection::open(db_path)?;
-        conn.execute("VACUUM INTO ?", [partial.to_string_lossy()])?;
-        drop(conn);
-        let copy = Connection::open(&partial)?;
-        let schema: i64 = copy.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        if let Some(ms) = std::env::var("IMADIVE_TEST_BACKUP_DELAY_MS").ok().and_then(|v| v.parse().ok()) {
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+        }
+        let mut copy = Connection::open(&partial).with_context(|| format!("writing {}", partial.display()))?;
+        crate::db::init(&copy)?;
+        copy.execute("ATTACH DATABASE ? AS src", [db_path.to_string_lossy()])?;
+        copy.execute_batch("PRAGMA src.busy_timeout = 10000;")?;
+        let tx = copy.transaction()?;
+        let schema: i64 = tx.query_row("PRAGMA src.user_version", [], |r| r.get(0))?;
+        tx.execute_batch(&format!("PRAGMA main.user_version = {schema};"))?;
+        let mut total = 0;
+        for (table, only) in TABLES {
+            total +=
+                tx.query_row(&format!("SELECT COUNT(*) FROM src.{table} WHERE 1 {only}"), [], |r| r.get::<_, i64>(0))?;
+        }
+        progress.total.store(total as u64, Ordering::Relaxed);
+        for (table, only) in TABLES {
+            // By name: an index upgraded from an older version has its later columns in
+            // another order than a new one.
+            let columns: Vec<String> = tx
+                .prepare(&format!("SELECT name FROM pragma_table_info('{table}', 'main')"))?
+                .query_map([], |r| r.get(0))?
+                .collect::<Result<_, _>>()?;
+            let columns = columns.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>().join(", ");
+            let (low, high): (Option<i64>, Option<i64>) =
+                tx.query_row(&format!("SELECT MIN(rowid), MAX(rowid) FROM src.{table}"), [], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })?;
+            let (Some(low), Some(high)) = (low, high) else { continue };
+            let mut from = low;
+            while from <= high {
+                let copied = tx.execute(
+                    &format!(
+                        "INSERT INTO main.{table} ({columns}) SELECT {columns} FROM src.{table} WHERE rowid BETWEEN ?1 AND ?2 {only}"
+                    ),
+                    params![from, from + CHUNK - 1],
+                )?;
+                progress.done.fetch_add(copied as u64, Ordering::Relaxed);
+                from += CHUNK;
+            }
+        }
         let fixed: Vec<String> = fixed_roots.iter().map(|p| p.to_string_lossy().into_owned()).collect();
-        copy.execute_batch(
-            "DELETE FROM thumbs WHERE item_id IN (SELECT id FROM items WHERE duration IS NULL);
-             CREATE TABLE backup_info (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
-        )?;
-        let mut put = copy.prepare("INSERT INTO backup_info (key, value) VALUES (?, ?)")?;
+        tx.execute_batch("CREATE TABLE backup_info (key TEXT PRIMARY KEY, value TEXT NOT NULL);")?;
         for (key, value) in [
             ("app", "imadive".to_string()),
             ("format", FORMAT.to_string()),
@@ -54,10 +176,10 @@ pub fn create(db_path: &Path, fixed_roots: &[PathBuf], out: &Path) -> Result<()>
             ("created", chrono::Local::now().format("%Y-%m-%d %H:%M").to_string()),
             ("fixed_folders", serde_json::to_string(&fixed)?),
         ] {
-            put.execute(params![key, value])?;
+            tx.execute("INSERT INTO backup_info (key, value) VALUES (?, ?)", params![key, value])?;
         }
-        drop(put);
-        copy.execute_batch("VACUUM")?;
+        tx.commit()?;
+        copy.execute_batch("DETACH DATABASE src;")?;
         drop(copy);
         std::fs::rename(&partial, out).with_context(|| format!("saving {}", out.display()))?;
         Ok(())
@@ -219,7 +341,7 @@ mod tests {
     fn a_restore_brings_back_names_and_folders_without_photo_thumbnails() {
         let lib = library_with_people();
         let out = lib.dir.file("backup.imadive");
-        create(&lib.cfg.db_path, &lib.cfg.fixed_roots, &out).unwrap();
+        create(&lib.cfg.db_path, &lib.cfg.fixed_roots, &out, &Job::default()).unwrap();
 
         // Things change after the backup...
         lib.conn().execute_batch("UPDATE persons SET name = 'Someone' WHERE id = 1; DELETE FROM folders;").unwrap();
@@ -269,7 +391,7 @@ mod tests {
     fn command_line_folders_here_stay_command_line_folders() {
         let lib = library_with_people();
         let out = lib.dir.file("backup.imadive");
-        create(&lib.cfg.db_path, &lib.cfg.fixed_roots, &out).unwrap();
+        create(&lib.cfg.db_path, &lib.cfg.fixed_roots, &out, &Job::default()).unwrap();
         inspect(&out).unwrap().unwrap();
         restore(&lib.cfg.db_path, &lib.cfg.fixed_roots, &out).unwrap();
         let folders: Vec<String> = lib
@@ -281,6 +403,48 @@ mod tests {
             .map(Result::unwrap)
             .collect();
         assert_eq!(folders, vec!["/somewhere/else".to_string()]);
+    }
+
+    #[test]
+    fn an_index_upgraded_from_an_old_version_is_copied_column_by_column() {
+        // Before 0.2 the index had fewer columns; upgrading added them at the end, in another
+        // order than a new index has them (version before content_hash).
+        let dir = TempDir::new();
+        let old = dir.file("data/index.sqlite");
+        Connection::open(&old)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, path TEXT NOT NULL UNIQUE,
+                    mtime INTEGER NOT NULL, size INTEGER NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL,
+                    taken TEXT NOT NULL, date_from_exif INTEGER NOT NULL, lat REAL, lon REAL, place_id INTEGER);",
+            )
+            .unwrap();
+        crate::db::open(&old)
+            .unwrap()
+            .execute_batch(
+                "INSERT INTO items (path, mtime, size, width, height, taken, date_from_exif, version, content_hash)
+                 VALUES ('/p/a.jpg', 1, 2, 3, 4, '2020-01-01 10:00:00', 1, 7, 'abc');",
+            )
+            .unwrap();
+        let out = dir.file("backup.imadive");
+        create(&old, &[], &out, &Job::default()).unwrap();
+        inspect(&out).unwrap().unwrap();
+        let copy = Connection::open(&out).unwrap();
+        let (version, hash): (i64, String) =
+            copy.query_row("SELECT version, content_hash FROM items", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+        assert_eq!((version, hash.as_str()), (7, "abc"));
+    }
+
+    #[test]
+    fn a_second_backup_the_same_day_gets_a_number() {
+        let dir = TempDir::new();
+        let first = unique_path(dir.path(), "Imadive backup 2026-10-16.imadive");
+        assert!(first.ends_with("Imadive backup 2026-10-16.imadive"));
+        std::fs::write(&first, "").unwrap();
+        assert!(
+            unique_path(dir.path(), "Imadive backup 2026-10-16.imadive")
+                .ends_with("Imadive backup 2026-10-16 (2).imadive")
+        );
     }
 
     #[test]
@@ -297,7 +461,7 @@ mod tests {
 
         let lib = library_with_people();
         let out = lib.dir.file("backup.imadive");
-        create(&lib.cfg.db_path, &lib.cfg.fixed_roots, &out).unwrap();
+        create(&lib.cfg.db_path, &lib.cfg.fixed_roots, &out, &Job::default()).unwrap();
         Connection::open(&out)
             .unwrap()
             .execute("UPDATE backup_info SET value = '99' WHERE key = 'schema'", [])

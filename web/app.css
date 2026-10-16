@@ -580,6 +580,8 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 .about-coffee a, .about-credit a { color: var(--accent); }
 .update-cmd { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
 .update-cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 7px 10px; border-radius: 8px; background: var(--chip); font-size: 12px; }
+.browse-extra { margin-top: 10px; }
+.backup-done { margin: 8px 0 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .restore-folders { margin: 4px 0 10px; padding-left: 20px; overflow-wrap: anywhere; }
 .restore-folders .off { color: var(--muted); font-size: 12px; }
 .settings-coffee { margin: 18px 0 4px; text-align: center; color: var(--muted); font-size: 16px; line-height: 1.55; }

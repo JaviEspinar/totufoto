@@ -76,7 +76,8 @@ const github = createServer((req, res) => {
   res.end();
 });
 await new Promise(ok => github.listen(0, "127.0.0.1", ok));
-const env = { ...process.env, IMADIVE_UPDATE_BASE: `http://127.0.0.1:${github.address().port}` };
+// Backups take a moment, so the test sees their progress.
+const env = { ...process.env, IMADIVE_UPDATE_BASE: `http://127.0.0.1:${github.address().port}`, IMADIVE_TEST_BACKUP_DELAY_MS: "1500" };
 const server = spawn(bin, [library, "--data", data, "--no-faces", "--no-update-check", "--port", port], { stdio: "inherit", env });
 const stop = () => { server.kill(); github.close(); };
 process.on("SIGINT", stop);

@@ -73,6 +73,8 @@ pub struct ScanStatus {
     pub remove_total: AtomicU64,
     /// A backup is being restored (scans are held meanwhile).
     pub restoring: AtomicBool,
+    /// The backup being made, if any.
+    pub backup: Arc<crate::backup::Job>,
 }
 
 #[derive(Serialize)]
@@ -89,6 +91,7 @@ pub struct StatusView {
     pub remove_done: u64,
     pub remove_total: u64,
     pub restoring: bool,
+    pub backing_up: bool,
 }
 
 impl ScanStatus {
@@ -106,6 +109,7 @@ impl ScanStatus {
             remove_done: self.remove_done.load(Ordering::Relaxed),
             remove_total: self.remove_total.load(Ordering::Relaxed),
             restoring: self.restoring.load(Ordering::Relaxed),
+            backing_up: self.backup.running.load(Ordering::Relaxed),
         }
     }
 

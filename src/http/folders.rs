@@ -202,6 +202,8 @@ pub(super) async fn remove_folder_now(s: Shared, path: String) -> ApiResult<(usi
 #[derive(Deserialize)]
 pub(super) struct BrowseQuery {
     path: Option<String>,
+    /// Also list the files with this extension (`imadive`: backups), to choose one.
+    files: Option<String>,
 }
 
 /// The folders inside `path` on the computer running Imadive, for choosing photo folders
@@ -218,8 +220,35 @@ pub(super) async fn browse_folders(State(s): State<Shared>, Query(q): Query<Brow
                 .or_else(|| std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from))
         }
     };
-    let listing = tokio::task::spawn_blocking(move || list_dirs(start)).await?;
+    let ext = q.files.filter(|e| !e.is_empty());
+    let listing = tokio::task::spawn_blocking(move || {
+        let mut listing = list_dirs(start)?;
+        if let Some(ext) = ext
+            && let Some(dir) = listing["path"].as_str().filter(|p| !p.is_empty()).map(PathBuf::from)
+        {
+            listing["files"] = list_files(&dir, &ext).into();
+        }
+        Ok::<_, anyhow::Error>(listing)
+    })
+    .await?;
     listing.map(|v| Json(v).into_response()).map_err(|e| ApiError::bad_request(e.to_string()))
+}
+
+/// The files in `dir` ending in `.ext`, by name: `[{"name", "path"}]`.
+fn list_files(dir: &std::path::Path, ext: &str) -> Vec<JsonValue> {
+    let mut files: Vec<(String, PathBuf)> = std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .filter_map(|e| e.ok())
+                .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path()))
+                .filter(|(name, path)| {
+                    !name.starts_with('.') && path.is_file() && crate::imaging::extension(path) == ext
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    files.sort_by_key(|(name, _)| name.to_lowercase());
+    files.iter().map(|(name, p)| json!({ "name": name, "path": p.to_string_lossy() })).collect()
 }
 
 pub(super) fn list_dirs(path: Option<PathBuf>) -> Result<JsonValue> {

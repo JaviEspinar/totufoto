@@ -178,7 +178,7 @@ Progress of the current or last scan, cheap enough to poll. `phase` is `listing 
 | `POST /api/folders/pick` | opens the folder picker and adds the folder chosen (desktop app only; `204` when cancelled). With `{"save": false}` it only answers `{"path"}`, the folder chosen |
 | `POST /api/folders/move` | `{"from", "to"}`: the folder added in Settings at `from` is now at `to` (moved, renamed or copied). Its items keep their ids and everything about them under their new paths; one counts as the same file when `to` has a file of the same name and size. Answers `{"path", "moved", "changed", "missing"}`: `changed` files are read again by the scan that follows, `missing` ones leave the gallery. `409` for a command-line folder, a place that overlaps another gallery folder, or while a folder is removed |
 | `DELETE /api/folders?path=...` | takes the folder's items out of the gallery (the files stay), and answers `{"removed", "kept"}` when done; `kept` are items another folder still includes. One at a time (`409`) |
-| `GET /api/folders/browse?path=` | the folders inside `path` on the computer running Imadive: `{"path", "parent", "dirs": [{"name", "path"}]}`. Without `path`: next to the first photo folder |
+| `GET /api/folders/browse?path=` | the folders inside `path` on the computer running Imadive: `{"path", "parent", "dirs": [{"name", "path"}]}`. Without `path`: next to the first photo folder. With `files=imadive`, also `"files": [{"name", "path"}]`, the backups in it |
 
 ### Uploads
 
@@ -205,11 +205,11 @@ A backup is a copy of the index (SQLite, `.imadive`) without the photos' thumbna
 
 | | |
 |---|---|
-| `GET /api/backup` | a backup, as a download (`Content-Disposition: attachment`) |
-| `POST /api/backup/save` | desktop app only: asks where to save it, writes it there and answers `{"path"}` (`204` when cancelled) |
+| `POST /api/backup/save` | `{"folder": "/path"}` starts making a backup in that folder of the server, in the background, and answers `202` with the `path` it goes to (`Imadive backup YYYY-MM-DD.imadive`, or ` (2)`... when taken). Without `folder`, the desktop app asks where with its save dialog (`204` when cancelled). `400` for a folder that doesn't exist, `403` for one that can't be written, `409` while a backup is being made |
+| `GET /api/backup/progress` | `{"running", "done", "total", "path", "error"}`: the rows copied of all the rows, and once done where it went or why it failed. `backing_up` in `/api/status` says one is running |
 | `PUT /api/backup/inspect` | a backup to restore, as the body (any size). Answers what it holds: `{"created", "version", "photos", "videos", "people", "named", "folders": [{"path", "here"}]}`, where `here` says the folder exists on this computer. `400` for a file that isn't a backup, or one made by a newer Imadive |
-| `POST /api/backup/inspect` | with `{"pick": true}`, the same with a file chosen in the desktop app's dialog (`204` when cancelled) |
-| `POST /api/backup/restore` | replaces the index with the backup inspected last, then scans; `restoring` in `/api/status` is set meanwhile. The index replaced is kept as `index.before-restore.sqlite`. `409` when nothing was inspected, or while a folder is removed or moved or identical files are deleted |
+| `POST /api/backup/inspect` | the same with `{"path": ...}`, a backup file on the server (copied first, so it isn't changed), or with `{"pick": true}`, one chosen in the desktop app's dialog (`204` when cancelled) |
+| `POST /api/backup/restore` | replaces the index with the backup inspected last, then scans; `restoring` in `/api/status` is set meanwhile. The index replaced is kept as `index.before-restore.sqlite`. `409` when nothing was inspected, or while a folder is removed or moved, identical files are deleted or a backup is being made |
 
 ### Updates
 

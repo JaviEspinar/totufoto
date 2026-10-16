@@ -491,7 +491,8 @@ fn render_unit(s: &Settings) -> String {
 /// request says nothing: root only ever installs the latest release, checked against its
 /// checksums.
 fn render_update_units(data: &Path) -> (String, String) {
-    let request = data.join(imadive::update::REQUEST_FILE).to_string_lossy().replace('%', "%%");
+    // systemd is Linux-only: the path always takes `/` (also when the tests run on Windows).
+    let request = format!("{}/{}", data.display(), imadive::update::REQUEST_FILE).replace('%', "%%");
     let path_unit = format!(
         "# Written by `imadive setup`: installs an update when the gallery asks for one.\n\
          [Unit]\n\

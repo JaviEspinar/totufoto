@@ -244,8 +244,8 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
             get(uploads::targets).put(uploads::upload).layer(axum::extract::DefaultBodyLimit::disable()),
         )
         .route("/api/uploads/existing", post(uploads::existing))
-        .route("/api/backup", get(backup::download))
         .route("/api/backup/save", post(backup::save))
+        .route("/api/backup/progress", get(backup::progress))
         // A backup can be large: no limit on the body, which is streamed to disk.
         .route(
             "/api/backup/inspect",
@@ -811,7 +811,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_downloaded_backup_sent_back_restores_the_names() {
+    async fn a_backup_saved_in_a_server_folder_restores_the_names() {
         use tower::ServiceExt;
         let (lib, _) = library_with_a_photo();
         lib.conn().execute_batch("INSERT INTO persons (id, name) VALUES (1, 'Ana');").unwrap();
@@ -825,12 +825,36 @@ mod tests {
                 .body(axum::body::Body::from(body))
                 .unwrap()
         };
+        let folder = lib.dir.file("backups/.keep").parent().unwrap().to_string_lossy().into_owned();
 
-        let res = app.clone().oneshot(send("GET", "/api/backup", Vec::new())).await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-        let disposition = res.headers()[header::CONTENT_DISPOSITION].to_str().unwrap().to_string();
-        assert!(disposition.starts_with("attachment") && disposition.contains("Imadive backup"), "{disposition}");
-        let backup = axum::body::to_bytes(res.into_body(), 1 << 26).await.unwrap().to_vec();
+        // Saved in the background: the answer says where at once.
+        let missing = format!("{folder}/nowhere");
+        let (status, _) = call(&app, "POST", "/api/backup/save", Some(json!({ "folder": missing }))).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        let (status, v) = call(&app, "POST", "/api/backup/save", Some(json!({ "folder": folder }))).await;
+        assert_eq!(status, StatusCode::ACCEPTED);
+        let path = v["path"].as_str().unwrap().to_string();
+        assert!(path.contains("Imadive backup ") && path.ends_with(".imadive"), "{path}");
+        let progress = loop {
+            let (_, p) = call(&app, "GET", "/api/backup/progress", None).await;
+            if p["running"] == false {
+                break p;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        };
+        assert_eq!(progress["path"], path.as_str());
+        assert!(progress["total"].as_u64().unwrap() > 0 && progress["done"] == progress["total"], "{progress}");
+        // The browser lists it, to choose it for a restore.
+        let (_, listing) =
+            call(&app, "GET", &format!("/api/folders/browse?files=imadive&path={}", folder.replace('\\', "%5C")), None)
+                .await;
+        assert_eq!(listing["files"][0]["path"], path.as_str());
+        // A second one the same day doesn't replace it.
+        let (_, v) = call(&app, "POST", "/api/backup/save", Some(json!({ "folder": folder }))).await;
+        assert!(v["path"].as_str().unwrap().ends_with(" (2).imadive"));
+        while call(&app, "GET", "/api/backup/progress", None).await.1["running"] == true {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
 
         lib.conn().execute("UPDATE persons SET name = 'Someone else'", []).unwrap();
         // Nothing chosen yet.
@@ -840,21 +864,21 @@ mod tests {
         assert_eq!(res.status(), StatusCode::BAD_REQUEST);
         assert_eq!(call(&app, "POST", "/api/backup/restore", None).await.0, StatusCode::CONFLICT);
 
-        let res = app.clone().oneshot(send("PUT", "/api/backup/inspect", backup)).await.unwrap();
-        assert_eq!(res.status(), StatusCode::OK);
-        let summary: JsonValue =
-            serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1 << 20).await.unwrap()).unwrap();
+        let (status, summary) = call(&app, "POST", "/api/backup/inspect", Some(json!({ "path": path }))).await;
+        assert_eq!(status, StatusCode::OK);
         assert_eq!((summary["photos"].as_i64(), summary["named"].as_i64()), (Some(1), Some(1)));
         assert_eq!(summary["folders"][0]["here"], true);
         // Only the desktop app has dialogs.
         let (status, _) = call(&app, "POST", "/api/backup/inspect", Some(json!({ "pick": true }))).await;
         assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
-        assert_eq!(call(&app, "POST", "/api/backup/save", None).await.0, StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(call(&app, "POST", "/api/backup/save", None).await.0, StatusCode::BAD_REQUEST);
 
         let (status, _) = call(&app, "POST", "/api/backup/restore", None).await;
         assert_eq!(status, StatusCode::OK);
         let name: String = lib.conn().query_row("SELECT name FROM persons WHERE id = 1", [], |r| r.get(0)).unwrap();
         assert_eq!(name, "Ana");
+        // The backup file chosen is left as it was.
+        assert!(std::path::Path::new(&path).is_file());
         // The photo's thumbnail, left out of the backup, is made again when asked for.
         let id = lib.id("a.jpg");
         let res = app.clone().oneshot(send("GET", &format!("/thumb/{id}/0"), Vec::new())).await.unwrap();

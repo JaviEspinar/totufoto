@@ -16,13 +16,20 @@ export async function loadFolders() {
 }
 /** Picks a folder on the server by browsing its folders (the browser has no picker for
  *  those). Resolves to true once one was added, or, with `choose` (an async function of the
- *  path), once it accepted one; `title`, `intro` and `button` then say what for. */
-export function browseForFolder({ choose = addFolder, title, intro, button } = {}) {
+ *  path), once it accepted one; `title`, `intro` and `button` then say what for. With `files`
+ *  (an extension), the files of each folder are listed too, and clicking one gives it to
+ *  `choose` instead of the folder (no button then). `extra` is HTML under the list, whose
+ *  `[data-extra]` buttons call `onExtra` with the dialog closed. */
+export function browseForFolder({ choose = addFolder, title, intro, button, files, extra, onExtra } = {}) {
   const dlg = $("#browseDlg"), list = $(".browse-list", dlg), input = $("#browsePath"), err = $(".err", dlg);
-  const texts = [[$("#browseTitle"), title], [$(".dlg-body > p", dlg), intro], [$("[data-add-here]", dlg), button]];
+  const hereBtn = $("[data-add-here]", dlg), extraBox = $(".browse-extra", dlg);
+  const texts = [[$("#browseTitle"), title], [$(".dlg-body > p", dlg), intro], [hereBtn, button]];
   const before = texts.map(([el]) => el.innerHTML);
   for (const [el, text] of texts) if (text) el.innerHTML = text;
-  const folderIcon = icon("folder", 16);
+  hereBtn.hidden = !!files;
+  extraBox.innerHTML = extra ?? "";
+  extraBox.hidden = !extra;
+  const folderIcon = icon("folder", 16), fileIcon = icon("file", 16);
   let here = null, token = 0;
   const open = async path => {
     const mine = ++token;
@@ -32,7 +39,10 @@ export function browseForFolder({ choose = addFolder, title, intro, button } = {
     err.textContent = "";
     list.innerHTML = `<div class="empty">${t("Loading…")}</div>`;
     try {
-      const r = await api(`/api/folders/browse${path == null ? "" : `?path=${encodeURIComponent(path)}`}`);
+      const query = new URLSearchParams();
+      if (path != null) query.set("path", path);
+      if (files) query.set("files", files);
+      const r = await api(`/api/folders/browse${query.size ? `?${query}` : ""}`);
       if (mine !== token) return;
       here = r;
       if (input.value === before) {
@@ -41,9 +51,12 @@ export function browseForFolder({ choose = addFolder, title, intro, button } = {
       }
       $("[data-up]", dlg).disabled = r.parent == null;
       $("[data-add-here]", dlg).disabled = !r.path;
-      list.innerHTML = r.dirs.length
-        ? r.dirs.map(d => `<button type="button" data-dir="${esc(d.path)}">${folderIcon}<span>${esc(d.name)}</span></button>`).join("")
-        : `<div class="empty">${t("No folders inside.")}</div>`;
+      const entries = [
+        ...r.dirs.map(d => `<button type="button" data-dir="${esc(d.path)}">${folderIcon}<span>${esc(d.name)}</span></button>`),
+        ...(r.files ?? []).map(f => `<button type="button" class="file" data-file="${esc(f.path)}">${fileIcon}<span>${esc(f.name)}</span></button>`),
+      ];
+      list.innerHTML = entries.length ? entries.join("")
+        : `<div class="empty">${files ? t("No folders or backups inside.") : t("No folders inside.")}</div>`;
       list.scrollTop = 0;
     } catch (e) {
       if (mine !== token) return;
@@ -57,7 +70,13 @@ export function browseForFolder({ choose = addFolder, title, intro, button } = {
     const onClick = async e => {
       const target = e.target.closest("button") ?? e.target;
       if (target === dlg || target.dataset.close != null) return dlg.close();
+      if (target.dataset.extra != null) { dlg.close(); return onExtra?.(); }
       if (target.dataset.dir) return open(target.dataset.dir);
+      if (target.dataset.file) {
+        try { await choose(target.dataset.file); added = true; dlg.close(); }
+        catch (e2) { err.textContent = e2.message; }
+        return;
+      }
       if (target.dataset.up != null && here?.parent != null) return open(here.parent);
       if (target.dataset.addHere != null && here?.path) {
         target.disabled = true;
@@ -72,6 +91,8 @@ export function browseForFolder({ choose = addFolder, title, intro, button } = {
       dlg.removeEventListener("click", onClick);
       dlg.removeEventListener("keydown", onKey);
       texts.forEach(([el], i) => { el.innerHTML = before[i]; });
+      hereBtn.hidden = false;
+      extraBox.hidden = true;
       resolve(added);
     }, { once: true });
     dlg.showModal();
@@ -239,25 +260,61 @@ async function loadUpdate(url = "/api/update", method = "GET") {
 function backupHtml() {
   return `<h4>${t("Backup")}</h4>
     <p>${t("A backup keeps people and their names, face groups, your corrections and the list of folders. The photos and videos themselves aren't in it: back them up on their own. Neither are the theme and the language, which each browser keeps.")}</p>
-    <div class="add-row"><button class="btn" data-backup>${t("Back up…")}</button><button class="btn" data-restore>${t("Restore…")}</button></div>
+    <div class="add-row"><button class="btn" data-backup ${backupBusy ? "disabled" : ""}>${t("Back up…")}</button><button class="btn" data-restore ${backupBusy ? "disabled" : ""}>${t("Restore…")}</button></div>
+    <div id="backupProgress">${backupState}</div>
     <input type="file" id="restoreFile" accept=".imadive" hidden>`;
 }
-/** Makes a backup: saved where the desktop app's dialog says, or downloaded. */
-async function backUp(button) {
-  if (!folderInfo.desktop) {
-    const a = document.createElement("a");
-    a.href = "/api/backup";
-    a.download = "";
-    document.body.append(a);
-    a.click();
-    a.remove();
-    return toast(t("Preparing the backup; it downloads in a moment"));
+/** What the Backup card shows under its buttons, kept across redraws of Settings. */
+let backupState = "", backupBusy = false, backupTimer = 0;
+function showBackup(html, busy) {
+  backupState = html;
+  backupBusy = busy;
+  const el = $("#backupProgress");
+  if (el) el.innerHTML = html;
+  for (const b of document.querySelectorAll("#settingsDlg [data-backup], #settingsDlg [data-restore]")) b.disabled = busy;
+}
+const progressBar = (text, done, total) =>
+  `<div class="remove-progress"><div>${text}</div><progress ${total ? `max="${total}" value="${done}"` : ""}></progress></div>`;
+/** Follows the backup being made until it is done. */
+async function watchBackup() {
+  clearTimeout(backupTimer);
+  let p;
+  try { p = await api("/api/backup/progress"); } catch (err) { return showBackup(`<div class="err">${esc(err.message)}</div>`, false); }
+  if (p.running) {
+    const pct = p.total ? Math.min(100, Math.floor((100 * p.done) / p.total)) : 0;
+    showBackup(progressBar(p.total ? t("Making the backup… {pct}%", { pct }) : t("Making the backup…"), p.done, p.total), true);
+    backupTimer = setTimeout(watchBackup, 500);
+    return;
   }
-  button.disabled = true;
-  try {
-    const r = await post("/api/backup/save");
-    if (r?.path) toast(t("Backup saved in {path}", { path: r.path }));
-  } finally { button.disabled = false; }
+  if (p.error) {
+    showBackup(`<div class="err">${esc(t("Couldn't make the backup: {error}", { error: p.error }))}</div>`, false);
+    toast(t("Couldn't make the backup: {error}", { error: p.error }), true);
+  } else if (p.path) {
+    showBackup(`<p class="backup-done">${t("Saved in {path}", { path: `<bdi>${esc(p.path)}</bdi>` })}</p>`, false);
+    toast(t("Backup saved in {path}", { path: p.path }));
+  } else showBackup("", false);
+}
+/** Makes a backup: in a folder of the server chosen in its folder browser, or where the
+ *  desktop app's save dialog says. It runs in the background; the card follows it. */
+async function backUp() {
+  const start = async folder => {
+    // Said at once: the backup of a large library takes a while.
+    showBackup(progressBar(t("Making the backup…")), true);
+    try { return await post("/api/backup/save", folder == null ? {} : { folder }); }
+    catch (err) { showBackup("", false); throw err; }
+  };
+  if (folderInfo.desktop) {
+    const r = await start(null);
+    if (!r) return showBackup("", false); // the save dialog was cancelled
+    return watchBackup();
+  }
+  const chosen = await browseForFolder({
+    choose: start,
+    title: t("Where to save the backup"),
+    intro: t("Folders on the computer running Imadive. The backup is saved in the folder you're in."),
+    button: t("Save here"),
+  });
+  if (chosen) watchBackup();
 }
 /** What a backup holds, then restoring it once confirmed. */
 async function confirmRestore(summary) {
@@ -271,14 +328,36 @@ async function confirmRestore(summary) {
     <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button><button class="btn danger" data-choice="restore">${t("Restore")}</button></div>`,
     t("Restore this backup?"));
   if (choice !== "restore") return;
-  toast(t("Restoring the backup…"));
-  await post("/api/backup/restore");
+  showBackup(progressBar(t("Restoring the backup…")), true);
+  try { await post("/api/backup/restore"); }
+  catch (err) { showBackup("", false); throw err; }
   // Everything the page holds came from the index it replaced.
   location.reload();
 }
 async function restoreFrom(file) {
-  const summary = await api("/api/backup/inspect", { method: "PUT", body: file });
+  showBackup(progressBar(t("Reading the backup…")), true);
+  let summary;
+  try { summary = await api("/api/backup/inspect", { method: "PUT", body: file }); }
+  finally { showBackup("", false); }
   await confirmRestore(summary);
+}
+/** Restore…: a backup file on the server, chosen in its folder browser, or one uploaded from
+ *  this device; in the desktop app, the system's open dialog. */
+async function restore() {
+  if (folderInfo.desktop) {
+    const summary = await post("/api/backup/inspect", { pick: true });
+    return summary && confirmRestore(summary);
+  }
+  let summary = null;
+  await browseForFolder({
+    files: "imadive",
+    title: t("Choose a backup"),
+    intro: t("Folders and backups on the computer running Imadive. Click the backup to restore."),
+    choose: async path => { summary = await post("/api/backup/inspect", { path }); },
+    extra: `<button type="button" class="btn" data-extra>${t("Upload one from this device…")}</button>`,
+    onExtra: () => $("#restoreFile").click(),
+  });
+  if (summary) await confirmRestore(summary);
 }
 /** The theme and the language, remembered in this browser. */
 function appearanceHtml() {
@@ -343,6 +422,8 @@ export function openSettings() {
   const dlg = $("#settingsDlg");
   if (!dlg.open) dlg.showModal();
   loadUpdate();
+  // A backup started earlier (or from another device) is still being made.
+  if (lastStatus?.backing_up) watchBackup();
 }
 // ---- the About dialog, opened from the logo -------------------------------------------
 /** The icon, the name, the version, and an invitation to support the project. The logos are
@@ -402,13 +483,10 @@ $("#settingsDlg").addEventListener("click", async e => {
     return navigator.clipboard.writeText(updateInfo?.command ?? "").then(() => toast(t("Copied"))).catch(() => toast(t("Couldn't copy it; select it and copy it yourself"), true));
   }
   if (e.target.dataset.backup != null) {
-    return backUp(e.target).catch(err => toast(t("Couldn't make the backup: {error}", { error: err.message }), true));
+    return backUp().catch(err => toast(t("Couldn't make the backup: {error}", { error: err.message }), true));
   }
   if (e.target.dataset.restore != null) {
-    if (!folderInfo.desktop) return $("#restoreFile").click();
-    return post("/api/backup/inspect", { pick: true })
-      .then(summary => summary && confirmRestore(summary))
-      .catch(err => toast(t("Couldn't restore the backup: {error}", { error: err.message }), true));
+    return restore().catch(err => toast(t("Couldn't restore the backup: {error}", { error: err.message }), true));
   }
   if (e.target.dataset.regroup != null) return start(e.target, "/api/regroup");
   if (e.target.dataset.showExcluded != null) return start(e.target, "/api/excluded", "DELETE");

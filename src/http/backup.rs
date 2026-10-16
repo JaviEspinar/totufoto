@@ -9,7 +9,7 @@ use anyhow::Context;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::State;
-use axum::http::{StatusCode, header};
+use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use futures_util::StreamExt;
 use serde::Deserialize;
@@ -38,32 +38,53 @@ fn remove_with_journal(path: &std::path::Path) {
     }
 }
 
-/// A backup to download (in a browser). It is made in the data folder first, and the last one
-/// stays there until the next.
-pub(super) async fn download(State(s): State<Shared>, request: axum::extract::Request) -> ApiResult<Response> {
-    use tower::ServiceExt;
-    let out = data_dir(&s).join(format!("backup-download.{}", backup::EXTENSION));
-    let (db_path, fixed) = (s.scan.db_path.clone(), s.scan.fixed_roots.clone());
-    let made = out.clone();
-    tokio::task::spawn_blocking(move || backup::create(&db_path, &fixed, &made)).await??;
-    let service = tower_http::services::ServeFile::new_with_mime(&out, &"application/octet-stream".parse()?);
-    let mut response = service.oneshot(request).await?.map(Body::new);
-    response.headers_mut().insert(header::CONTENT_DISPOSITION, super::items::attachment(&backup::file_name()).parse()?);
-    response.headers_mut().insert(header::CACHE_CONTROL, "no-store".parse()?);
-    Ok(response)
+#[derive(Deserialize, Default)]
+pub(super) struct SaveBody {
+    /// The folder on the server to save it in (a browser on the server's gallery). Without
+    /// it, the desktop app asks where with its save dialog.
+    folder: Option<String>,
 }
 
-/// A backup saved where the desktop app's save dialog says; `204` when it was cancelled.
-pub(super) async fn save(State(s): State<Shared>) -> ApiResult<Response> {
-    let Some(host) = s.host.clone() else { return Err(ApiError::desktop_only("open a save dialog")) };
-    let Some(out) = tokio::task::spawn_blocking(move || host.save_file(&backup::file_name())).await? else {
-        return Ok(StatusCode::NO_CONTENT.into_response());
+/// Starts making a backup, in a folder of the server or where the desktop app's save dialog
+/// says, and answers at once (`202` with the `path` it goes to; `204` when the dialog was
+/// cancelled). `/api/backup/progress` follows it.
+pub(super) async fn save(State(s): State<Shared>, body: Option<Json<SaveBody>>) -> ApiResult<Response> {
+    if s.status.backup.running.load(SeqCst) {
+        return Err(ApiError::conflict("a backup is already being made"));
+    }
+    let out = match body.and_then(|Json(b)| b.folder).filter(|f| !f.trim().is_empty()) {
+        Some(folder) => {
+            let folder = PathBuf::from(folder.trim());
+            if !folder.is_dir() {
+                return Err(ApiError::bad_request(format!("{} is not a folder", folder.display())));
+            }
+            // Said now, rather than once the backup has failed.
+            let probe = folder.join(".imadive-write-check");
+            if let Err(e) = std::fs::write(&probe, b"") {
+                return Err(ApiError::forbidden(format!("can't write in {}: {e}", folder.display())));
+            }
+            let _ = std::fs::remove_file(&probe);
+            backup::unique_path(&folder, &backup::file_name())
+        }
+        None => {
+            let Some(host) = s.host.clone() else {
+                return Err(ApiError::bad_request("choose the folder to save the backup in"));
+            };
+            match tokio::task::spawn_blocking(move || host.save_file(&backup::file_name())).await? {
+                Some(path) => path,
+                None => return Ok(StatusCode::NO_CONTENT.into_response()),
+            }
+        }
     };
-    let (db_path, fixed) = (s.scan.db_path.clone(), s.scan.fixed_roots.clone());
-    let made = out.clone();
-    tokio::task::spawn_blocking(move || backup::create(&db_path, &fixed, &made)).await??;
-    tracing::info!("backup saved in {}", out.display());
-    Ok(Json(json!({ "path": out.to_string_lossy() })).into_response())
+    if !s.status.backup.start(s.scan.db_path.clone(), s.scan.fixed_roots.clone(), out.clone()) {
+        return Err(ApiError::conflict("a backup is already being made"));
+    }
+    Ok((StatusCode::ACCEPTED, Json(json!({ "path": out.to_string_lossy() }))).into_response())
+}
+
+/// How the backup being made (or the last one) is going.
+pub(super) async fn progress(State(s): State<Shared>) -> Json<backup::JobView> {
+    Json(s.status.backup.view())
 }
 
 #[derive(Deserialize, Default)]
@@ -71,6 +92,8 @@ pub(super) struct InspectBody {
     /// Choose the file with the desktop app's open dialog.
     #[serde(default)]
     pick: bool,
+    /// A backup file on the server (chosen in the page's folder browser).
+    path: Option<String>,
 }
 
 /// A backup to restore, sent as the body: checked and described, not restored yet.
@@ -88,15 +111,26 @@ pub(super) async fn inspect_upload(State(s): State<Shared>, body: Body) -> ApiRe
     describe(target).await
 }
 
-/// A backup to restore, chosen with the desktop app's open dialog (copied, so the file chosen
-/// is never changed); `204` when it was cancelled.
+/// A backup to restore: a file on the server, or one chosen with the desktop app's open
+/// dialog (`204` when it was cancelled). It is copied, so the file chosen is never changed.
 pub(super) async fn inspect_pick(State(s): State<Shared>, body: Option<Json<InspectBody>>) -> ApiResult<Response> {
-    if !body.map(|Json(b)| b).unwrap_or_default().pick {
-        return Err(ApiError::bad_request("send the backup as the body, or pick it in the desktop app"));
-    }
-    let Some(host) = s.host.clone() else { return Err(ApiError::desktop_only("open a file dialog")) };
-    let Some(chosen) = tokio::task::spawn_blocking(move || host.pick_file()).await? else {
-        return Ok(StatusCode::NO_CONTENT.into_response());
+    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let chosen = match body.path.filter(|p| !p.trim().is_empty()) {
+        Some(path) => {
+            let path = PathBuf::from(path.trim());
+            if !path.is_file() {
+                return Err(ApiError::bad_request(format!("{} is not a file", path.display())));
+            }
+            path
+        }
+        None if body.pick => {
+            let Some(host) = s.host.clone() else { return Err(ApiError::desktop_only("open a file dialog")) };
+            match tokio::task::spawn_blocking(move || host.pick_file()).await? {
+                Some(path) => path,
+                None => return Ok(StatusCode::NO_CONTENT.into_response()),
+            }
+        }
+        None => return Err(ApiError::bad_request("choose the backup file to restore")),
     };
     let target = pending(&s);
     remove_with_journal(&target);
@@ -125,6 +159,9 @@ pub(super) async fn restore(State(s): State<Shared>) -> ApiResult<Json<JsonValue
     let source = pending(&s);
     if !source.is_file() {
         return Err(ApiError::conflict("choose the backup to restore first"));
+    }
+    if s.status.backup.running.load(SeqCst) {
+        return Err(ApiError::conflict("a backup is being made; wait for it to finish"));
     }
     if s.status.removing.lock().unwrap().is_some() || s.status.dups.deleting.load(SeqCst) {
         return Err(ApiError::conflict("the gallery is busy removing files; wait for it to finish"));
