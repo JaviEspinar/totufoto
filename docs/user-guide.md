@@ -176,7 +176,8 @@ What *Update* does depends on how Imadive was installed. The file is always chec
 - **Linux AppImage**: the same, in place of the AppImage file.
 - **Linux .deb**: the new package is installed with apt, after asking for your password in a system dialog; then the app starts again.
 - **A server installed with `imadive setup`**: a small service of setup's (`imadive-update`) installs the new release as root and restarts the gallery; the page reloads when it's back. Servers installed with an older setup show the one command that adds that service.
-- **Docker** and **builds from source**: Settings shows the command to run (`docker pull ...`, or `git pull && cargo build --release`), since they can't replace themselves.
+- **A server built from source**: Settings shows the one command to run on the server (in a terminal or over SSH) to switch to the ready-made server. It is filled in with this server's settings: it stops its service and runs the install script, whose setup starts from the same user, index, photo folders and port, so nothing is indexed again and people keep their names. From then on, *Update* works from the browser.
+- **Docker**: Settings shows the `docker pull` command to run on the computer that runs the container, since a container can't replace its own image.
 
 ## Phones and tablets
 

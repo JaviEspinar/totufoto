@@ -125,6 +125,20 @@ impl Gallery {
         if self.update_check {
             crate::update::spawn_checks(self.updates.clone());
         }
+        // A server built from source: Settings says how to switch to the ready-made build,
+        // which then updates from there (setup is for Linux).
+        if self.updates.kind() == InstallKind::Source && self.host.is_none() && cfg!(target_os = "linux") {
+            let addr = listener.local_addr()?;
+            let data = self.scan.db_path.parent().map(|d| dunce::canonicalize(d).unwrap_or_else(|_| d.to_path_buf()));
+            self.updates.set_command(crate::update::switch_command(
+                crate::update::current_service().as_deref(),
+                std::env::var("USER").ok().as_deref(),
+                &data.unwrap_or_default(),
+                &self.scan.fixed_roots,
+                addr.port(),
+                addr.ip().is_loopback(),
+            ));
+        }
         let app = http::router(
             http::AppState {
                 pool: http::Pool::new(self.scan.db_path.clone()),

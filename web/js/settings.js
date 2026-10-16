@@ -235,9 +235,16 @@ function updateHtml(u) {
   }
   if (u.state === "installing") progress = `<div>${t("Installing… The gallery restarts when it's done.")}</div><progress></progress>`;
   if (u.state === "restarting") progress = `<div>${t("Restarting…")}</div><progress></progress>`;
-  const command = u.available && !u.can_install && u.command
-    ? `<p>${t("To update, run:")}</p><div class="update-cmd"><code>${esc(u.command)}</code><button class="btn" data-copy-command>${t("Copy")}</button></div>
-      <p><small>${{ docker: t("Then start the container again with the new image."), source: t("Then start the gallery again."), setup_without_helper: t("This also adds the update service, so the next updates install from here.") }[u.kind] ?? ""}</small></p>`
+  // Copies that can't update themselves: what to run, and where (never in this browser).
+  const lead = {
+    source: t("This server was built from source, so it can't update itself. Run this once on the server, in a terminal or over SSH, to switch to the ready-made version: it keeps your index, your people and your folders, and from then on updates install from here with one click."),
+    setup_without_helper: t("Run this once on the server, in a terminal or over SSH. It also adds the update service, so the next updates install from here."),
+    docker: t("Run this on the computer that runs the container, then start the container again with the new image."),
+  }[u.kind];
+  const command = u.available && !u.can_install
+    ? u.command && lead
+      ? `<p>${lead}</p><div class="update-cmd"><code>${esc(u.command)}</code><button class="btn" data-copy-command>${t("Copy")}</button></div>`
+      : `<p>${t("This copy can't update itself: get the new version from the releases page.")}</p>`
     : "";
   const buttons = `<div class="add-row">${u.available && u.can_install ? `<button class="btn primary" data-update-install ${busy ? "disabled" : ""}>${t("Update")}</button>` : ""}
     <button class="btn" data-update-check ${busy ? "disabled" : ""}>${t("Check for updates")}</button></div>`;

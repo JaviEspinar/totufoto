@@ -895,7 +895,8 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(v["current"], env!("CARGO_PKG_VERSION"));
         assert_eq!((v["kind"].as_str(), v["can_install"].as_bool()), (Some("source"), Some(false)));
-        assert!(v["command"].as_str().unwrap().contains("cargo build"));
+        // Its command, to switch to the ready-made build, is set when the server starts.
+        assert!(v["command"].is_null());
         assert_eq!(v["state"], "idle");
         // A build from source updates by hand.
         let (status, v) = call(&app, "POST", "/api/update/install", None).await;

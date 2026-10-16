@@ -26,7 +26,7 @@ test("Settings ends with the invitation to buy a coffee", async ({ page }) => {
   await expect(coffee.locator("a")).toHaveAttribute("href", /ko-fi\.com\/waiting4timeout/);
 });
 
-test("a newer release is found, and a build from source says how to update", async ({ page }) => {
+test("a newer release is found, and a build from source says how to switch to the ready-made one", async ({ page }) => {
   await openSettings(page);
   const update = page.locator("#settingsUpdate");
   await expect(update).toContainText("This is Imadive");
@@ -34,9 +34,16 @@ test("a newer release is found, and a build from source says how to update", asy
   await update.locator("[data-update-check]").click();
   await expect(update).toContainText("Imadive 99.0.0 is available");
   await expect(update.locator("a", { hasText: "What's new" })).toHaveAttribute("href", /releases\/tag\/v99\.0\.0$/);
-  // This copy can't install it: it says what to run instead.
+  // This copy can't install it: on Linux it says what to run on the server to switch to the
+  // ready-made build (with this server's own settings); elsewhere, where to get it.
   await expect(update.locator("[data-update-install]")).toHaveCount(0);
-  await expect(update.locator(".update-cmd code")).toContainText("cargo build --release");
+  if (process.platform === "linux") {
+    await expect(update).toContainText("Run this once on the server");
+    await expect(update.locator(".update-cmd code")).toContainText("scripts/install.sh | sh -s -- ");
+    await expect(update.locator(".update-cmd code")).toContainText("--folder ");
+  } else {
+    await expect(update).toContainText("get the new version from the releases page");
+  }
   // The gear shows there is one, on this page and the next.
   await page.reload();
   await expect(page.locator("#settingsBtnDot")).toBeVisible();

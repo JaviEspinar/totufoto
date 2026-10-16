@@ -101,7 +101,8 @@ impl InstallKind {
                 Some(format!("curl -fsSL https://raw.githubusercontent.com/{REPO}/main/scripts/install.sh | sh"))
             }
             Self::Docker => Some(format!("docker pull ghcr.io/{REPO}:latest")),
-            Self::Source => Some("git pull && cargo build --release".into()),
+            // A server built from source gets one to switch to the ready-made build, with its
+            // own settings (see `switch_command`).
             _ => None,
         }
     }
@@ -116,6 +117,57 @@ impl InstallKind {
             Self::Docker | Self::Source => None,
         }
     }
+}
+
+/// Single quotes for the shell, unless the word needs none.
+fn shell_quote(word: &str) -> String {
+    if !word.is_empty() && word.chars().all(|c| c.is_ascii_alphanumeric() || "/._-:@=+,".contains(c)) {
+        return word.to_string();
+    }
+    format!("'{}'", word.replace('\'', "'\\''"))
+}
+
+/// What a server built from source runs once to become the ready-made one, which then updates
+/// from Settings: its service stopped (setup puts its own in place), then the install script,
+/// whose setup starts from this server's settings (the user it runs as, the index, the
+/// folders, the port) so nothing is indexed again.
+pub fn switch_command(
+    service: Option<&str>,
+    user: Option<&str>,
+    data: &Path,
+    folders: &[PathBuf],
+    port: u16,
+    local: bool,
+) -> String {
+    let mut setup: Vec<String> = Vec::new();
+    if let Some(user) = user {
+        setup.extend(["--user".into(), shell_quote(user)]);
+    }
+    setup.extend(["--data".into(), shell_quote(&data.to_string_lossy())]);
+    for folder in folders {
+        setup.extend(["--folder".into(), shell_quote(&folder.to_string_lossy())]);
+    }
+    setup.extend(["--port".into(), port.to_string()]);
+    if local {
+        setup.push("--local".into());
+    }
+    let install = format!(
+        "curl -fsSL https://raw.githubusercontent.com/{REPO}/main/scripts/install.sh | sh -s -- {}",
+        setup.join(" ")
+    );
+    match service {
+        Some(service) => format!("sudo systemctl disable --now {} && {install}", shell_quote(service)),
+        None => install,
+    }
+}
+
+/// The systemd service this program runs in, if any (from /proc/self/cgroup).
+pub fn current_service() -> Option<String> {
+    let cgroup = std::fs::read_to_string("/proc/self/cgroup").ok()?;
+    cgroup.lines().find_map(|line| {
+        let unit = line.rsplit('/').next()?;
+        unit.strip_suffix(".service").filter(|name| !name.contains('@')).map(str::to_string)
+    })
 }
 
 /// The server archive for this computer's processor.
@@ -275,6 +327,9 @@ pub enum Refused {
 /// The update state of this copy, shared by the handlers and the background check.
 pub struct Updates {
     kind: InstallKind,
+    /// What to run instead of the kind's own command (a server built from source: switching
+    /// to the ready-made build, with its settings).
+    command: Mutex<Option<String>>,
     automatic: AtomicBool,
     /// Where the request and status files of a server's root service go.
     data_dir: PathBuf,
@@ -288,6 +343,7 @@ impl Updates {
     pub fn new(kind: InstallKind, data_dir: PathBuf) -> Self {
         Self {
             kind,
+            command: Mutex::new(None),
             automatic: AtomicBool::new(false),
             data_dir,
             inner: Mutex::default(),
@@ -317,13 +373,22 @@ impl Updates {
             kind: self.kind,
             can_install: self.kind.can_install(),
             automatic: self.automatic.load(Ordering::Relaxed),
-            command: self.kind.command(),
+            command: self.command.lock().unwrap().clone().or_else(|| self.kind.command()),
             releases: releases_url(),
             state: inner.state.unwrap_or("idle"),
             done: self.done.load(Ordering::Relaxed),
             total: self.total.load(Ordering::Relaxed),
             error: inner.error.clone(),
         }
+    }
+
+    /// The command to show instead of the kind's own.
+    pub fn set_command(&self, command: String) {
+        *self.command.lock().unwrap() = Some(command);
+    }
+
+    pub fn kind(&self) -> InstallKind {
+        self.kind
     }
 
     pub fn available(&self) -> bool {
@@ -551,7 +616,29 @@ mod tests {
         assert!(InstallKind::Setup.asset("0.3.3").unwrap().starts_with("Imadive-server-0.3.3-linux-"));
         assert!(InstallKind::Docker.asset("0.3.3").is_none());
         assert!(InstallKind::Docker.command().unwrap().contains("docker pull ghcr.io/waiting4timeout/imadive"));
+        assert!(InstallKind::Source.command().is_none(), "it gets switch_command, with its settings");
         assert!(!InstallKind::Source.can_install() && InstallKind::Setup.can_install());
+    }
+
+    #[test]
+    fn a_server_built_from_source_switches_with_its_own_settings() {
+        let command = switch_command(
+            Some("imadive"),
+            Some("caja"),
+            Path::new("/home/caja/imadive-data"),
+            &[PathBuf::from("/mnt/disk/Imágenes"), PathBuf::from("/srv/it's mine")],
+            7878,
+            false,
+        );
+        assert_eq!(
+            command,
+            "sudo systemctl disable --now imadive && curl -fsSL \
+             https://raw.githubusercontent.com/waiting4timeout/imadive/main/scripts/install.sh | sh -s -- \
+             --user caja --data /home/caja/imadive-data --folder '/mnt/disk/Imágenes' --folder '/srv/it'\\''s mine' --port 7878"
+        );
+        // Started by hand: nothing to stop, and only this computer.
+        let command = switch_command(None, None, Path::new("/data"), &[], 8080, true);
+        assert!(command.starts_with("curl ") && command.ends_with("--data /data --port 8080 --local"), "{command}");
     }
 
     #[cfg(unix)]
