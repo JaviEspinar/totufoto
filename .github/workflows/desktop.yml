@@ -240,6 +240,11 @@ jobs:
           for i in $(seq 1 60); do status 7878 | grep -q '"running":false' && break; sleep 2; done
           curl -fsS http://127.0.0.1:7878/api/items | grep -q '"items":\[\['
           sudo journalctl -u imadive --no-pager | grep "face recognition enabled"
+          # Updates from Settings: the gallery knows how it was installed, the root service
+          # that installs them waits for its request, and only root may run it.
+          systemctl is-active imadive-update.path
+          curl -fsS http://127.0.0.1:7878/api/update | grep -q '"kind":"setup"'
+          if imadive self-update; then echo "self-update ran without root"; exit 1; fi
           # Run again from the installed copy: a new port, then gone (with its index).
           # (`!` doesn't stop a script under set -e, hence the ifs.)
           sudo imadive setup --yes --port 7979
@@ -248,6 +253,7 @@ jobs:
           sudo imadive setup --uninstall --yes --delete-data
           if systemctl is-active imadive; then echo "still running"; exit 1; fi
           test ! -e /etc/systemd/system/imadive.service -a ! -e /opt/imadive -a ! -e "$HOME/imadive-data"
+          test ! -e /etc/systemd/system/imadive-update.path -a ! -e /etc/systemd/system/imadive-update.service
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

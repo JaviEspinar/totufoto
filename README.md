@@ -43,11 +43,13 @@ It comes as a desktop app for Windows and Linux, and as a command-line app that 
 - **Videos** in the timeline, with their date, place and length, played in the viewer.
 - **Upload** from a phone or another computer to the gallery on your server: a folder or photos, with a progress bar.
 - All filters combine (people + place + date range + upcoming) and live in the URL, so views can be bookmarked.
+- **Backups** of everything the gallery has learned (people, names, face groups, your corrections, the folders), to restore here or on another computer.
+- **Updates** from Settings: it says when a new release is out, and installs it with one click (desktop apps, and servers installed with `imadive setup`).
 - **In English or Spanish**, with a light or dark theme (or your system's), chosen in Settings.
 
 ## Privacy and security
 
-- **Private by design**: everything runs on your computer. There is no account, no cloud and no telemetry; places are found with an offline city list, and the only network requests are the ones you make yourself (opening a map link).
+- **Private by design**: everything runs on your computer. There is no account, no cloud and no telemetry; places are found with an offline city list, and the only network requests are the ones you make yourself (opening a map link) and a daily look at GitHub for new releases, which `--no-update-check` or `IMADIVE_NO_UPDATE_CHECK=1` turns off.
 - **No login**: by default the gallery only accepts this computer. If you share it with your network (`--host 0.0.0.0`, to use it from a phone), anyone who can reach it can see your photos, rotate them and delete them, and add any folder of the computer to the gallery (so also see and delete images you never shared). Only do that on a network you trust, such as your home network, and never expose it to the internet.
 - **Other websites can't use it**: requests for a name other than an IP address, `localhost`, this computer's own name or one you allow with `--allow-host` are refused (this blocks DNS rebinding), and requests that change something are refused when they come from another site.
 
@@ -201,6 +203,7 @@ Run `imadive --help` for the full list:
 | `--face-threshold` | `0.42` | cosine similarity to treat two faces as the same person; raise it if different people get mixed, lower it if one person is split |
 | `--no-faces` | | skip face recognition |
 | `--scan-only` | | index and exit |
+| `--no-update-check` | | don't look for new releases on GitHub once a day (also `IMADIVE_NO_UPDATE_CHECK=1`); Settings still checks when asked |
 
 When passing options through cargo, put them after `--`, for example `cargo run --release -- ~/Pictures --port 8080`.
 

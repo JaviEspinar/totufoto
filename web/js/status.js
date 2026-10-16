@@ -25,6 +25,7 @@ function indexWork(s) {
       ? { title: t("Removing {done} of {total} files", { done: num(s.remove_done), total: num(s.remove_total) }), detail: t("Folder {name}", { name }), done: s.remove_done, total: s.remove_total }
       : { title: t("Removing a folder…"), detail: t("Folder {name}", { name }) };
   }
+  if (s?.restoring) return { title: t("Restoring the backup…"), detail: "" };
   if (!s?.running) return null;
   if (s.phase === "indexing files" && s.total > 0) {
     return { title: t("Indexing {done} of {total} files", { done: num(s.done), total: num(s.total) }),
@@ -34,6 +35,10 @@ function indexWork(s) {
   if (s.phase === "grouping faces" && s.group_total > 0) {
     return { title: t("Grouping faces {pct}%", { pct: Math.min(100, Math.floor((100 * s.group_done) / s.group_total)) }),
       detail: t("Placing faces into people"), done: s.group_done, total: s.group_total };
+  }
+  if (s.phase === "making thumbnails" && s.total > 0) {
+    return { title: t("Making thumbnails {done} of {total}", { done: num(s.done), total: num(s.total) }),
+      detail: t("For the photos of the restored backup"), done: s.done, total: s.total };
   }
   // Listing the files of a large library takes a while: say so when nothing is shown yet.
   if (s.phase === "listing files" && !shownItemCount) return { title: t("Looking for photos and videos…"), detail: t("Listing the files in your folders") };
@@ -85,6 +90,8 @@ $("#indexPill").addEventListener("click", e => {
 });
 
 let pollFailures = 0;
+/** The version this page came from. */
+let pageVersion = null;
 export async function pollStatus() {
   let s;
   try { s = await api("/api/status"); } catch {
@@ -94,6 +101,10 @@ export async function pollStatus() {
   }
   if (pollFailures >= 3) toast(t("Connected to Imadive again"));
   pollFailures = 0;
+  // Updated meanwhile (from this page or another device): the page is the old version's.
+  pageVersion ??= s.version;
+  if (s.version && s.version !== pageVersion) return location.reload();
+  $("#settingsBtnDot").hidden = !s.update_available;
   const wasRemoving = lastStatus?.removing ?? null;
   lastStatus = s;
   // A folder removal (from this page or another device): its row in Settings follows it.

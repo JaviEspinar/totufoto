@@ -1,5 +1,6 @@
 //! HTTP API and embedded web UI: the router, the connection pool, errors, and the page.
 
+mod backup;
 mod folders;
 mod items;
 mod people;
@@ -51,7 +52,8 @@ const SCRIPTS: [(&str, &str); 14] = [
 
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 /// The project's pages, linked from Settings. Update it when the repository moves.
-const PROJECT_URL: &str = "https://github.com/JaviEspinar/totufoto";
+/// The project's page (`update::REPO` on GitHub).
+const PROJECT_URL: &str = "https://github.com/waiting4timeout/imadive";
 /// The author's page ("Created by W4T" in the About dialog).
 const AUTHOR_URL: &str = "https://waiting4timeout.github.io/";
 /// Where people can support the project ("buying me a coffee" in the About dialog). None
@@ -128,6 +130,7 @@ pub struct AppState {
     pub status: Arc<ScanStatus>,
     pub scan: Arc<ScanConfig>,
     pub host: Option<Arc<dyn Host>>,
+    pub updates: Arc<crate::update::Updates>,
 }
 
 type Shared = Arc<AppState>;
@@ -208,6 +211,9 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
         .route("/api/folders/pick", post(folders::pick_folder))
         .route("/api/folders/move", post(folders::move_folder))
         .route("/api/folders/browse", get(folders::browse_folders))
+        .route("/api/update", get(system::update_status))
+        .route("/api/update/check", post(system::update_check))
+        .route("/api/update/install", post(system::update_install))
         .route("/api/open", post(system::open_url))
         .route("/api/logs/reveal", post(system::reveal_logs))
         .route("/api/items", get(items::items))
@@ -238,6 +244,14 @@ pub fn router(state: AppState, names: crate::guard::HostNames) -> Router {
             get(uploads::targets).put(uploads::upload).layer(axum::extract::DefaultBodyLimit::disable()),
         )
         .route("/api/uploads/existing", post(uploads::existing))
+        .route("/api/backup", get(backup::download))
+        .route("/api/backup/save", post(backup::save))
+        // A backup can be large: no limit on the body, which is streamed to disk.
+        .route(
+            "/api/backup/inspect",
+            put(backup::inspect_upload).post(backup::inspect_pick).layer(axum::extract::DefaultBodyLimit::disable()),
+        )
+        .route("/api/backup/restore", post(backup::restore))
         // Not videos: they are already compressed, and range requests (seeking) need the
         // bytes as they are on disk.
         .layer(
@@ -271,6 +285,7 @@ mod tests {
                 cluster_threshold: 0.42,
             }),
             host: None,
+            updates: Arc::new(crate::update::Updates::new(crate::update::InstallKind::Source, lib.dir.path().into())),
         };
         (router(state, crate::guard::HostNames::default()), status)
     }
@@ -390,8 +405,20 @@ mod tests {
 
         let (_, v) = get("/api/status".into()).await;
         for k in [
-            "excluded", "failed", "phase", "running", "total", "done", "faces", "removing", "version", "logs",
-            "donate", "author",
+            "excluded",
+            "failed",
+            "phase",
+            "running",
+            "total",
+            "done",
+            "faces",
+            "removing",
+            "version",
+            "logs",
+            "donate",
+            "author",
+            "restoring",
+            "update_available",
         ] {
             assert!(v.get(k).is_some(), "status.{k}");
         }
@@ -781,5 +808,74 @@ mod tests {
         assert_eq!(status(req("evil.example:7878", Some("same-origin"))).await, StatusCode::FORBIDDEN);
         assert_eq!(status(req("127.0.0.1:7878", Some("cross-site"))).await, StatusCode::FORBIDDEN);
         assert_eq!(status(req("127.0.0.1:7878", Some("same-origin"))).await, StatusCode::ACCEPTED);
+    }
+
+    #[tokio::test]
+    async fn a_downloaded_backup_sent_back_restores_the_names() {
+        use tower::ServiceExt;
+        let (lib, _) = library_with_a_photo();
+        lib.conn().execute_batch("INSERT INTO persons (id, name) VALUES (1, 'Ana');").unwrap();
+        let app = app(&lib);
+        let send = |method: &str, uri: &str, body: Vec<u8>| {
+            axum::http::Request::builder()
+                .method(method)
+                .uri(uri)
+                .header("host", "127.0.0.1:7878")
+                .header("sec-fetch-site", "same-origin")
+                .body(axum::body::Body::from(body))
+                .unwrap()
+        };
+
+        let res = app.clone().oneshot(send("GET", "/api/backup", Vec::new())).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let disposition = res.headers()[header::CONTENT_DISPOSITION].to_str().unwrap().to_string();
+        assert!(disposition.starts_with("attachment") && disposition.contains("Imadive backup"), "{disposition}");
+        let backup = axum::body::to_bytes(res.into_body(), 1 << 26).await.unwrap().to_vec();
+
+        lib.conn().execute("UPDATE persons SET name = 'Someone else'", []).unwrap();
+        // Nothing chosen yet.
+        assert_eq!(call(&app, "POST", "/api/backup/restore", None).await.0, StatusCode::CONFLICT);
+        // Not a backup.
+        let res = app.clone().oneshot(send("PUT", "/api/backup/inspect", b"hello".to_vec())).await.unwrap();
+        assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(call(&app, "POST", "/api/backup/restore", None).await.0, StatusCode::CONFLICT);
+
+        let res = app.clone().oneshot(send("PUT", "/api/backup/inspect", backup)).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        let summary: JsonValue =
+            serde_json::from_slice(&axum::body::to_bytes(res.into_body(), 1 << 20).await.unwrap()).unwrap();
+        assert_eq!((summary["photos"].as_i64(), summary["named"].as_i64()), (Some(1), Some(1)));
+        assert_eq!(summary["folders"][0]["here"], true);
+        // Only the desktop app has dialogs.
+        let (status, _) = call(&app, "POST", "/api/backup/inspect", Some(json!({ "pick": true }))).await;
+        assert_eq!(status, StatusCode::NOT_IMPLEMENTED);
+        assert_eq!(call(&app, "POST", "/api/backup/save", None).await.0, StatusCode::NOT_IMPLEMENTED);
+
+        let (status, _) = call(&app, "POST", "/api/backup/restore", None).await;
+        assert_eq!(status, StatusCode::OK);
+        let name: String = lib.conn().query_row("SELECT name FROM persons WHERE id = 1", [], |r| r.get(0)).unwrap();
+        assert_eq!(name, "Ana");
+        // The photo's thumbnail, left out of the backup, is made again when asked for.
+        let id = lib.id("a.jpg");
+        let res = app.clone().oneshot(send("GET", &format!("/thumb/{id}/0"), Vec::new())).await.unwrap();
+        assert_eq!(res.status(), StatusCode::OK);
+        assert_eq!(res.headers()[header::CONTENT_TYPE], "image/jpeg");
+    }
+
+    #[tokio::test]
+    async fn updates_say_what_this_copy_can_do() {
+        assert_eq!(PROJECT_URL, format!("https://github.com/{}", crate::update::REPO));
+        let (lib, _) = library_with_a_photo();
+        let app = app(&lib);
+        let (status, v) = call(&app, "GET", "/api/update", None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(v["current"], env!("CARGO_PKG_VERSION"));
+        assert_eq!((v["kind"].as_str(), v["can_install"].as_bool()), (Some("source"), Some(false)));
+        assert!(v["command"].as_str().unwrap().contains("cargo build"));
+        assert_eq!(v["state"], "idle");
+        // A build from source updates by hand.
+        let (status, v) = call(&app, "POST", "/api/update/install", None).await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(v["error"], "this copy can't update itself");
     }
 }

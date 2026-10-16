@@ -115,6 +115,10 @@ journalctl -u imadive -b          # everything since the last boot
 
 ## 3. Updating
 
+Installed with the quick install (`imadive setup`)? Update from the gallery itself: *Settings → Updates → Update*. Setup adds two small units for this: `imadive-update.path` notices when the gallery asks (it writes `update-request` in its data folder), and `imadive-update.service` then runs `imadive self-update` as root, which downloads the latest server release for your processor, checks it against the release's checksums and installs it with `setup --yes`, keeping your settings. How it went is in `journalctl -u imadive-update`. The gallery looks for new releases once a day on GitHub; `--no-update-check` (or `IMADIVE_NO_UPDATE_CHECK=1`) turns that off. Running the quick install command again updates too.
+
+Built by hand as below:
+
 ```sh
 cd ~/imadive
 git pull

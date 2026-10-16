@@ -41,10 +41,57 @@ impl Host for DesktopHost {
     fn log_file(&self) -> Option<PathBuf> {
         self.log.clone()
     }
+
+    fn save_file(&self, name: &str) -> Option<PathBuf> {
+        let mut dialog = self
+            .app
+            .dialog()
+            .file()
+            .set_title("Save a backup")
+            .set_file_name(name)
+            .add_filter("Imadive backup", &["imadive"]);
+        if let Some(window) = self.app.get_webview_window("main") {
+            dialog = dialog.set_parent(&window);
+        }
+        dialog.blocking_save_file().and_then(|p| p.into_path().ok())
+    }
+
+    fn restart(&self) {
+        // The new copy waits for this one to let go of the single-instance lock (see main).
+        // After an update the program file is new: an AppImage is started from its own file,
+        // and on Linux the running program's path may say it was deleted (replaced by apt).
+        let program = std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| {
+            let exe = std::env::current_exe().ok()?;
+            let text = exe.to_string_lossy();
+            Some(text.strip_suffix(" (deleted)").map(PathBuf::from).unwrap_or(exe))
+        });
+        match program.map(|p| std::process::Command::new(p).env(RESTARTED, "1").spawn()) {
+            Some(Ok(_)) => self.app.exit(0),
+            Some(Err(e)) => tracing::error!("starting the new version: {e}"),
+            None => tracing::error!("can't tell where the program is"),
+        }
+    }
+
+    fn pick_file(&self) -> Option<PathBuf> {
+        let mut dialog =
+            self.app.dialog().file().set_title("Restore a backup").add_filter("Imadive backup", &["imadive"]);
+        if let Some(window) = self.app.get_webview_window("main") {
+            dialog = dialog.set_parent(&window);
+        }
+        dialog.blocking_pick_file().and_then(|p| p.into_path().ok())
+    }
 }
+
+/// Set for the copy an update starts (see `restart`).
+const RESTARTED: &str = "IMADIVE_RESTARTED";
 
 fn main() {
     imadive::init_desktop_logging();
+    if std::env::var_os(RESTARTED).is_some() {
+        // The copy that started this one is closing: until it's gone, this one would only
+        // bring its window to the front and leave.
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    }
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--self-test") {
         std::process::exit(self_test(&args[2..]));
@@ -137,6 +184,8 @@ fn start(app: &mut tauri::App) -> Result<()> {
         face_threshold: imadive::DEFAULT_FACE_THRESHOLD,
         host: Some(Arc::new(DesktopHost { app: app.handle().clone(), log })),
         allowed_names: Vec::new(),
+        // As for the command-line app, which also takes --no-update-check.
+        update_check: std::env::var_os("IMADIVE_NO_UPDATE_CHECK").is_none(),
     })?;
     gallery.start_scan();
 
@@ -230,6 +279,7 @@ fn run_self_test(photos: Option<PathBuf>) -> Result<(bool, String)> {
             face_threshold: imadive::DEFAULT_FACE_THRESHOLD,
             host: None,
             allowed_names: Vec::new(),
+            update_check: false,
         })?;
         gallery.scan_blocking()?;
         let s = gallery.status();

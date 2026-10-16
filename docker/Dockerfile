@@ -34,6 +34,8 @@ LABEL org.opencontainers.image.title="Imadive" \
 # The index (and its thumbnails) lives in /data; the photos are mounted at /photos (or
 # anywhere, given as the command). Other options go before the folders, for example
 # `--allow-host photos.home /photos`.
+# Settings says to update with `docker pull` (a container can't replace its own image).
+ENV IMADIVE_INSTALL=docker
 VOLUME ["/data"]
 EXPOSE 7878
 WORKDIR /data

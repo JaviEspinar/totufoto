@@ -71,6 +71,8 @@ pub struct ScanStatus {
     pub removing: Mutex<Option<String>>,
     pub remove_done: AtomicU64,
     pub remove_total: AtomicU64,
+    /// A backup is being restored (scans are held meanwhile).
+    pub restoring: AtomicBool,
 }
 
 #[derive(Serialize)]
@@ -86,6 +88,7 @@ pub struct StatusView {
     pub removing: Option<String>,
     pub remove_done: u64,
     pub remove_total: u64,
+    pub restoring: bool,
 }
 
 impl ScanStatus {
@@ -102,6 +105,7 @@ impl ScanStatus {
             removing: self.removing.lock().unwrap().clone(),
             remove_done: self.remove_done.load(Ordering::Relaxed),
             remove_total: self.remove_total.load(Ordering::Relaxed),
+            restoring: self.restoring.load(Ordering::Relaxed),
         }
     }
 
@@ -392,6 +396,7 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
         let full = status.regroup.swap(false, Ordering::SeqCst);
         cluster::update_groups(&mut conn, cfg.cluster_threshold, full, &progress)?;
     }
+    fill_thumbnails(&conn, status)?;
     conn.execute_batch("PRAGMA optimize;")?;
     tracing::info!(
         "scan finished in {:.1}s: {} files, {} faces, {} errors",
@@ -400,6 +405,44 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
         status.faces.load(Ordering::Relaxed),
         status.errors.load(Ordering::Relaxed)
     );
+    Ok(())
+}
+
+/// Photos without a thumbnail get one again: after a restore, since backups leave them out.
+/// The gallery makes those it shows first (`backup::make_thumbnail`); this does the rest. A
+/// photo whose file can't be read now (an unplugged drive) is tried again next time.
+fn fill_thumbnails(conn: &Connection, status: &ScanStatus) -> Result<()> {
+    let missing = crate::backup::photos_without_thumbnail(conn)?;
+    if missing.is_empty() {
+        return Ok(());
+    }
+    status.set_phase("making thumbnails");
+    status.total.store(missing.len() as u64, Ordering::Relaxed);
+    status.done.store(0, Ordering::Relaxed);
+    let mut made = 0;
+    for chunk in missing.chunks(64) {
+        if status.hold.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let thumbs: Vec<(i64, Vec<u8>)> = chunk
+            .par_iter()
+            .filter_map(|(id, path)| match photo_thumbnail(Path::new(path)) {
+                Ok(thumb) => Some((*id, thumb)),
+                Err(e) => {
+                    tracing::debug!("{path}: no thumbnail: {e:#}");
+                    None
+                }
+            })
+            .collect();
+        let tx = conn.unchecked_transaction()?;
+        for (id, thumb) in &thumbs {
+            tx.execute("INSERT OR IGNORE INTO thumbs (item_id, data) VALUES (?, ?)", params![id, thumb])?;
+        }
+        tx.commit()?;
+        made += thumbs.len();
+        status.done.fetch_add(chunk.len() as u64, Ordering::Relaxed);
+    }
+    tracing::info!("made {made} of {} missing thumbnails", missing.len());
     Ok(())
 }
 
@@ -468,6 +511,14 @@ enum Outcome {
 pub(crate) fn thumbnail(img: &image::RgbImage) -> Result<Vec<u8>> {
     let work = imaging::fit(img, WORK_MAX_SIDE)?;
     imaging::encode_jpeg(&imaging::fit_box(&work, THUMB_MAX_W, THUMB_MAX_H)?, 78)
+}
+
+/// The thumbnail of the photo at `path`, read from its file.
+pub(crate) fn photo_thumbnail(path: &Path) -> Result<Vec<u8>> {
+    let bytes = std::fs::read(path)?;
+    let img = imaging::decode(path, &bytes)?.into_rgb8();
+    drop(bytes);
+    thumbnail(&img)
 }
 
 fn process(file: FileEntry, models: Option<&ModelPaths>) -> Result<Processed, (FileEntry, anyhow::Error)> {

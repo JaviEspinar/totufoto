@@ -22,6 +22,6 @@ Places are found with the [`reverse_geocoder`](https://crates.io/crates/reverse_
 
 ## Rust crates
 
-Imadive is built from open-source Rust crates, listed with their versions in `Cargo.lock`. Their licenses are permissive (mostly MIT and Apache-2.0, also BSD, ISC, Zlib, Unicode-3.0 and Unlicense), except for a few crates used only by the desktop app through Tauri (`cssparser`, `cssparser-macros`, `selectors`, `dtoa-short`, `option-ext`), which are under the Mozilla Public License 2.0; their unmodified source code is available from <https://crates.io>.
+Imadive is built from open-source Rust crates, listed with their versions in `Cargo.lock`. Their licenses are permissive (mostly MIT and Apache-2.0, also BSD, ISC, Zlib, Unicode-3.0 and Unlicense), except for a few crates used only by the desktop app through Tauri (`cssparser`, `cssparser-macros`, `selectors`, `dtoa-short`, `option-ext`), which are under the Mozilla Public License 2.0; their unmodified source code is available from <https://crates.io>. The certificate authorities trusted when looking for updates come from Mozilla's list, through `webpki-roots` and `webpki-root-certs`, under the Community Data License Agreement, Permissive, Version 2.0.
 
 To list every crate with its license: `cargo tree --format "{p} {l}" --prefix none | sort -u`.

@@ -150,9 +150,33 @@ Settings is the gear at the top right. (The ImaDive logo at the top left shows t
 - Photos removed from the gallery, with *Show again*.
 - *Regroup all faces* groups every face from scratch (named people are kept).
 - *Appearance*: the theme (*System* follows your device; *Light* or *Dark* stays as chosen) and the language (English or Spanish; by default your browser's language if it is one of them, otherwise English). Both are remembered in each browser, so a phone and a computer can differ.
-- *About*: the version, the license and the project's page. In the desktop app, *Open log folder* shows the log, to attach when reporting a problem.
+- *Backup*: see [Backups](#backups) below.
+- *Updates*: see [Updates](#updates) below.
+- *About*: the version, the license and the project's page. In the desktop app, *Open log folder* shows the log, to attach when reporting a problem. At the bottom, as in the logo's dialog, how to support the project.
 
 While indexing, the first time, the Photos tab shows the progress until the first photos are in. After that a small card at the bottom right shows it on every tab: *Show N new* brings in the photos indexed since, *Details* opens Settings, *Hide* hides it until the next scan.
+
+## Backups
+
+*Settings → Backup* keeps everything the gallery has learned that the photos themselves don't say: people and their names, the face groups, the faces you placed (*Not them*, *Same as*), card photos, hidden people, items removed from the gallery, and the list of folders (also those given on the command line). The photos and videos are **not** in it: back them up on their own. Neither are the theme and the language, which each browser keeps.
+
+- *Back up…* downloads a file named like `Imadive backup 2026-10-16.imadive` (in the desktop app, it asks where to save it). The photos' thumbnails are left out, so the file stays small; videos keep theirs.
+- *Restore…* asks for a backup file and says what it holds before anything changes: when it was made, how many photos, videos and named people, and its folders, marking those that aren't on this computer. *Restore* then replaces everything in this gallery with the backup.
+- After a restore, the gallery scans: files changed since the backup are read again, and the photos' thumbnails are made again from the photos (those on screen first; the status card shows *Making thumbnails*). A folder of the backup that isn't on this computer keeps its photos as *not available*; if they are somewhere else here, use its *Moved to…* button.
+- The index a restore replaced stays in the data folder as `index.before-restore.sqlite` (the last one only), in case the restore wasn't wanted.
+- A backup made by a newer Imadive can't be restored until this one is updated.
+
+## Updates
+
+*Settings → Updates* says whether a newer release than yours is out, with *Check for updates* to look now and, when there is one, *What's new* (its release notes) and *Update*. Imadive looks on [GitHub](https://github.com/waiting4timeout/imadive/releases) a minute after it starts and then once a day; that request tells GitHub nothing but that someone is checking. To turn it off, start the command-line app with `--no-update-check`, or set the environment variable `IMADIVE_NO_UPDATE_CHECK=1` (for the desktop app too); *Check for updates* still works when you click it. A dot on the gear shows when an update is waiting.
+
+What *Update* does depends on how Imadive was installed. The file is always checked against the release's published checksums before anything is replaced.
+
+- **Windows** (.exe): the new version replaces the old file and the app starts again.
+- **Linux AppImage**: the same, in place of the AppImage file.
+- **Linux .deb**: the new package is installed with apt, after asking for your password in a system dialog; then the app starts again.
+- **A server installed with `imadive setup`**: a small service of setup's (`imadive-update`) installs the new release as root and restarts the gallery; the page reloads when it's back. Servers installed with an older setup show the one command that adds that service.
+- **Docker** and **builds from source**: Settings shows the command to run (`docker pull ...`, or `git pull && cargo build --release`), since they can't replace themselves.
 
 ## Phones and tablets
 

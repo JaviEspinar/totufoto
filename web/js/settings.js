@@ -1,7 +1,7 @@
 // Settings: photo folders, browsing for one, the library status and About.
 // One of the page's modules; main.js starts the page.
 import { lang, languages, num, t, tn } from "./i18n.js";
-import { $, api, del, esc, icon, loadMeta, plural, post, pref } from "./core.js";
+import { $, api, del, esc, fmtBytes, icon, loadMeta, plural, post, pref } from "./core.js";
 import { items } from "./items.js";
 import { toast } from "./people.js";
 import { render } from "./views.js";
@@ -190,8 +190,95 @@ export function renderSettings(error = "") {
     <section class="set-part"><h4>${t("People")}</h4><div class="scan-state"><div class="what">${t("Regroup all faces")}
       <small>${t("New faces are placed into people after every scan. This groups every face again from scratch instead: named people and faces you placed stay where they are, unnamed groups may change. It can take a long time on large libraries.")}</small></div>
       <button class="btn" data-regroup>${t("Regroup")}</button></div></section>
+    <section class="set-part">${backupHtml()}</section>
     <section class="set-part">${appearanceHtml()}</section>
+    <section class="set-part" id="settingsUpdate">${updateHtml(updateInfo)}</section>
     <div id="settingsAbout">${aboutHtml(lastStatus)}</div>`;
+}
+// ---- updates ---------------------------------------------------------------------------
+let updateInfo = null, updateTimer = 0;
+const updateBusy = u => ["checking", "downloading", "installing", "restarting"].includes(u?.state);
+/** This version, the latest release, and the buttons to check and to update. */
+function updateHtml(u) {
+  if (!u) return `<h4>${t("Updates")}</h4><p>${t("Loading…")}</p>`;
+  const busy = updateBusy(u);
+  const whatsNew = u.latest ? ` <a href="${esc(u.releases)}/tag/v${esc(u.latest)}" target="_blank" rel="noopener">${t("What's new")}</a>` : "";
+  const text = u.available
+    ? `<b>${t("Imadive {latest} is available (you have {current}).", { latest: esc(u.latest), current: esc(u.current) })}</b>${whatsNew}`
+    : u.latest ? t("Imadive {current} is up to date.", { current: esc(u.current) }) : t("This is Imadive {current}.", { current: esc(u.current) });
+  let progress = "";
+  if (u.state === "checking") progress = `<div>${t("Checking for updates…")}</div><progress></progress>`;
+  if (u.state === "downloading") {
+    progress = `<div>${u.total ? t("Downloading {done} of {total}", { done: fmtBytes(u.done), total: fmtBytes(u.total) }) : t("Downloading…")}</div>
+      <progress ${u.total ? `max="${u.total}" value="${u.done}"` : ""}></progress>`;
+  }
+  if (u.state === "installing") progress = `<div>${t("Installing… The gallery restarts when it's done.")}</div><progress></progress>`;
+  if (u.state === "restarting") progress = `<div>${t("Restarting…")}</div><progress></progress>`;
+  const command = u.available && !u.can_install && u.command
+    ? `<p>${t("To update, run:")}</p><div class="update-cmd"><code>${esc(u.command)}</code><button class="btn" data-copy-command>${t("Copy")}</button></div>
+      <p><small>${{ docker: t("Then start the container again with the new image."), source: t("Then start the gallery again."), setup_without_helper: t("This also adds the update service, so the next updates install from here.") }[u.kind] ?? ""}</small></p>`
+    : "";
+  const buttons = `<div class="add-row">${u.available && u.can_install ? `<button class="btn primary" data-update-install ${busy ? "disabled" : ""}>${t("Update")}</button>` : ""}
+    <button class="btn" data-update-check ${busy ? "disabled" : ""}>${t("Check for updates")}</button></div>`;
+  return `<h4>${t("Updates")}</h4><p>${text}</p>
+    ${progress ? `<div class="remove-progress">${progress}</div>` : ""}
+    ${u.state === "error" && u.error ? `<div class="err">${esc(t("The last attempt failed: {error}", { error: u.error }))}</div>` : ""}
+    ${command}${buttons}
+    <p><small>${[u.checked ? t("Last checked on GitHub on {when}.", { when: esc(u.checked) }) : "",
+      u.automatic ? t("Imadive looks for new releases once a day.") : t("Imadive only looks for new releases when you ask.")].filter(Boolean).join(" ")}</small></p>`;
+}
+/** Fetches the update state; while something is going on, again every second. */
+async function loadUpdate(url = "/api/update", method = "GET") {
+  clearTimeout(updateTimer);
+  try { updateInfo = await api(url, { method }); } catch (err) { updateInfo = { ...updateInfo, state: "error", error: err.message }; }
+  const el = $("#settingsUpdate");
+  if (el) el.innerHTML = updateHtml(updateInfo);
+  if (updateBusy(updateInfo) && $("#settingsDlg").open) updateTimer = setTimeout(loadUpdate, 1000);
+}
+/** Backing up the index, and restoring a backup. */
+function backupHtml() {
+  return `<h4>${t("Backup")}</h4>
+    <p>${t("A backup keeps people and their names, face groups, your corrections and the list of folders. The photos and videos themselves aren't in it: back them up on their own. Neither are the theme and the language, which each browser keeps.")}</p>
+    <div class="add-row"><button class="btn" data-backup>${t("Back up…")}</button><button class="btn" data-restore>${t("Restore…")}</button></div>
+    <input type="file" id="restoreFile" accept=".imadive" hidden>`;
+}
+/** Makes a backup: saved where the desktop app's dialog says, or downloaded. */
+async function backUp(button) {
+  if (!folderInfo.desktop) {
+    const a = document.createElement("a");
+    a.href = "/api/backup";
+    a.download = "";
+    document.body.append(a);
+    a.click();
+    a.remove();
+    return toast(t("Preparing the backup; it downloads in a moment"));
+  }
+  button.disabled = true;
+  try {
+    const r = await post("/api/backup/save");
+    if (r?.path) toast(t("Backup saved in {path}", { path: r.path }));
+  } finally { button.disabled = false; }
+}
+/** What a backup holds, then restoring it once confirmed. */
+async function confirmRestore(summary) {
+  const folders = summary.folders.map(f => `<li><bdi>${esc(f.path)}</bdi>${f.here ? "" : ` <span class="off">${t("not on this computer")}</span>`}</li>`).join("");
+  const missing = summary.folders.some(f => !f.here);
+  const choice = await askChoice(`<p>${t("Made on {date} by Imadive {version}.", { date: esc(summary.created), version: esc(summary.version) })}</p>
+    <p>${[tn(summary.photos, "{n} photo", "{n} photos"), tn(summary.videos, "{n} video", "{n} videos"), tn(summary.named, "{n} named person", "{n} named people")].join(" · ")}</p>
+    ${folders ? `<p>${t("Folders:")}</p><ul class="restore-folders">${folders}</ul>` : ""}
+    ${missing ? `<p>${t("The photos of folders that aren't on this computer are kept, shown as not available. If they are somewhere else here, use <b>Moved to…</b> in Settings afterwards.")}</p>` : ""}
+    <p>${t("Everything in this gallery is replaced by the backup: people, names, groups and folders. The photos and videos aren't touched. The index it replaces is kept in the data folder, as <b>index.before-restore.sqlite</b>.")}</p>
+    <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button><button class="btn danger" data-choice="restore">${t("Restore")}</button></div>`,
+    t("Restore this backup?"));
+  if (choice !== "restore") return;
+  toast(t("Restoring the backup…"));
+  await post("/api/backup/restore");
+  // Everything the page holds came from the index it replaced.
+  location.reload();
+}
+async function restoreFrom(file) {
+  const summary = await api("/api/backup/inspect", { method: "PUT", body: file });
+  await confirmRestore(summary);
 }
 /** The theme and the language, remembered in this browser. */
 function appearanceHtml() {
@@ -214,6 +301,11 @@ function applyTheme(theme) {
   else delete document.documentElement.dataset.theme;
 }
 $("#settingsDlg").addEventListener("change", e => {
+  if (e.target.id === "restoreFile" && e.target.files[0]) {
+    const file = e.target.files[0];
+    e.target.value = "";
+    restoreFrom(file).catch(err => toast(t("Couldn't restore the backup: {error}", { error: err.message }), true));
+  }
   if (e.target.id === "themePref") applyTheme(e.target.value);
   // Everything on the page is written in the language as it is drawn: start again in the new one.
   if (e.target.id === "langPref") { pref.set("lang", e.target.value); location.reload(); }
@@ -226,7 +318,15 @@ function aboutHtml(st) {
     <p>${t("<b>Imadive {version}</b>. Free for personal and other non-commercial use under the PolyForm Noncommercial License 1.0.0. The face recognition models are for non-commercial use only.", { version: esc(st.version) })}</p>
     <p>${link("blob/main/LICENSE", t("License"))} · ${link("blob/main/THIRD_PARTY.md", t("Third-party components"))} ·
       ${link("releases", t("Releases"))}</p>
-    ${st.logs ? `<p><button class="btn" data-logs>${t("Open log folder")}</button> <small>${t("For reporting a problem: the log of this run, and of the one before.")}</small></p>` : ""}</div></section>`;
+    ${st.logs ? `<p><button class="btn" data-logs>${t("Open log folder")}</button> <small>${t("For reporting a problem: the log of this run, and of the one before.")}</small></p>` : ""}</div></section>
+    <p class="about-coffee settings-coffee">${coffeeHtml(st)}</p>`;
+}
+/** The invitation to support the project, as in the About dialog. */
+function coffeeHtml(st) {
+  const coffee = st?.donate
+    ? `<a href="${esc(st.donate)}" target="_blank" rel="noopener">${t("buying me a coffee")}</a>`
+    : t("buying me a coffee");
+  return t("ImaDive is free. If you like it, please<br>consider {coffee}&nbsp;☕", { coffee });
 }
 export function openSettings() {
   renderSettings();
@@ -242,6 +342,7 @@ export function openSettings() {
   if (lastStatus?.failed !== failureCount) loadFailures();
   const dlg = $("#settingsDlg");
   if (!dlg.open) dlg.showModal();
+  loadUpdate();
 }
 // ---- the About dialog, opened from the logo -------------------------------------------
 /** The icon, the name, the version, and an invitation to support the project. The logos are
@@ -254,10 +355,7 @@ async function openAbout() {
   }
   const st = lastStatus?.version ? lastStatus : await api("/api/status").catch(() => null);
   $(".about-version", dlg).textContent = st?.version ? `Imadive v${st.version}` : "Imadive";
-  const coffee = st?.donate
-    ? `<a href="${esc(st.donate)}" target="_blank" rel="noopener">${t("buying me a coffee")}</a>`
-    : t("buying me a coffee");
-  $(".about-coffee", dlg).innerHTML = t("ImaDive is free. If you like it, please<br>consider {coffee}&nbsp;☕", { coffee });
+  $(".about-coffee", dlg).innerHTML = coffeeHtml(st);
   const author = st?.author ? `<a href="${esc(st.author)}" target="_blank" rel="noopener">W4T</a>` : "W4T";
   $(".about-credit", dlg).innerHTML = t("Created by {author}", { author });
   if (!dlg.open) dlg.showModal();
@@ -292,6 +390,26 @@ $("#settingsDlg").addEventListener("click", async e => {
     await (method === "DELETE" ? del(url) : post(url)).catch(err => renderSettings(err.message));
     setTimeout(pollStatus, 300);
   };
+  if (e.target.dataset.updateCheck != null) return loadUpdate("/api/update/check", "POST");
+  if (e.target.dataset.updateInstall != null) {
+    e.target.disabled = true;
+    return post("/api/update/install").then(() => loadUpdate()).catch(err => {
+      toast(t("Couldn't update: {error}", { error: err.message }), true);
+      loadUpdate();
+    });
+  }
+  if (e.target.dataset.copyCommand != null) {
+    return navigator.clipboard.writeText(updateInfo?.command ?? "").then(() => toast(t("Copied"))).catch(() => toast(t("Couldn't copy it; select it and copy it yourself"), true));
+  }
+  if (e.target.dataset.backup != null) {
+    return backUp(e.target).catch(err => toast(t("Couldn't make the backup: {error}", { error: err.message }), true));
+  }
+  if (e.target.dataset.restore != null) {
+    if (!folderInfo.desktop) return $("#restoreFile").click();
+    return post("/api/backup/inspect", { pick: true })
+      .then(summary => summary && confirmRestore(summary))
+      .catch(err => toast(t("Couldn't restore the backup: {error}", { error: err.message }), true));
+  }
   if (e.target.dataset.regroup != null) return start(e.target, "/api/regroup");
   if (e.target.dataset.showExcluded != null) return start(e.target, "/api/excluded", "DELETE");
   if (e.target.dataset.retry != null) return start(e.target, "/api/failures/retry");

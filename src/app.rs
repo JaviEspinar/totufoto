@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 
 use crate::faces::{self, ModelPaths};
 use crate::scan::{self, ScanConfig, ScanStatus};
+use crate::update::InstallKind;
 use crate::{db, guard, http};
 
 /// Native services offered by the program embedding the gallery.
@@ -23,6 +24,16 @@ pub trait Host: Send + Sync + 'static {
     fn log_file(&self) -> Option<PathBuf> {
         None
     }
+    /// Shows a native save dialog suggesting `name`; `None` when cancelled.
+    fn save_file(&self, _name: &str) -> Option<PathBuf> {
+        None
+    }
+    /// Shows a native dialog to open a backup; `None` when cancelled.
+    fn pick_file(&self) -> Option<PathBuf> {
+        None
+    }
+    /// Starts the app again (after an update replaced it).
+    fn restart(&self) {}
 }
 
 /// Cosine similarity needed to consider two faces the same person, unless told otherwise.
@@ -42,6 +53,8 @@ pub struct Config {
     /// Host names the server answers to besides IP addresses, `localhost` and this
     /// computer's own names (`--allow-host`; see `guard`).
     pub allowed_names: Vec<String>,
+    /// Look for new releases on GitHub once a day (the Check for updates button works either way).
+    pub update_check: bool,
 }
 
 pub struct Gallery {
@@ -49,6 +62,8 @@ pub struct Gallery {
     status: Arc<ScanStatus>,
     host: Option<Arc<dyn Host>>,
     allowed_names: Vec<String>,
+    updates: Arc<crate::update::Updates>,
+    update_check: bool,
 }
 
 impl Gallery {
@@ -66,7 +81,14 @@ impl Gallery {
             // finds the folder again with a scan once it's back.
             tracing::warn!("folder {} can't be found; its photos are kept until it's back", folder.display());
         }
+        let kind = if cfg.host.is_some() { InstallKind::desktop() } else { InstallKind::server() };
+        if kind == InstallKind::WindowsExe {
+            crate::update::clean_up();
+        }
+        let updates = Arc::new(crate::update::Updates::new(kind, cfg.data_dir.clone()));
         Ok(Self {
+            updates,
+            update_check: cfg.update_check,
             scan: Arc::new(ScanConfig {
                 fixed_roots: folders,
                 db_path,
@@ -100,12 +122,16 @@ impl Gallery {
         if !listener.local_addr()?.ip().is_loopback() {
             tracing::info!("answering to IP addresses, localhost and {:?}", names.names());
         }
+        if self.update_check {
+            crate::update::spawn_checks(self.updates.clone());
+        }
         let app = http::router(
             http::AppState {
                 pool: http::Pool::new(self.scan.db_path.clone()),
                 status: self.status,
                 scan: self.scan,
                 host: self.host,
+                updates: self.updates,
             },
             names,
         );
@@ -238,6 +264,7 @@ mod folder_tests {
             face_threshold: DEFAULT_FACE_THRESHOLD,
             host: None,
             allowed_names: Vec::new(),
+            update_check: false,
         })
         .expect("starts anyway");
         assert_eq!(gallery.scan.fixed_roots, [resolve_folder(&missing).unwrap()]);

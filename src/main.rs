@@ -48,6 +48,10 @@ struct Args {
     /// Index the library and exit, without starting the web server
     #[arg(long)]
     scan_only: bool,
+    /// Don't look for new releases on GitHub (by default, once a day; Settings can still
+    /// check when asked). Also read from IMADIVE_NO_UPDATE_CHECK.
+    #[arg(long, env = "IMADIVE_NO_UPDATE_CHECK")]
+    no_update_check: bool,
 }
 
 #[derive(Subcommand)]
@@ -55,12 +59,18 @@ enum Commands {
     /// Install the gallery as a service on a Linux server (with sudo), or update, change or
     /// uninstall it: a wizard with an answer ready for every question.
     Setup(setup::SetupArgs),
+    /// Installs the latest release; run as root by imadive-update.service when the gallery
+    /// asks for an update.
+    #[command(hide = true)]
+    SelfUpdate,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    if let Some(Commands::Setup(setup)) = args.command {
-        return setup::run(setup);
+    match args.command {
+        Some(Commands::Setup(setup)) => return setup::run(setup),
+        Some(Commands::SelfUpdate) => return setup::self_update(),
+        None => {}
     }
     serve(args)
 }
@@ -76,6 +86,7 @@ async fn serve(args: Args) -> Result<()> {
         face_threshold: args.face_threshold,
         host: None,
         allowed_names: args.allow_host,
+        update_check: !args.no_update_check,
     })?;
 
     if args.scan_only {

@@ -22,6 +22,9 @@ const INSTALL_DIR: &str = "/opt/imadive";
 const UNIT_PATH: &str = "/etc/systemd/system/imadive.service";
 const LINK: &str = "/usr/local/bin/imadive";
 const SETTINGS_PATH: &str = "/opt/imadive/setup.json";
+/// Runs `imadive self-update` as root when the gallery asks for an update (see
+/// [`render_update_units`]); the gallery's own service runs as a normal user.
+const UPDATE_SERVICE_PATH: &str = "/etc/systemd/system/imadive-update.service";
 /// The user created for the gallery when no other is chosen.
 const SYSTEM_USER: &str = "imadive";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -324,6 +327,13 @@ fn apply(settings: &Settings, unit: &str, existing: Option<&Settings>) -> Result
         run_cmd(Command::new("systemctl").arg("daemon-reload"))?;
         run_cmd(Command::new("systemctl").args(["enable", "imadive"]))
     })?;
+    step("Writing the update service", &mut || {
+        let (path_unit, service) = render_update_units(&settings.data);
+        fs::write(imadive::update::HELPER_PATH_UNIT, path_unit)?;
+        fs::write(UPDATE_SERVICE_PATH, service)?;
+        run_cmd(Command::new("systemctl").arg("daemon-reload"))?;
+        run_cmd(Command::new("systemctl").args(["enable", "--now", "imadive-update.path"]))
+    })?;
     step("Starting the gallery", &mut || {
         run_cmd(Command::new("systemctl").args(["restart", "imadive"]))?;
         wait_until_answering(settings.port)
@@ -374,8 +384,10 @@ fn uninstall(existing: Option<&Settings>, args: &SetupArgs) -> Result<()> {
             None => false,
         }
     };
-    let _ = Command::new("systemctl").args(["disable", "--now", "imadive"]).status();
-    let _ = fs::remove_file(UNIT_PATH);
+    let _ = Command::new("systemctl").args(["disable", "--now", "imadive", "imadive-update.path"]).status();
+    for unit in [UNIT_PATH, imadive::update::HELPER_PATH_UNIT, UPDATE_SERVICE_PATH] {
+        let _ = fs::remove_file(unit);
+    }
     let _ = Command::new("systemctl").arg("daemon-reload").status();
     if fs::read_link(LINK).is_ok_and(|target| target.starts_with(INSTALL_DIR)) {
         let _ = fs::remove_file(LINK);
@@ -472,6 +484,85 @@ fn render_unit(s: &Settings) -> String {
         user = s.user,
         exec = exec.join(" "),
     )
+}
+
+/// The units that install an update when the gallery asks: the gallery writes
+/// `update-request` in its data folder, which starts `imadive self-update` as root. The
+/// request says nothing: root only ever installs the latest release, checked against its
+/// checksums.
+fn render_update_units(data: &Path) -> (String, String) {
+    let request = data.join(imadive::update::REQUEST_FILE).to_string_lossy().replace('%', "%%");
+    let path_unit = format!(
+        "# Written by `imadive setup`: installs an update when the gallery asks for one.\n\
+         [Unit]\n\
+         Description=Imadive updates asked for from the gallery\n\
+         \n\
+         [Path]\n\
+         PathChanged={request}\n\
+         Unit=imadive-update.service\n\
+         \n\
+         [Install]\n\
+         WantedBy=multi-user.target\n"
+    );
+    let service = format!(
+        "# Written by `imadive setup`: installs the latest release (see imadive-update.path).\n\
+         [Unit]\n\
+         Description=Imadive update: installs the latest release\n\
+         \n\
+         [Service]\n\
+         Type=oneshot\n\
+         ExecStart={INSTALL_DIR}/imadive self-update\n"
+    );
+    (path_unit, service)
+}
+
+/// `imadive self-update`, run by imadive-update.service: downloads the latest server release
+/// for this computer, checks it, and installs it with its own `setup --yes`, which keeps the
+/// settings and restarts the gallery. How it went is written to `update-status.json` in the
+/// data folder, for the gallery to show.
+pub fn self_update() -> Result<()> {
+    if !is_root() {
+        bail!("self-update installs a release, so it runs as root (imadive-update.service starts it)");
+    }
+    let settings = installed_settings().context("Imadive isn't installed here with setup")?;
+    let status_file = settings.data.join(imadive::update::STATUS_FILE);
+    let report = |state: &str, error: Option<String>| {
+        let _ = fs::write(&status_file, serde_json::json!({ "state": state, "error": error }).to_string());
+    };
+    report("installing", None);
+    let work = std::env::temp_dir().join(format!("imadive-update-{}", std::process::id()));
+    let result = (|| -> Result<Option<String>> {
+        let latest = imadive::update::latest_version()?;
+        if !imadive::update::is_newer(&latest, VERSION) {
+            return Ok(None);
+        }
+        fs::create_dir_all(&work)?;
+        let name = imadive::update::server_asset(&latest);
+        let archive = work.join(&name);
+        println!("Downloading {name}...");
+        imadive::update::download(&latest, &name, &archive, &|_, _| {})?;
+        run_cmd(Command::new("tar").arg("-xzf").arg(&archive).arg("-C").arg(&work))?;
+        let program = work.join(format!("imadive-{latest}")).join("imadive");
+        run_cmd(Command::new(&program).args(["setup", "--yes"]))?;
+        Ok(Some(latest))
+    })();
+    let _ = fs::remove_dir_all(&work);
+    match result {
+        Ok(Some(version)) => {
+            println!("Updated to {version}");
+            report("done", None);
+            Ok(())
+        }
+        Ok(None) => {
+            println!("{VERSION} is the latest version");
+            report("done", None);
+            Ok(())
+        }
+        Err(e) => {
+            report("error", Some(format!("{e:#}")));
+            Err(e)
+        }
+    }
 }
 
 /// One ExecStart argument as systemd reads it: `%` and `$` doubled, and in quotes when it has
@@ -795,6 +886,17 @@ mod tests {
         assert!(exec.contains("--host 127.0.0.1"));
         assert!(exec.ends_with("--no-faces --face-threshold 0.5 --allow-host photos.home"));
         assert!(!unit.contains("Nice="));
+    }
+
+    #[test]
+    fn updates_asked_for_in_the_data_folder_run_self_update() {
+        let (path_unit, service) = render_update_units(Path::new("/home/ana/100% photos"));
+        assert!(path_unit.contains("\nPathChanged=/home/ana/100%% photos/update-request\n"), "{path_unit}");
+        assert!(
+            path_unit.contains("\nUnit=imadive-update.service\n") && path_unit.contains("WantedBy=multi-user.target")
+        );
+        assert!(service.contains("\nType=oneshot\nExecStart=/opt/imadive/imadive self-update\n"), "{service}");
+        assert!(!service.contains("User="), "it runs as root");
     }
 
     #[test]

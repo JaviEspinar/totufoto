@@ -7,6 +7,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { cpSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -66,8 +67,18 @@ const faces = [
 for (const [rel, people] of faces) people.forEach((person, i) => addFace.run(id(rel), 0.1 + 0.4 * i, embedding, picture, person));
 db.close();
 
-const server = spawn(bin, [library, "--data", data, "--no-faces", "--port", port], { stdio: "inherit" });
-const stop = () => { server.kill(); };
+// A stand-in for GitHub's releases, so the update check finds a newer version (99.0.0)
+// without going online.
+const github = createServer((req, res) => {
+  if (req.url === "/waiting4timeout/imadive/releases/latest") {
+    res.writeHead(302, { location: "https://github.com/waiting4timeout/imadive/releases/tag/v99.0.0" });
+  } else res.writeHead(404);
+  res.end();
+});
+await new Promise(ok => github.listen(0, "127.0.0.1", ok));
+const env = { ...process.env, IMADIVE_UPDATE_BASE: `http://127.0.0.1:${github.address().port}` };
+const server = spawn(bin, [library, "--data", data, "--no-faces", "--no-update-check", "--port", port], { stdio: "inherit", env });
+const stop = () => { server.kill(); github.close(); };
 process.on("SIGINT", stop);
 process.on("SIGTERM", stop);
 server.on("exit", code => {

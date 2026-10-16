@@ -2,6 +2,7 @@
 //! Used by the command-line app (`src/main.rs`) and the desktop app (`desktop/`).
 
 mod app;
+mod backup;
 mod cluster;
 mod db;
 mod duplicates;
@@ -16,6 +17,7 @@ mod rotate;
 pub mod scan;
 #[cfg(test)]
 mod testutil;
+pub mod update;
 mod video;
 
 pub use app::{

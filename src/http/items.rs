@@ -127,7 +127,21 @@ pub(super) fn jpeg(bytes: Vec<u8>, cache: &'static str) -> Response {
 /// it safe to keep for good: a new version (the item was rotated, or its file changed) has
 /// a new address. An address with another version gets the current picture, but not to keep.
 pub(super) async fn thumb(State(s): State<Shared>, Path((id, version)): Path<(i64, i64)>) -> ApiResult<Response> {
-    let data = db(&s, move |conn| items::thumbnail(conn, id)).await?;
+    let data = db(&s, move |conn| {
+        let Some((picture, current)) = items::thumbnail(conn, id)? else { return Ok(None) };
+        // A photo without one, after a restore (backups leave them out): made now, so what's
+        // on screen comes first. The scan makes the others.
+        let picture = match picture {
+            Some(p) => Some(p),
+            // Its file can't be read now (an unplugged drive, say): no picture until it can.
+            None => crate::backup::make_thumbnail(conn, id).unwrap_or_else(|e| {
+                tracing::debug!("no thumbnail for {id}: {e:#}");
+                None
+            }),
+        };
+        Ok(Some((picture, current)))
+    })
+    .await?;
     let (picture, current) = data.ok_or_else(|| ApiError::not_found("picture"))?;
     // A video whose thumbnail the page hasn't made yet: nothing, and the page draws its own.
     let Some(bytes) = picture else {

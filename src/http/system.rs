@@ -25,7 +25,32 @@ pub(super) async fn status(State(s): State<Shared>) -> ApiResult<Json<JsonValue>
     value["author"] = super::AUTHOR_URL.into();
     // The desktop app keeps a log file, which Settings can show (see /api/logs/reveal).
     value["logs"] = s.host.as_ref().is_some_and(|h| h.log_file().is_some()).into();
+    // A newer release was found (details in /api/update).
+    value["update_available"] = s.updates.available().into();
     Ok(Json(value))
+}
+
+/// The version, the latest release found, and how an update is going.
+pub(super) async fn update_status(State(s): State<Shared>) -> Json<crate::update::UpdateView> {
+    Json(s.updates.view())
+}
+
+/// Asks GitHub for the latest release now.
+pub(super) async fn update_check(State(s): State<Shared>) -> ApiResult<Json<crate::update::UpdateView>> {
+    let updates = s.updates.clone();
+    tokio::task::spawn_blocking(move || updates.check()).await?;
+    Ok(Json(s.updates.view()))
+}
+
+/// Installs the latest release in the background; `/api/update` says how it goes.
+pub(super) async fn update_install(State(s): State<Shared>) -> ApiResult<StatusCode> {
+    use crate::update::Refused;
+    match s.updates.install(s.host.clone()) {
+        Ok(()) => Ok(StatusCode::ACCEPTED),
+        Err(Refused::CantUpdateItself) => Err(ApiError::conflict("this copy can't update itself")),
+        Err(Refused::NothingNewer) => Err(ApiError::conflict("there is no newer version to install")),
+        Err(Refused::Busy) => Err(ApiError::conflict("an update is already being installed")),
+    }
 }
 
 /// Files that could not be indexed, with the reason (first 500).

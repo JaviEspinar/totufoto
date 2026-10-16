@@ -19,6 +19,8 @@ The gallery shows videos as well as photos, so what the API calls a photo is now
 | | `?silent=1` on `/original/{id}`: a video without its sound |
 | | `GET` and `PUT /api/uploads`: uploading photos and videos (server only) |
 | | `POST /api/folders/move`: a folder moved elsewhere keeps its items; `{"save": false}` on `/api/folders/pick` |
+| | `/api/backup`: backups, and restoring them |
+| | `/api/update`: updates; `update_available` and `restoring` in `/api/status` |
 
 ## Changes in 0.2
 
@@ -148,7 +150,7 @@ Faces moved by hand are never moved by automatic grouping.
 
 ### `GET /api/status`
 
-Progress of the current or last scan, cheap enough to poll. `phase` is `listing files`, `indexing files`, `grouping faces` or, after an error, `failed`.
+Progress of the current or last scan, cheap enough to poll. `phase` is `listing files`, `indexing files`, `grouping faces`, `making thumbnails` (after a restore) or, after an error, `failed`.
 
 ```json
 {
@@ -196,6 +198,28 @@ Only on the server (`501` in the desktop app). Uploads go into an `imaDive-uploa
 | `POST /api/duplicates/search` | search again (`202`) |
 | `POST /api/duplicates/delete` | `{}` moves every copy to the bin, keeping the oldest file of each set; `{"ids": [...]}` only those; `"permanently": true` deletes for good. Answers when done; `409` if a deletion is already running |
 | `GET /api/duplicates/progress` | cheap, for polling: `{"scanning", "searching", "checked", "to_check"}` for the search, `{"deleting", "done", "total", "freed"}` for a deletion |
+
+### Backups
+
+A backup is a copy of the index (SQLite, `.imadive`) without the photos' thumbnails, with a `backup_info` table saying what it is. Restoring is in two steps, so the page can show what a backup holds first.
+
+| | |
+|---|---|
+| `GET /api/backup` | a backup, as a download (`Content-Disposition: attachment`) |
+| `POST /api/backup/save` | desktop app only: asks where to save it, writes it there and answers `{"path"}` (`204` when cancelled) |
+| `PUT /api/backup/inspect` | a backup to restore, as the body (any size). Answers what it holds: `{"created", "version", "photos", "videos", "people", "named", "folders": [{"path", "here"}]}`, where `here` says the folder exists on this computer. `400` for a file that isn't a backup, or one made by a newer Imadive |
+| `POST /api/backup/inspect` | with `{"pick": true}`, the same with a file chosen in the desktop app's dialog (`204` when cancelled) |
+| `POST /api/backup/restore` | replaces the index with the backup inspected last, then scans; `restoring` in `/api/status` is set meanwhile. The index replaced is kept as `index.before-restore.sqlite`. `409` when nothing was inspected, or while a folder is removed or moved or identical files are deleted |
+
+### Updates
+
+| | |
+|---|---|
+| `GET /api/update` | `{"current", "latest", "checked", "available", "kind", "can_install", "automatic", "command", "releases", "state", "done", "total", "error"}`. `kind` is how this copy was installed (`windows_exe`, `app_image`, `deb`, `setup`, `setup_without_helper`, `docker`, `source`); `can_install` whether it can update itself, and `command` what to run when not. `state` is `idle`, `checking`, `downloading` (`done` of `total` bytes), `installing`, `restarting` or `error` (with `error`) |
+| `POST /api/update/check` | looks for the latest release on GitHub now, and answers as `GET` |
+| `POST /api/update/install` | installs the latest release in the background (`202`); `409` when this copy can't update itself, there is nothing newer, or an update is already running |
+
+`update_available` in `/api/status` says whether a newer release was found.
 
 ### Desktop
 

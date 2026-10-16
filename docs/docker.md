@@ -81,7 +81,7 @@ docker rm -f imadive
 docker run ...   # the same command as before
 ```
 
-The index in `/data` carries over; nothing is indexed again. The release notes say when an update needs anything else.
+The index in `/data` carries over; nothing is indexed again. The release notes say when an update needs anything else. A container can't replace its own image, so the gallery's *Settings → Updates* says when a new release is out and shows the `docker pull` command, but doesn't install it.
 
 ## Checking the image
 

@@ -39,6 +39,8 @@ src/cluster.rs     grouping faces into people
 src/geo.rs         offline reverse geocoding
 src/metadata.rs    the date and place a photo's EXIF data gives
 src/duplicates.rs  finding and deleting identical files
+src/backup.rs      backups of the index, and restoring them
+src/update.rs      finding, downloading, checking and installing new releases
 src/rotate.rs      rotating photos in their files
 src/library.rs     photo folders, and what may happen to the photos in them
 src/guard.rs       request checks (DNS rebinding, cross-site requests)
@@ -87,6 +89,10 @@ axum on tokio. Every database call runs on the blocking pool through a small con
 `library.rs` decides what may happen to photos: which folders make up the library, adding and removing folders, checking a photo whose file has gone, and removing photos from the gallery or the disk. Only files inside the photo folders can be deleted or rotated.
 
 Thumbnails and face pictures are served with immutable cache headers, keyed by the photo's `version` (`/thumb/{id}?v=`). The page's stylesheet and script are linked by a hash of their contents, so browsers keep them until an upgrade changes them.
+
+**Backups** (`backup.rs`) are the index copied with `VACUUM INTO`, minus the photos' thumbnails, plus a `backup_info` table (format, schema version, the command-line folders). A restore writes the backup into the live index with SQLite's backup API, so the pool's connections see the new contents without any file being swapped under them; scans are held meanwhile, as when a folder is moved. Thumbnails are made again on demand by `/thumb` and by a last step of the scan (`fill_thumbnails`).
+
+**Updates** (`update.rs`): the latest version is the tag GitHub's `releases/latest` redirects to (no API call, so no rate limit); downloads are checked against the release's `SHA256SUMS`. The desktop app replaces its own file (Windows renames the running .exe aside first) or installs the .deb with `pkexec apt-get`, then starts again (`Host::restart`). A server's service runs as a normal user that can't write to `/opt`, so it only writes a request file: a systemd path unit starts `imadive self-update` as root, which installs the latest release, whatever the request says, with `setup --yes`.
 
 ## The page (`web/`)
 

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs (or updates) Imadive as a service on a Linux server:
 #
-#   curl -fsSL https://raw.githubusercontent.com/JaviEspinar/totufoto/main/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/waiting4timeout/imadive/main/scripts/install.sh | sh
 #
 # It downloads the latest release's server build for this computer (x86-64 or ARM64), checks
 # it against the release's SHA256SUMS, and starts `imadive setup`, a wizard with an answer
@@ -10,7 +10,7 @@
 # IMADIVE_VERSION=0.3.3 picks a version instead of the latest. See docs/server.md.
 set -eu
 
-repo="JaviEspinar/totufoto"
+repo="waiting4timeout/imadive"
 fail() { echo "imadive install: $*" >&2; exit 1; }
 
 [ "$(uname -s)" = Linux ] || fail "this installs a Linux service; see the README for the other systems"

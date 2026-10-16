@@ -194,6 +194,10 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
     ("items", "duration", "REAL"),
 ];
 
+/// The `user_version` an index has once [`migrate`] has run: a backup with a higher one comes
+/// from a newer Imadive.
+pub const SCHEMA_VERSION: i64 = 1;
+
 /// Upgrades indexes created by older versions in place.
 fn migrate(conn: &Connection) -> Result<()> {
     for (table, column, definition) in ADDED_COLUMNS {
