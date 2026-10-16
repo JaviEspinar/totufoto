@@ -2,6 +2,7 @@
   --bg: #f6f5f2; --panel: #ffffff; --ink: #1c1b19; --muted: #6d6a64; --line: #e4e1da;
   --accent: #2f6fdf; --accent-ink: #ffffff; --chip: #eceae4; --hover: #efede8;
   --danger: #c2410c; --danger-ink: #ffffff;
+  --notice: #a16207; /* text that needs noticing, such as an update waiting */
   --brand-ink: #0b1a3d; /* the "Ima" of the name; "Dive" keeps its gradient */
   --row: 200px; --gap: 4px;
   color-scheme: light;
@@ -13,6 +14,7 @@
   --accent: #6b9cff; --accent-ink: #0d0d0c; --chip: #262523; --hover: #232321;
   /* lighter than in the light scheme, so small red text stays readable on the dark panel */
   --danger: #f08a5d; --danger-ink: #121211;
+  --notice: #facc15;
   --brand-ink: var(--ink);
   color-scheme: dark;
 }
@@ -22,6 +24,7 @@
     --accent: #6b9cff; --accent-ink: #0d0d0c; --chip: #262523; --hover: #232321;
     /* lighter than in the light scheme, so small red text stays readable on the dark panel */
     --danger: #f08a5d; --danger-ink: #121211;
+    --notice: #facc15;
     --brand-ink: var(--ink);
     color-scheme: dark;
   }
@@ -584,6 +587,10 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 .backup-done { margin: 8px 0 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .restore-folders { margin: 4px 0 10px; padding-left: 20px; overflow-wrap: anywhere; }
 .restore-folders .off { color: var(--muted); font-size: 12px; }
+.update-available { color: var(--notice); }
+.set-sub { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+.set-sub h5 { margin: 0 0 6px; font-size: 13px; }
+.set-sub > p:first-of-type { margin-top: 0; }
 .settings-coffee { margin: 18px 0 4px; text-align: center; color: var(--muted); font-size: 16px; line-height: 1.55; }
 .about-dlg .about-credit { margin: 22px 0 0; color: var(--muted); font-size: 12px; }
 /* Narrow phones: room for the invitation's first line on one line */

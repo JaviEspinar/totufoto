@@ -207,11 +207,11 @@ export function renderSettings(error = "") {
   body.innerHTML = `<section class="set-part"><h4>${t("Folders")}</h4><p>${t("Subfolders are included. Files are only changed when you rotate or delete them.")}</p>${list}${add}<div class="err">${esc(error)}</div></section>
     <section class="set-part"><h4>${t("Library")}</h4><div class="scan-state" id="settingsScan">${scanStateHtml(lastStatus)}</div>
     <div id="settingsFailures">${failuresHtml()}</div>
-    <div id="settingsExcluded">${excludedHtml(lastStatus)}</div></section>
+    <div id="settingsExcluded">${excludedHtml(lastStatus)}</div>
+    <div class="set-sub">${backupHtml()}</div></section>
     <section class="set-part"><h4>${t("People")}</h4><div class="scan-state"><div class="what">${t("Regroup all faces")}
       <small>${t("New faces are placed into people after every scan. This groups every face again from scratch instead: named people and faces you placed stay where they are, unnamed groups may change. It can take a long time on large libraries.")}</small></div>
       <button class="btn" data-regroup>${t("Regroup")}</button></div></section>
-    <section class="set-part">${backupHtml()}</section>
     <section class="set-part">${appearanceHtml()}</section>
     <section class="set-part" id="settingsUpdate">${updateHtml(updateInfo)}</section>
     <div id="settingsAbout">${aboutHtml(lastStatus)}</div>`;
@@ -225,7 +225,7 @@ function updateHtml(u) {
   const busy = updateBusy(u);
   const whatsNew = u.latest ? ` <a href="${esc(u.releases)}/tag/v${esc(u.latest)}" target="_blank" rel="noopener">${t("What's new")}</a>` : "";
   const text = u.available
-    ? `<b>${t("Imadive {latest} is available (you have {current}).", { latest: esc(u.latest), current: esc(u.current) })}</b>${whatsNew}`
+    ? `<b class="update-available">${t("Imadive {latest} is available (you have {current}).", { latest: esc(u.latest), current: esc(u.current) })}</b>${whatsNew}`
     : u.latest ? t("Imadive {current} is up to date.", { current: esc(u.current) }) : t("This is Imadive {current}.", { current: esc(u.current) });
   let progress = "";
   if (u.state === "checking") progress = `<div>${t("Checking for updates…")}</div><progress></progress>`;
@@ -265,7 +265,7 @@ async function loadUpdate(url = "/api/update", method = "GET") {
 }
 /** Backing up the index, and restoring a backup. */
 function backupHtml() {
-  return `<h4>${t("Backup")}</h4>
+  return `<h5>${t("Backup")}</h5>
     <p>${t("A backup keeps people and their names, face groups, your corrections and the list of folders. The photos and videos themselves aren't in it: back them up on their own. Neither are the theme and the language, which each browser keeps.")}</p>
     <div class="add-row"><button class="btn" data-backup ${backupBusy ? "disabled" : ""}>${t("Back up…")}</button><button class="btn" data-restore ${backupBusy ? "disabled" : ""}>${t("Restore…")}</button></div>
     <div id="backupProgress">${backupState}</div>
@@ -405,7 +405,7 @@ function aboutHtml(st) {
     <p>${link("blob/main/LICENSE", t("License"))} · ${link("blob/main/THIRD_PARTY.md", t("Third-party components"))} ·
       ${link("releases", t("Releases"))}</p>
     ${st.logs ? `<p><button class="btn" data-logs>${t("Open log folder")}</button> <small>${t("For reporting a problem: the log of this run, and of the one before.")}</small></p>` : ""}</div></section>
-    <p class="about-coffee settings-coffee">${coffeeHtml(st)}</p>`;
+    <p class="about-coffee settings-coffee">${coffeeHtml(st).replace("<br>", " ")}</p>`;
 }
 /** The invitation to support the project, as in the About dialog. */
 function coffeeHtml(st) {
