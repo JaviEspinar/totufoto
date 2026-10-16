@@ -584,6 +584,9 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 .update-cmd { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
 .update-cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 7px 10px; border-radius: 8px; background: var(--chip); font-size: 12px; }
 .browse-extra { margin-top: 10px; }
+/* The backup being made or restored: in the middle of the Library card, under its buttons. */
+#backupProgress .remove-progress { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 12px; font-size: 13px; color: var(--muted); text-align: center; }
+#backupProgress .remove-progress progress { width: min(320px, 100%); height: 8px; accent-color: var(--accent); }
 .backup-done { margin: 8px 0 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
 .restore-folders { margin: 4px 0 10px; padding-left: 20px; overflow-wrap: anywhere; }
 .restore-folders .off { color: var(--muted); font-size: 12px; }
