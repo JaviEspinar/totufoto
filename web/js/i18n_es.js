@@ -406,6 +406,7 @@ export default {
   "This video can't be played here.": "Este vídeo no se puede reproducir aquí.",
   "Download it": "Descárgalo",
   // Upload
+  "Stop waiting": "Dejar de esperar",
   "Add more…": "Añadir más…",
   "No files arrived from the picker. With thousands of files at once, Android sometimes gives up handing them over: choose fewer at a time (a few hundred), and add more while they upload.": "No ha llegado ningún archivo del selector. Con miles de archivos a la vez, Android a veces no consigue pasarlos: elige menos cada vez (unos cientos) y añade más mientras se suben.",
   "Android can take very long, or give up, handing over thousands of files at once: choose a few hundred at a time, and add more while they upload. For a whole phone, copying its camera folder to the server is faster: with a cable, a network share or an app such as Syncthing.": "Android puede tardar mucho, o no conseguirlo, al pasar miles de archivos a la vez: elige unos cientos cada vez y añade más mientras se suben. Para un móvil entero es más rápido copiar su carpeta de la cámara al servidor: con un cable, una carpeta compartida o una aplicación como Syncthing.",

@@ -66,9 +66,17 @@ function setPreparing(text, waiting = false) {
   showArea();
 }
 function preparingHtml() {
+  if (!preparing.waiting) {
+    return `<div class="opt-progress up-preparing">
+      <div class="up-head"><b>${esc(preparing.text)}</b><span class="spinner small" aria-hidden="true"></span></div>
+      <progress></progress>
+    </div>`;
+  }
+  // Waiting for the picker: Android can give up on a big selection without saying so, so
+  // there is always a way back, and after a while the card says what probably happened.
   return `<div class="opt-progress up-preparing">
-    <div class="up-head"><b>${esc(preparing.text)}</b>${preparing.waiting ? "" : `<span class="spinner small" aria-hidden="true"></span>`}</div>
-    ${preparing.waiting ? `<small>${t("A phone can take a little while to hand over a big folder.")}</small>` : `<progress></progress>`}
+    <div class="up-head"><b>${esc(preparing.text)}</b><button class="btn" data-pick-stop>${t("Stop waiting")}</button></div>
+    <small>${preparing.slow ? esc(tooMany()) : t("A phone can take a little while to hand over a big folder.")}</small>
   </div>`;
 }
 /** Lets the page draw and answer between slices of work. */
@@ -151,6 +159,7 @@ $("#main").addEventListener("click", e => {
     waitForPicker(input);
     return input.click();
   }
+  if (e.target.closest("[data-pick-stop]")) return stopWaiting();
   if (e.target.closest("[data-upload-cancel]")) return cancel();
   if (e.target.closest("[data-upload-retry]")) return retry();
   if (e.target.closest("[data-upload-show]")) { state.view = "photos"; return render(); }
@@ -182,6 +191,15 @@ function waitForPicker(input) {
   input.addEventListener("cancel", done, { once: true });
   // Browsers without the cancel event: back on the page with nothing chosen.
   if (!("oncancel" in input)) addEventListener("focus", () => setTimeout(() => { if (!input.files?.length) done(); }, 1500), { once: true });
+  // Back on the page and still nothing after a while: Android has probably given up.
+  addEventListener("focus", () => setTimeout(() => {
+    if (preparing?.waiting && !input.files?.length) { preparing.slow = true; showArea(); }
+  }, 20_000), { once: true });
+}
+/** Stop waiting: back to the buttons. Files that still arrive afterwards are uploaded. */
+function stopWaiting() {
+  session.take();
+  if (preparing?.waiting) setPreparing(null);
 }
 $("#main").addEventListener("change", async e => {
   if (!["pickFolder", "pickFiles", "pickAny"].includes(e.target.id)) return;

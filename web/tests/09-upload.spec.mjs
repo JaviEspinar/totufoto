@@ -76,6 +76,12 @@ test("waiting for the files is shown, a lost connection is tried again, and refu
   let chooser = page.waitForEvent("filechooser");
   await page.locator('[data-pick="files"]').click();
   await expect(page.locator(".up-preparing")).toContainText("Choose the files");
+  // Waiting can always be left (Android may give up without saying so), and the button works again.
+  await page.locator("[data-pick-stop]").click();
+  await expect(page.locator(".drop")).toBeVisible();
+  chooser = page.waitForEvent("filechooser");
+  await page.locator('[data-pick="files"]').click();
+  await expect(page.locator(".up-preparing")).toContainText("Choose the files");
   // The connection drops (a phone locking its screen, say): the upload waits and goes on.
   await page.route("**/api/uploads?*", route => route.abort());
   const fresh = join(dirname(picked), "retry-me.jpg"); // a name not uploaded yet
