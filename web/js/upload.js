@@ -71,17 +71,41 @@ function preparingHtml() {
 /** Lets the page draw and answer between slices of work. */
 const breathe = () => new Promise(resolve => setTimeout(resolve, 0));
 
-function progressHtml() {
+/** What the progress card shows, worked out once per redraw. */
+function progressParts() {
   const doneFiles = job.saved + job.same + job.existing + job.overwritten + job.failed.length;
   const sent = job.done + [...job.loading.values()].reduce((a, b) => a + b, 0);
   const current = [...job.current].slice(-1)[0];
-  return `<div class="opt-progress">
-    <div class="up-head"><b>${t("Uploading {done} of {total} files", { done: num(doneFiles), total: num(job.files.length) })}</b>
-      <span class="up-bytes">${t("{sent} of {total}", { sent: fmtBytes(sent), total: fmtBytes(job.bytes) })}</span></div>
-    <progress max="${job.bytes}" value="${sent}"></progress>
-    <div class="up-foot"><small class="up-file">${current ? esc(current) : "&nbsp;"}</small>
+  return {
+    title: t("Uploading {done} of {total} files", { done: num(doneFiles), total: num(job.count) }),
+    bytes: t("{sent} of {total}", { sent: fmtBytes(sent), total: fmtBytes(job.bytes) }),
+    sent,
+    file: current ?? "",
+    note: job.waiting ? t("The connection was lost: trying again…") : "",
+  };
+}
+function progressHtml() {
+  const p = progressParts();
+  return `<div class="opt-progress" id="upProgress">
+    <div class="up-head"><b id="upTitle">${esc(p.title)}</b><span class="up-bytes" id="upBytes">${esc(p.bytes)}</span></div>
+    <progress id="upBar" max="${job.bytes}" value="${p.sent}"></progress>
+    <div class="up-foot"><small class="up-file" id="upFile">${p.file ? esc(p.file) : "&nbsp;"}</small>
       <button class="btn" data-upload-cancel>${t("Cancel")}</button></div>
+    <div class="up-retrying" id="upNote" ${p.note ? "" : "hidden"}>${esc(p.note)}</div>
+    <small class="hint for-touch">${t("Keep this page open and the screen on until it finishes. If the phone locks, the upload goes on when you come back.")}</small>
   </div>`;
+}
+/** Updates the progress card in place: rebuilding it many times a second would make its
+ *  Cancel button hard to tap, and costs a phone more than it should. */
+function updateProgress() {
+  if (!$("#upProgress")) return void ($("#uploadArea").innerHTML = progressHtml());
+  const p = progressParts();
+  $("#upTitle").textContent = p.title;
+  $("#upBytes").textContent = p.bytes;
+  $("#upBar").value = p.sent;
+  $("#upFile").textContent = p.file || "\u00a0";
+  $("#upNote").textContent = p.note;
+  $("#upNote").hidden = !p.note;
 }
 
 function resultHtml() {
@@ -247,7 +271,7 @@ async function start(chosen) {
 /** Sends `files` into `folder`'s uploads folder, AT_ONCE at a time. */
 function run(files, { folder, subfolder, onConflict, left = 0, existing = 0 }) {
   job = {
-    running: files.length > 0, files, queue: [...files], target: `${folder}/${subfolder}`, folder, subfolder, onConflict,
+    running: files.length > 0, count: files.length, queue: [...files], waiting: 0, target: `${folder}/${subfolder}`, folder, subfolder, onConflict,
     bytes: files.reduce((a, f) => a + f.file.size, 0), done: 0, loading: new Map(), current: new Set(),
     saved: 0, same: 0, overwritten: 0, renamed: 0, existing, left, failed: [], requests: new Set(), cancelled: false,
   };
@@ -287,8 +311,17 @@ function send(item, tries) {
     current.current.delete(item.path);
     current.loading.delete(item);
     if (current.cancelled) return;
-    // The connection or the server failing for a moment is worth one more try.
-    if ((xhr.status === 0 || xhr.status >= 500) && tries < 1) return send(item, tries + 1);
+    // The connection lost (a phone locking its screen, a Wi-Fi hiccup) or the server failing
+    // for a moment: this file waits and is sent again, rather than every file after it
+    // failing in turn.
+    if ((xhr.status === 0 || xhr.status >= 500) && tries < RETRIES) {
+      current.waiting++;
+      redraw();
+      return retryLater(tries).then(() => {
+        current.waiting--;
+        if (!current.cancelled) send(item, tries + 1);
+      });
+    }
     let body = null;
     try { body = JSON.parse(xhr.responseText); } catch {}
     current.done += item.file.size;
@@ -307,13 +340,26 @@ function send(item, tries) {
   xhr.send(item.file);
 }
 
+/** Tries for a file whose connection failed, waiting longer each time. */
+const RETRIES = 6;
+/** Resolves after a pause that grows with `tries` (1 s, 2 s, 4 s... up to 30 s), and once the
+ *  page is visible and the device online again: a hidden page on a phone can't send. */
+async function retryLater(tries) {
+  await new Promise(resolve => setTimeout(resolve, Math.min(30_000, 1000 * 2 ** tries)));
+  if (document.hidden) await new Promise(resolve => document.addEventListener("visibilitychange", function seen() {
+    if (!document.hidden) { document.removeEventListener("visibilitychange", seen); resolve(); }
+  }));
+  if (!navigator.onLine) await new Promise(resolve => addEventListener("online", resolve, { once: true }));
+}
+
+/** At most a few redraws a second: progress events come much more often. */
 let drawing = 0;
 function redraw() {
   if (drawing) return;
-  drawing = requestAnimationFrame(() => {
+  drawing = setTimeout(() => {
     drawing = 0;
-    if (state.view === "manage" && job?.running && $("#uploadArea")) $("#uploadArea").innerHTML = progressHtml();
-  });
+    if (state.view === "manage" && job?.running && $("#uploadArea")) updateProgress();
+  }, 250);
 }
 
 function finish() {

@@ -70,20 +70,33 @@ test("a folder is uploaded into imaDive-uploads, with a progress bar", async ({ 
   copyFileSync(join(fixtures, "2025/city.jpg"), join(picked, "two.jpg")); // as it was, for the next tests
 });
 
-test("waiting for the files is shown, and failed files can be retried", async ({ page }) => {
+test("waiting for the files is shown, a lost connection is tried again, and refused files can be retried", async ({ page }) => {
   await page.goto("/#view=manage");
   // Nothing chosen yet: the card says it is waiting for the picker.
-  const chooser = page.waitForEvent("filechooser");
+  let chooser = page.waitForEvent("filechooser");
   await page.locator('[data-pick="files"]').click();
   await expect(page.locator(".up-preparing")).toContainText("Choose the files");
-  // The connection fails (both tries): the file is listed with a Retry button.
+  // The connection drops (a phone locking its screen, say): the upload waits and goes on.
   await page.route("**/api/uploads?*", route => route.abort());
   const fresh = join(dirname(picked), "retry-me.jpg"); // a name not uploaded yet
   copyFileSync(join(fixtures, "plain.jpg"), fresh);
   await (await chooser).setFiles(fresh);
-  const result = page.locator(".up-result");
   // With two gallery folders (the test before added one), the first.
   const target = page.locator("#choiceDlg[open] .up-target").first();
+  if (await target.isVisible({ timeout: 2_000 }).catch(() => false)) await target.click();
+  await expect(page.locator("#upNote")).toContainText("trying again", { timeout: 15_000 });
+  await page.unroute("**/api/uploads?*");
+  const result = page.locator(".up-result");
+  await expect(result).toContainText("1 file uploaded", { timeout: 15_000 });
+  await expect(result).not.toContainText("couldn't be uploaded");
+
+  // A file the server refuses isn't tried again by itself: it is listed, with a button.
+  await page.route("**/api/uploads?*", route => route.fulfill({ status: 403, contentType: "application/json", body: '{"error":"no"}' }));
+  const another = join(dirname(picked), "retry-me-too.jpg");
+  copyFileSync(join(fixtures, "2025/city.jpg"), another);
+  chooser = page.waitForEvent("filechooser");
+  await page.locator('[data-pick="files"]').click();
+  await (await chooser).setFiles(another);
   if (await target.isVisible({ timeout: 2_000 }).catch(() => false)) await target.click();
   await expect(result).toContainText("couldn't be uploaded", { timeout: 15_000 });
   await page.unroute("**/api/uploads?*");

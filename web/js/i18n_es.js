@@ -406,6 +406,8 @@ export default {
   "This video can't be played here.": "Este vídeo no se puede reproducir aquí.",
   "Download it": "Descárgalo",
   // Upload
+  "The connection was lost: trying again…": "Se ha perdido la conexión: volviendo a intentarlo…",
+  "Keep this page open and the screen on until it finishes. If the phone locks, the upload goes on when you come back.": "Deja esta página abierta y la pantalla encendida hasta que termine. Si el móvil se bloquea, la subida sigue cuando vuelvas.",
   "Upload photos and videos": "Subir fotos y vídeos",
   "Photos and videos from this device into the gallery.": "Fotos y vídeos de este dispositivo a la galería.",
   "They are saved in <b>{subfolder}</b> in {folder}, in the folders they came in.": "Se guardan en <b>{subfolder}</b> dentro de {folder}, en las carpetas en las que venían.",

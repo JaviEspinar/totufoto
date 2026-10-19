@@ -228,7 +228,39 @@ impl Drop for ClearOnDrop<'_> {
     }
 }
 
+/// The threads indexing runs on: one fewer than the cores, at a lower priority on Linux, so
+/// the gallery keeps answering (and the server stays usable) while thousands of new photos are
+/// read, for example after a big upload.
+fn scan_pool() -> &'static rayon::ThreadPool {
+    static POOL: std::sync::OnceLock<rayon::ThreadPool> = std::sync::OnceLock::new();
+    POOL.get_or_init(|| {
+        let cores = std::thread::available_parallelism().map_or(2, |n| n.get());
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(cores.saturating_sub(1).max(1))
+            .thread_name(|i| format!("scan-{i}"))
+            .start_handler(|_| lower_priority())
+            .build()
+            .expect("the scan's threads")
+    })
+}
+
+/// Makes the calling thread nicer (Linux threads each have their own priority).
+#[cfg(target_os = "linux")]
+fn lower_priority() {
+    // SAFETY: setpriority only reads its arguments; 0 is the calling thread.
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS, 0, 10);
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+fn lower_priority() {}
+
 pub fn run(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
+    scan_pool().install(|| run_here(cfg, status))
+}
+
+fn run_here(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     if status.running.swap(true, Ordering::SeqCst) {
         status.rerun.store(true, Ordering::SeqCst);
         return Ok(());
