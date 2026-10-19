@@ -51,7 +51,7 @@ function showArea(targets = null) {
         <button class="btn for-touch" data-pick="any">${t("Choose files")}</button>
       </div>
       <p class="hint for-touch">${t("Many at once: <b>Choose files</b>, open the folder (for example DCIM › Camera) and use <b>Select all</b> in its menu. <b>Choose photos and videos</b> takes up to 100.")}</p>
-      <p class="hint for-touch">${t("Up to {max} files at a time: Android can take very long, or give up, handing over more. Add more while they upload. For a whole phone, copying its camera folder to the server is faster: with a cable, a network share or an app such as Syncthing.", { max: num(MAX_FILES) })}</p>
+      <p class="hint for-touch">${t("Android can take very long, or give up, handing over thousands of files at once: choose a few hundred at a time, and add more while they upload. For a whole phone, copying its camera folder to the server is faster: with a cable, a network share or an app such as Syncthing.")}</p>
     </div>`;
   }
 }
@@ -155,9 +155,6 @@ $("#main").addEventListener("click", e => {
   if (e.target.closest("[data-upload-retry]")) return retry();
   if (e.target.closest("[data-upload-show]")) { state.view = "photos"; return render(); }
 });
-/** The most files a phone (a touch screen) takes in one choice. */
-const MAX_FILES = 1000;
-const touch = () => matchMedia("(pointer: coarse)").matches;
 /** Something to say above the drop zone (why the last choice brought no files). */
 let notice = "";
 /** Set while the picker is open: if the page loads again meanwhile, the browser gave up
@@ -190,15 +187,6 @@ $("#main").addEventListener("change", async e => {
   if (!["pickFolder", "pickFiles", "pickAny"].includes(e.target.id)) return;
   session.take();
   const list = e.target.files;
-  // A phone handing over thousands of files at once struggles, and so does the upload: past
-  // the limit, the choice is refused with what to do instead.
-  if (touch() && list.length > MAX_FILES) {
-    // Counted first: emptying the field empties its list too.
-    const n = list.length;
-    e.target.value = "";
-    notice = t("That's {n} files: a phone can upload at most {max} at a time from here. Choose fewer, and add more while they upload; for a whole phone, copy its camera folder to the server instead.", { n: num(n), max: num(MAX_FILES) });
-    return setPreparing(null);
-  }
   setPreparing(tn(list.length, "Preparing {n} file…", "Preparing {n} files…"));
   await breathe();
   // A folder's files carry their path inside it; single files just their name.

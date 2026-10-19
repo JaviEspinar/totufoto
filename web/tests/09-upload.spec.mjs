@@ -169,23 +169,3 @@ test("on a phone: no folder button, and Choose files opens the file manager", as
   await expect(page.locator(".up-result")).toContainText("left out", { timeout: 15_000 });
   await context.close();
 });
-
-test("on a phone: more than 1,000 files at once are refused, saying what to do", async ({ browser }) => {
-  const { defaultBrowserType, ...pixel } = devices["Pixel 7"];
-  const context = await browser.newContext({ ...pixel, baseURL: test.info().project.use.baseURL });
-  const page = await context.newPage();
-  {
-    await page.goto("/#view=manage");
-    await expect(page.locator(".upload .drop .hint").nth(1)).toContainText("Up to 1,000 files at a time");
-    const chooser = page.waitForEvent("filechooser");
-    await page.locator('[data-pick="any"]').click();
-    const jpeg = readFileSync(join(fixtures, "plain.jpg"));
-    await (await chooser).setFiles(Array.from({ length: 1001 }, (_, i) => ({ name: `many-${i}.jpg`, mimeType: "image/jpeg", buffer: jpeg })));
-    await expect(page.locator(".up-notice")).toContainText("That's 1,001 files");
-    // The button works again at once, with a fresh field.
-    const again = page.waitForEvent("filechooser");
-    await page.locator('[data-pick="any"]').click();
-    await again;
-  }
-  await context.close();
-});
