@@ -406,6 +406,8 @@ export default {
   "This video can't be played here.": "Este vídeo no se puede reproducir aquí.",
   "Download it": "Descárgalo",
   // Upload
+  "{n} s": "{n} s",
+  "The device took too long to hand over the files. With many files at once, Android sometimes gives up: choose fewer at a time (a few hundred), and add more while they upload.": "El dispositivo ha tardado demasiado en pasar los archivos. Con muchos archivos a la vez, Android a veces no lo consigue: elige menos cada vez (unos cientos) y añade más mientras se suben.",
   "Stop waiting": "Dejar de esperar",
   "Add more…": "Añadir más…",
   "No files arrived from the picker. With thousands of files at once, Android sometimes gives up handing them over: choose fewer at a time (a few hundred), and add more while they upload.": "No ha llegado ningún archivo del selector. Con miles de archivos a la vez, Android a veces no consigue pasarlos: elige menos cada vez (unos cientos) y añade más mientras se suben.",

@@ -75,8 +75,9 @@ function preparingHtml() {
   // Waiting for the picker: Android can give up on a big selection without saying so, so
   // there is always a way back, and after a while the card says what probably happened.
   return `<div class="opt-progress up-preparing">
-    <div class="up-head"><b>${esc(preparing.text)}</b><button class="btn" data-pick-stop>${t("Stop waiting")}</button></div>
-    <small>${preparing.slow ? esc(tooMany()) : t("A phone can take a little while to hand over a big folder.")}</small>
+    <div class="up-head"><span class="up-waiting"><span class="spinner small" aria-hidden="true"></span><b>${esc(preparing.text)}</b>
+      <span class="up-elapsed" id="pickElapsed">${waitedText()}</span></span><button class="btn" data-pick-stop>${t("Stop waiting")}</button></div>
+    <small>${t("A phone can take a little while to hand over a big folder.")}</small>
   </div>`;
 }
 /** Lets the page draw and answer between slices of work. */
@@ -179,6 +180,14 @@ const tooMany = () => t("No files arrived from the picker. With thousands of fil
 function waitForPicker(input) {
   notice = "";
   const since = Date.now();
+  waitingSince = since;
+  // The seconds waited, so it shows that something is going on.
+  clearInterval(waitTicker);
+  waitTicker = setInterval(() => {
+    if (!preparing?.waiting) return clearInterval(waitTicker);
+    const el = $("#pickElapsed");
+    if (el) el.textContent = waitedText();
+  }, 1000);
   session.set(String(since));
   setPreparing(t("Choose the files…"), true);
   const done = () => {
@@ -191,11 +200,21 @@ function waitForPicker(input) {
   input.addEventListener("cancel", done, { once: true });
   // Browsers without the cancel event: back on the page with nothing chosen.
   if (!("oncancel" in input)) addEventListener("focus", () => setTimeout(() => { if (!input.files?.length) done(); }, 1500), { once: true });
-  // Back on the page and still nothing after a while: Android has probably given up.
+  // Back on the page and still nothing after a while: Android has probably given up, without
+  // saying so. The wait ends, with why; files that still arrive are uploaded all the same.
   addEventListener("focus", () => setTimeout(() => {
-    if (preparing?.waiting && !input.files?.length) { preparing.slow = true; showArea(); }
-  }, 20_000), { once: true });
+    if (preparing?.waiting && !input.files?.length) {
+      session.take();
+      notice = tookTooLong();
+      setPreparing(null);
+    }
+  }, PICKER_TIMEOUT), { once: true });
 }
+let waitingSince = 0, waitTicker = 0;
+const waitedText = () => t("{n} s", { n: num(Math.floor((Date.now() - waitingSince) / 1000)) });
+/** How long to wait, back on the page, for the files of a picker. */
+const PICKER_TIMEOUT = 30_000;
+const tookTooLong = () => t("The device took too long to hand over the files. With many files at once, Android sometimes gives up: choose fewer at a time (a few hundred), and add more while they upload.");
 /** Stop waiting: back to the buttons. Files that still arrive afterwards are uploaded. */
 function stopWaiting() {
   session.take();

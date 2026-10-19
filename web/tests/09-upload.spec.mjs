@@ -144,6 +144,23 @@ test("when the page loads again while the picker is open, it says the selection 
   await expect(page.locator(".up-notice")).toHaveCount(0);
 });
 
+test("when the device takes too long to hand over the files, the wait ends with why", async ({ page }) => {
+  await page.goto("/#view=manage");
+  await expect(page.locator(".drop")).toBeVisible();
+  await page.clock.install();
+  const chooser = page.waitForEvent("filechooser");
+  await page.locator('[data-pick="files"]').click();
+  await chooser; // never answered, as when Android gives up silently
+  await expect(page.locator(".up-preparing .spinner")).toBeVisible();
+  await page.clock.fastForward(5_000);
+  await expect(page.locator("#pickElapsed")).toHaveText("5 s");
+  // Back on the page, and nothing for half a minute.
+  await page.evaluate(() => dispatchEvent(new Event("focus")));
+  await page.clock.fastForward(31_000);
+  await expect(page.locator(".up-notice")).toContainText("The device took too long to hand over the files");
+  await expect(page.locator('.drop [data-pick="files"]')).toBeVisible();
+});
+
 test("with two gallery folders, the upload asks which one", async ({ page }) => {
   const added = await page.request.post("/api/folders", { data: { path: other } });
   expect(added.ok() || added.status() === 409).toBe(true);
