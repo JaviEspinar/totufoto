@@ -406,6 +406,10 @@ export default {
   "This video can't be played here.": "Este vídeo no se puede reproducir aquí.",
   "Download it": "Descárgalo",
   // Upload
+  "Add more…": "Añadir más…",
+  "No files arrived from the picker. With thousands of files at once, Android sometimes gives up handing them over: choose fewer at a time (a few hundred), and add more while they upload.": "No ha llegado ningún archivo del selector. Con miles de archivos a la vez, Android a veces no consigue pasarlos: elige menos cada vez (unos cientos) y añade más mientras se suben.",
+  "Up to {max} files at a time: Android can take very long, or give up, handing over more. Add more while they upload. For a whole phone, copying its camera folder to the server is faster: with a cable, a network share or an app such as Syncthing.": "Hasta {max} archivos cada vez: con más, Android puede tardar mucho o no conseguir pasarlos. Añade más mientras se suben. Para un móvil entero es más rápido copiar su carpeta de la cámara al servidor: con un cable, una carpeta compartida o una aplicación como Syncthing.",
+  "That's {n} files: a phone can upload at most {max} at a time from here. Choose fewer, and add more while they upload; for a whole phone, copy its camera folder to the server instead.": "Son {n} archivos: desde un móvil se pueden subir como mucho {max} cada vez. Elige menos y añade más mientras se suben; para un móvil entero, copia su carpeta de la cámara al servidor.",
   "The connection was lost: trying again…": "Se ha perdido la conexión: volviendo a intentarlo…",
   "Keep this page open and the screen on until it finishes. If the phone locks, the upload goes on when you come back.": "Deja esta página abierta y la pantalla encendida hasta que termine. Si el móvil se bloquea, la subida sigue cuando vuelvas.",
   "Upload photos and videos": "Subir fotos y vídeos",

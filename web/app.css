@@ -241,6 +241,8 @@ body.no-aside aside { display: none; }
 .up-preparing .spinner.small { width: 18px; height: 18px; border-width: 2px; margin: 0; }
 .up-conflicts { margin: 8px 0; padding-left: 18px; font-size: 13px; max-height: 160px; overflow: auto; overflow-wrap: anywhere; }
 .up-note { color: var(--muted); font-size: 12px; }
+.up-notice { margin-bottom: 12px; padding: 10px 14px; border-radius: 10px; background: var(--chip); color: var(--notice); font-size: 13px; }
+.up-foot .up-acts { display: flex; gap: 8px; }
 .up-retrying { margin-top: 8px; font-size: 13px; color: var(--notice); }
 .opt-progress > .hint { margin-top: 8px; color: var(--muted); }
 .up-result.has-errors { border-color: var(--danger); }

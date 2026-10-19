@@ -105,6 +105,39 @@ test("waiting for the files is shown, a lost connection is tried again, and refu
   await expect(result.locator("[data-upload-retry]")).toHaveCount(0);
 });
 
+test("more files can join an upload that is running", async ({ page }) => {
+  await page.goto("/#view=manage");
+  // Uploads answer slowly, so the first one is still running when more are added.
+  await page.route("**/api/uploads?*", async route => { await new Promise(r => setTimeout(r, 1500)); await route.continue(); });
+  const one = join(dirname(picked), "join-1.jpg"), two = join(dirname(picked), "join-2.jpg");
+  copyFileSync(join(fixtures, "plain.jpg"), one);
+  copyFileSync(join(fixtures, "2025/city.jpg"), two);
+  let chooser = page.waitForEvent("filechooser");
+  await page.locator('[data-pick="files"]').click();
+  await (await chooser).setFiles(one);
+  const target = page.locator("#choiceDlg[open] .up-target").first();
+  if (await target.isVisible({ timeout: 2_000 }).catch(() => false)) await target.click();
+  await expect(page.locator("#upTitle")).toContainText("of 1 files");
+  chooser = page.waitForEvent("filechooser");
+  await page.locator("#upProgress [data-pick]").click();
+  await (await chooser).setFiles(two);
+  await expect(page.locator("#upTitle")).toContainText("of 2 files");
+  await expect(page.locator(".up-result")).toContainText("2 files uploaded", { timeout: 15_000 });
+  await page.unroute("**/api/uploads?*");
+});
+
+test("when the page loads again while the picker is open, it says the selection was probably too big", async ({ page }) => {
+  await page.goto("/#view=manage");
+  await expect(page.locator(".drop")).toBeVisible();
+  await page.evaluate(() => sessionStorage.setItem("imadive.picking", String(Date.now())));
+  await page.reload();
+  await expect(page.locator(".up-notice")).toContainText("Android sometimes gives up");
+  // Said once.
+  await page.reload();
+  await expect(page.locator(".drop")).toBeVisible();
+  await expect(page.locator(".up-notice")).toHaveCount(0);
+});
+
 test("with two gallery folders, the upload asks which one", async ({ page }) => {
   const added = await page.request.post("/api/folders", { data: { path: other } });
   expect(added.ok() || added.status() === 409).toBe(true);
@@ -128,7 +161,7 @@ test("on a phone: no folder button, and Choose files opens the file manager", as
   await page.goto("/#view=manage");
   await expect(page.locator('.upload [data-pick="any"]')).toBeVisible();
   await expect(page.locator('.upload [data-pick="folder"]')).toBeHidden();
-  await expect(page.locator(".upload .drop .hint")).toContainText("Select all");
+  await expect(page.locator(".upload .drop .hint").first()).toContainText("Select all");
   expect(await page.locator("#pickAny").getAttribute("accept")).toBeNull();
   await page.locator("#pickAny").setInputFiles([join(picked, "beach", "one.jpg"), join(picked, "notes.txt")]);
   const dialog = page.locator("#choiceDlg[open]");
@@ -137,3 +170,22 @@ test("on a phone: no folder button, and Choose files opens the file manager", as
   await context.close();
 });
 
+test("on a phone: more than 1,000 files at once are refused, saying what to do", async ({ browser }) => {
+  const { defaultBrowserType, ...pixel } = devices["Pixel 7"];
+  const context = await browser.newContext({ ...pixel, baseURL: test.info().project.use.baseURL });
+  const page = await context.newPage();
+  {
+    await page.goto("/#view=manage");
+    await expect(page.locator(".upload .drop .hint").nth(1)).toContainText("Up to 1,000 files at a time");
+    const chooser = page.waitForEvent("filechooser");
+    await page.locator('[data-pick="any"]').click();
+    const jpeg = readFileSync(join(fixtures, "plain.jpg"));
+    await (await chooser).setFiles(Array.from({ length: 1001 }, (_, i) => ({ name: `many-${i}.jpg`, mimeType: "image/jpeg", buffer: jpeg })));
+    await expect(page.locator(".up-notice")).toContainText("That's 1,001 files");
+    // The button works again at once, with a fresh field.
+    const again = page.waitForEvent("filechooser");
+    await page.locator('[data-pick="any"]').click();
+    await again;
+  }
+  await context.close();
+});

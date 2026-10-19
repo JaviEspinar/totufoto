@@ -19,6 +19,8 @@ export async function renderUpload(main, renderJob) {
   const where = targets.folders.length === 1
     ? t("They are saved in <b>{subfolder}</b> in {folder}, in the folders they came in.", { subfolder: esc(targets.subfolder), folder: `<bdi>${esc(targets.folders[0])}</bdi>` })
     : t("They are saved in a folder called <b>{subfolder}</b>, in the gallery folder you choose, in the folders they came in.", { subfolder: esc(targets.subfolder) });
+  // The page loaded again while the picker was handing over files.
+  if (session.take()) notice = tooMany();
   main.innerHTML = `<div class="opt upload">
     <h2>${t("Upload photos and videos")}</h2>
     <p class="lead">${t("Photos and videos from this device into the gallery.")} ${where} ${t("Files that aren't photos or videos are left out.")}</p>
@@ -39,7 +41,7 @@ function showArea(targets = null) {
   else if (targets && !targets.folders.length) {
     area.innerHTML = `<div class="blank">${t("Add a folder in Settings first: uploads go into one of the gallery's folders.")}</div>`;
   } else {
-    area.innerHTML = (job ? resultHtml() : "") + `<div class="drop" id="dropZone">
+    area.innerHTML = (notice ? `<div class="up-notice">${notice}</div>` : "") + (job ? resultHtml() : "") + `<div class="drop" id="dropZone">
       <svg class="icon" viewBox="0 0 24 24" width="40" height="40" aria-hidden="true"><use href="#i-upload"/></svg>
       <div class="big for-pointer">${t("Drop a folder, or photos and videos, here")}</div>
       <div class="big for-touch">${t("Add photos and videos from this device")}</div>
@@ -49,6 +51,7 @@ function showArea(targets = null) {
         <button class="btn for-touch" data-pick="any">${t("Choose files")}</button>
       </div>
       <p class="hint for-touch">${t("Many at once: <b>Choose files</b>, open the folder (for example DCIM › Camera) and use <b>Select all</b> in its menu. <b>Choose photos and videos</b> takes up to 100.")}</p>
+      <p class="hint for-touch">${t("Up to {max} files at a time: Android can take very long, or give up, handing over more. Add more while they upload. For a whole phone, copying its camera folder to the server is faster: with a cable, a network share or an app such as Syncthing.", { max: num(MAX_FILES) })}</p>
     </div>`;
   }
 }
@@ -90,7 +93,7 @@ function progressHtml() {
     <div class="up-head"><b id="upTitle">${esc(p.title)}</b><span class="up-bytes" id="upBytes">${esc(p.bytes)}</span></div>
     <progress id="upBar" max="${job.bytes}" value="${p.sent}"></progress>
     <div class="up-foot"><small class="up-file" id="upFile">${p.file ? esc(p.file) : "&nbsp;"}</small>
-      <button class="btn" data-upload-cancel>${t("Cancel")}</button></div>
+      <span class="up-acts"><button class="btn" data-pick="any">${t("Add more…")}</button><button class="btn" data-upload-cancel>${t("Cancel")}</button></span></div>
     <div class="up-retrying" id="upNote" ${p.note ? "" : "hidden"}>${esc(p.note)}</div>
     <small class="hint for-touch">${t("Keep this page open and the screen on until it finishes. If the phone locks, the upload goes on when you come back.")}</small>
   </div>`;
@@ -140,7 +143,11 @@ $("#main").addEventListener("click", e => {
   // file manager, where a whole folder can be selected; files that aren't photos or videos
   // are left out afterwards.
   if (pick) {
-    const input = $({ folder: "#pickFolder", files: "#pickFiles", any: "#pickAny" }[pick]);
+    // A fresh field each time: after a picker that failed to hand over its files, Chrome on
+    // Android can leave the old one stuck, and the button would do nothing until a reload.
+    const old = $({ folder: "#pickFolder", files: "#pickFiles", any: "#pickAny" }[pick]);
+    const input = old.cloneNode();
+    old.replaceWith(input);
     waitForPicker(input);
     return input.click();
   }
@@ -148,17 +155,50 @@ $("#main").addEventListener("click", e => {
   if (e.target.closest("[data-upload-retry]")) return retry();
   if (e.target.closest("[data-upload-show]")) { state.view = "photos"; return render(); }
 });
-/** From the tap until the files arrive (or the picker is closed without any). */
+/** The most files a phone (a touch screen) takes in one choice. */
+const MAX_FILES = 1000;
+const touch = () => matchMedia("(pointer: coarse)").matches;
+/** Something to say above the drop zone (why the last choice brought no files). */
+let notice = "";
+/** Set while the picker is open: if the page loads again meanwhile, the browser gave up
+ *  (or ran out of memory) handing over the files, and the new page can say so. */
+const PICKING = "imadive.picking";
+const session = {
+  set(v) { try { sessionStorage.setItem(PICKING, v); } catch {} },
+  take() { try { const v = sessionStorage.getItem(PICKING); sessionStorage.removeItem(PICKING); return v; } catch { return null; } },
+};
+const tooMany = () => t("No files arrived from the picker. With thousands of files at once, Android sometimes gives up handing them over: choose fewer at a time (a few hundred), and add more while they upload.");
+/** From the tap until the files arrive (or the picker is closed without any). A phone can take
+ *  minutes to hand over a big selection, so only a real cancel ends the wait. */
 function waitForPicker(input) {
+  notice = "";
+  const since = Date.now();
+  session.set(String(since));
   setPreparing(t("Choose the files…"), true);
-  const done = () => { if (preparing?.waiting) setPreparing(null); };
+  const done = () => {
+    session.take();
+    if (!preparing?.waiting) return;
+    // Closed after a long wait: the selection was probably too big, not cancelled.
+    if (Date.now() - since > 15_000) notice = tooMany();
+    setPreparing(null);
+  };
   input.addEventListener("cancel", done, { once: true });
   // Browsers without the cancel event: back on the page with nothing chosen.
-  addEventListener("focus", () => setTimeout(() => { if (!input.files?.length) done(); }, 1500), { once: true });
+  if (!("oncancel" in input)) addEventListener("focus", () => setTimeout(() => { if (!input.files?.length) done(); }, 1500), { once: true });
 }
 $("#main").addEventListener("change", async e => {
   if (!["pickFolder", "pickFiles", "pickAny"].includes(e.target.id)) return;
+  session.take();
   const list = e.target.files;
+  // A phone handing over thousands of files at once struggles, and so does the upload: past
+  // the limit, the choice is refused with what to do instead.
+  if (touch() && list.length > MAX_FILES) {
+    // Counted first: emptying the field empties its list too.
+    const n = list.length;
+    e.target.value = "";
+    notice = t("That's {n} files: a phone can upload at most {max} at a time from here. Choose fewer, and add more while they upload; for a whole phone, copy its camera folder to the server instead.", { n: num(n), max: num(MAX_FILES) });
+    return setPreparing(null);
+  }
   setPreparing(tn(list.length, "Preparing {n} file…", "Preparing {n} files…"));
   await breathe();
   // A folder's files carry their path inside it; single files just their name.
@@ -174,7 +214,7 @@ $("#main").addEventListener("change", async e => {
 // Dropping anywhere on the view; elsewhere the browser would open the file instead.
 for (const type of ["dragenter", "dragover"]) {
   $("#main").addEventListener(type, e => {
-    if (state.view !== "manage" || job?.running || preparing || !e.dataTransfer?.types.includes("Files")) return;
+    if (state.view !== "manage" || preparing || !e.dataTransfer?.types.includes("Files")) return;
     e.preventDefault();
     $("#dropZone")?.classList.add("over");
   });
@@ -183,7 +223,7 @@ $("#main").addEventListener("dragleave", e => {
   if (!e.relatedTarget || !$("#main").contains(e.relatedTarget)) $("#dropZone")?.classList.remove("over");
 });
 $("#main").addEventListener("drop", async e => {
-  if (state.view !== "manage" || job?.running || preparing) return;
+  if (state.view !== "manage" || preparing) return;
   e.preventDefault();
   $("#dropZone")?.classList.remove("over");
   // The entries have to be taken now: the drop's data is gone after the first await.
@@ -216,8 +256,9 @@ async function collect(entry, out) {
 const CHECK_AT_ONCE = 1000;
 
 async function start(chosen) {
-  if (job?.running) return setPreparing(null);
   if (!chosen.length) return setPreparing(null);
+  // Chosen while an upload runs: they join it, into the same folder.
+  const adding = !!job?.running;
   try {
     const targets = await api("/api/uploads");
     const extensions = new Set(targets.extensions);
@@ -228,9 +269,9 @@ async function start(chosen) {
       if (!f.path.split("/").some(p => p.startsWith(".")) && extensions.has(ext(f.path))) files.push(f);
       if (i % 2000 === 1999) await breathe();
     }
-    let folder = targets.folders[0];
+    let folder = adding ? job.folder : targets.folders[0];
     if (!folder) { setPreparing(null); return showArea(targets); }
-    if (targets.folders.length > 1 && files.length) {
+    if (!adding && targets.folders.length > 1 && files.length) {
       const buttons = targets.folders.map((f, i) => `<button class="btn up-target" data-choice="${i}"><bdi>${esc(f)}</bdi></button>`).join("");
       const choice = await askChoice(`<p>${t("Which of the gallery's folders should they go to? They are saved in its <b>{subfolder}</b> folder, created if it isn't there.", { subfolder: esc(targets.subfolder) })}</p>
         <div class="up-targets">${buttons}</div>
@@ -259,19 +300,33 @@ async function start(chosen) {
           <button class="btn primary" data-choice="keep">${t("Keep both")}</button></div>`, t("Files with the same name"));
       if (onConflict === "cancel") return setPreparing(null);
     }
-    // Skipped ones aren't even sent.
-    const toSend = onConflict === "skip" ? files.filter(f => !existing.has(f.path)) : files;
-    run(toSend, { folder, subfolder: targets.subfolder, onConflict, left: chosen.length - files.length, existing: files.length - toSend.length });
+    // Skipped ones aren't even sent; each file goes with the choice made for it.
+    const toSend = (onConflict === "skip" ? files.filter(f => !existing.has(f.path)) : files).map(f => ({ ...f, onConflict }));
+    const counts = { left: chosen.length - files.length, existing: files.length - toSend.length };
+    if (adding && job?.running) return add(toSend, counts);
+    run(toSend, { folder, subfolder: targets.subfolder, ...counts });
   } catch (err) {
     setPreparing(null);
     alertArea(err.message);
   }
 }
 
+/** More files for the upload that is running: they join its queue. */
+function add(files, { left, existing }) {
+  job.queue.push(...files);
+  job.count += files.length;
+  job.bytes += files.reduce((a, f) => a + f.file.size, 0);
+  job.left += left;
+  job.existing += existing;
+  preparing = null;
+  showArea();
+  for (let i = job.loading.size + job.waiting; i < AT_ONCE; i++) next();
+}
+
 /** Sends `files` into `folder`'s uploads folder, AT_ONCE at a time. */
-function run(files, { folder, subfolder, onConflict, left = 0, existing = 0 }) {
+function run(files, { folder, subfolder, left = 0, existing = 0 }) {
   job = {
-    running: files.length > 0, count: files.length, queue: [...files], waiting: 0, target: `${folder}/${subfolder}`, folder, subfolder, onConflict,
+    running: files.length > 0, count: files.length, queue: [...files], waiting: 0, target: `${folder}/${subfolder}`, folder, subfolder,
     bytes: files.reduce((a, f) => a + f.file.size, 0), done: 0, loading: new Map(), current: new Set(),
     saved: 0, same: 0, overwritten: 0, renamed: 0, existing, left, failed: [], requests: new Set(), cancelled: false,
   };
@@ -283,8 +338,8 @@ function run(files, { folder, subfolder, onConflict, left = 0, existing = 0 }) {
 /** The files that failed last time, again, into the same folder and with the same choice. */
 function retry() {
   if (!job || job.running || !job.failed.length) return;
-  const { folder, subfolder, onConflict } = job;
-  run(job.failed.map(f => f.item), { folder, subfolder, onConflict });
+  const { folder, subfolder } = job;
+  run(job.failed.map(f => f.item), { folder, subfolder });
 }
 
 function next() {
@@ -300,7 +355,7 @@ function next() {
 function send(item, tries) {
   const current = job;
   const xhr = new XMLHttpRequest();
-  const query = new URLSearchParams({ folder: current.folder, path: item.path, on_conflict: current.onConflict });
+  const query = new URLSearchParams({ folder: current.folder, path: item.path, on_conflict: item.onConflict ?? "keep" });
   xhr.open("PUT", `/api/uploads?${query}`);
   current.requests.add(xhr);
   current.current.add(item.path);
@@ -358,7 +413,7 @@ function redraw() {
   if (drawing) return;
   drawing = setTimeout(() => {
     drawing = 0;
-    if (state.view === "manage" && job?.running && $("#uploadArea")) updateProgress();
+    if (state.view === "manage" && job?.running && !preparing && $("#uploadArea")) updateProgress();
   }, 250);
 }
 
