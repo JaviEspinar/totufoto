@@ -196,7 +196,7 @@ const ADDED_COLUMNS: &[(&str, &str, &str)] = &[
 
 /// The `user_version` an index has once [`migrate`] has run: a backup with a higher one comes
 /// from a newer Imadive.
-pub const SCHEMA_VERSION: i64 = 1;
+pub const SCHEMA_VERSION: i64 = 2;
 
 /// Upgrades indexes created by older versions in place.
 fn migrate(conn: &Connection) -> Result<()> {
@@ -222,6 +222,11 @@ fn migrate(conn: &Connection) -> Result<()> {
              WHERE duration IS NOT NULL AND id NOT IN (SELECT item_id FROM thumbs);
              PRAGMA user_version = 1;",
         )?;
+    }
+    if done < 2 {
+        // Duplicates are now found by picture (a JPEG without its metadata, a video without
+        // its details), so the fingerprints of the whole files are made again that way.
+        conn.execute_batch("UPDATE items SET content_hash = NULL; PRAGMA user_version = 2;")?;
     }
     Ok(())
 }

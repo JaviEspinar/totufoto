@@ -110,9 +110,9 @@ The *Manage* tab has two cards: uploading photos and videos (on the gallery serv
 
 ### Identical files
 
-After each scan, Imadive looks in the background for identical photo files (the very same bytes) and shows how much space they take. Only files that share their size with another are read, so the search is quick.
+After each scan, Imadive looks in the background for copies of the same photo or video and shows how much space they take. A copy counts as the same when it is the very same file, or the same picture with other details: for a JPEG, the picture without its metadata (but with its orientation, since a turned copy looks different); for an MP4 or MOV, the video without its details. That finds, for example, a photo uploaded from a phone's browser, which Android hands over without its location, next to the same photo synced with it. Only files that could have a twin are read (the same size, or the same size in pixels and capture time), so the search is quick. Other formats count only when the files are identical.
 
-*Delete duplicates* moves the copies to the bin, keeping the one with the oldest file date of each set (if two have the same date, one of them). A progress bar shows how far it has got; closing or reloading the page doesn't stop it. Each copy is checked just before it goes: it, and the file that is kept, must still be there and unchanged.
+*Delete duplicates* moves the copies to the bin, keeping of each set the one with a place, then the one with the oldest file date (if two have the same date, one of them). A progress bar shows how far it has got; closing or reloading the page doesn't stop it. Each copy is checked just before it goes: it, and the file that is kept, must still be there and unchanged.
 
 ### Uploading photos and videos
 
@@ -122,6 +122,7 @@ On the gallery served by a server, the *Upload photos and videos* card sends pho
 - A folder keeps its folders: dropping `Holidays` puts its photos in `imaDive-uploads/Holidays/...`.
 - Files that aren't photos or videos the gallery shows are left out, without being sent.
 - When some files have the same names as ones already in `imaDive-uploads`, a dialog lists them and asks what to do with all of them: *Skip* them (they aren't sent), *Overwrite* the ones there, or *Keep both* (the new one is saved with a number, `photo (2).jpg`). A file exactly the same as the one there is never copied twice, whatever the choice.
+- **On a phone, uploads lose their location:** Android hands photos and videos to the browser without it, so they don't show on the map. An app that syncs the camera folder to the server, such as Syncthing, keeps it.
 - From the moment you choose, the card says what is happening (a phone can take a while to hand over a big folder, and the names are checked before sending). Then a progress bar shows the files and bytes sent. The upload goes on while you look at other tabs; leaving the page asks first, since it would stop it. *Cancel* stops it, keeping what was already sent.
 - **Many files from a phone:** Android can take very long, or give up, handing thousands of files to the browser at once; the card says so beforehand. Choose a few hundred at a time: while they upload, *Add more…* adds another selection to the same upload. If Android gives up (the page comes back with nothing chosen, or reloads), the card explains it, and *Choose files* works again at once. For a whole phone, copying its camera folder to the server (with a cable, a network share or an app such as Syncthing) is faster.
 - **Big uploads from a phone** (thousands of files): keep the page open and the screen on until it ends. If the connection drops (the phone locks its screen, the Wi-Fi hiccups), the card says *The connection was lost: trying again…* and the upload goes on by itself when the page is back and online, waiting a little longer each time (up to half a minute, six tries per file).

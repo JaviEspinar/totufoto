@@ -13,7 +13,7 @@ const DUP_BATCH = 100;
 export async function renderOptimization(main, job) {
   const report = await api("/api/duplicates", { signal: job.signal });
   if (!job.alive()) return;
-  const intro = `<h2>${t("Duplicate files")}</h2><p class="lead">${t("Identical files (the very same bytes) take space twice. Of each set, the copy with the oldest file date is kept. Nothing is deleted until you click <b>Delete duplicates</b>.")}</p>`;
+  const intro = `<h2>${t("Duplicate files")}</h2><p class="lead">${t("Copies of the same photo or video take space twice: the very same file, or the same picture with other details, such as a copy uploaded from a phone that lost its location. Of each set, the copy with a place is kept, otherwise the one with the oldest file date. Nothing is deleted until you click <b>Delete duplicates</b>.")}</p>`;
   if (report.deleting) {
     // Deleting (started here or on another device): progress until it ends.
     main.innerHTML = `<div class="opt">${intro}<div class="opt-progress" id="dupDeleting">${deleteProgressHtml(null)}</div></div>`;
@@ -95,7 +95,7 @@ function deleteProgressHtml(p) {
 }
 async function deleteDuplicates(report) {
   const choice = await askChoice(`<p>${t("Move <b>{files}</b> ({size}) to the bin of the computer running Imadive?", { files: plural(report.files, "duplicate file"), size: fmtBytes(report.bytes) })}</p>
-    <p>${t("Of each set of identical files, the one with the oldest file date is kept. A file that changed since the search is left alone.")}</p>
+    <p>${t("Of each set of copies, the one with a place is kept, otherwise the one with the oldest file date. A file that changed since the search is left alone.")}</p>
     <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button><button class="btn danger" data-choice="bin">${t("Move to the bin")}</button></div>`,
     t("Delete duplicates?"));
   if (choice !== "bin") return;

@@ -1,9 +1,15 @@
-//! Finding identical photo files (the very same bytes) to free disk space.
+//! Finding copies of the same photo or video to free disk space: the very same file, or the
+//! same picture with other details, such as a copy uploaded from a phone's browser, which
+//! Android hands over without its location.
 //!
-//! Only files that share their size with another can be identical, so only those are read
-//! and fingerprinted (BLAKE3); the fingerprint is stored with the photo and kept until the
-//! file changes. Of each set of identical files the one with the oldest file date is kept
-//! (ties: the first by path), and the others can be moved to the bin.
+//! The fingerprint (BLAKE3) of a JPEG is that of its picture, leaving out the metadata
+//! segments (EXIF, XMP...) but not the orientation, which changes how it looks; of an MP4 or
+//! MOV, that of its media, leaving out the `moov` box (where its date and place are); of other
+//! files, that of the whole file. Only files that could have a twin are read: those that share
+//! their size with another, or their size in pixels and capture time. The fingerprint is
+//! stored with the item and kept until the file changes. Of each set, the copy with a place
+//! is kept, then the one with the oldest file date (ties: the first by path), and the others
+//! can be moved to the bin.
 
 use std::fs::File;
 use std::io::Read;
@@ -70,7 +76,9 @@ fn fingerprint(db_path: &Path, status: &DupStatus) -> Result<()> {
     let todo: Vec<(i64, String, i64, i64)> = conn
         .prepare(
             "SELECT id, path, mtime, size FROM items WHERE content_hash IS NULL
-             AND size IN (SELECT size FROM items GROUP BY size HAVING COUNT(*) > 1)",
+             AND (size IN (SELECT size FROM items GROUP BY size HAVING COUNT(*) > 1)
+                  OR (width, height, taken) IN (SELECT width, height, taken FROM items
+                                                GROUP BY width, height, taken HAVING COUNT(*) > 1))",
         )?
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
         .collect::<Result<_, _>>()?;
@@ -99,18 +107,112 @@ fn fingerprint(db_path: &Path, status: &DupStatus) -> Result<()> {
     Ok(())
 }
 
-fn hash_file(path: &Path) -> std::io::Result<String> {
-    let mut file = File::open(path)?;
+/// The item's fingerprint: of its picture or media when it is a JPEG, MP4 or MOV, else of the
+/// whole file (also when those can't be read as such).
+pub(crate) fn hash_file(path: &Path) -> std::io::Result<String> {
+    let ext = crate::imaging::extension(path);
     let mut hasher = blake3::Hasher::new();
-    let mut buf = vec![0u8; 256 * 1024];
-    loop {
-        let n = file.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        hasher.update(&buf[..n]);
+    let mut file = std::io::BufReader::with_capacity(256 * 1024, File::open(path)?);
+    let ok = match ext.as_str() {
+        "jpg" | "jpeg" => hash_jpeg(&mut file, &mut hasher, path).is_ok(),
+        "mp4" | "mov" | "m4v" => hash_media(&mut file, &mut hasher).is_ok(),
+        _ => false,
+    };
+    if !ok {
+        hasher = blake3::Hasher::new();
+        let mut file = File::open(path)?;
+        std::io::copy(&mut file, &mut hasher)?;
     }
     Ok(hasher.finalize().to_hex().to_string())
+}
+
+/// A JPEG without its metadata: every segment but APP0-APP15 and comments, then the picture
+/// data from the start of the scan to the end, plus the EXIF orientation.
+fn hash_jpeg(file: &mut impl std::io::BufRead, hasher: &mut blake3::Hasher, path: &Path) -> std::io::Result<()> {
+    let bad = || std::io::Error::new(std::io::ErrorKind::InvalidData, "not a JPEG");
+    let mut marker = [0u8; 2];
+    file.read_exact(&mut marker)?;
+    if marker != [0xFF, 0xD8] {
+        return Err(bad());
+    }
+    hasher.update(b"jpeg");
+    loop {
+        file.read_exact(&mut marker)?;
+        if marker[0] != 0xFF {
+            return Err(bad());
+        }
+        let kind = marker[1];
+        if kind == 0xD8 || (0xD0..=0xD7).contains(&kind) || kind == 0x01 || kind == 0xFF {
+            continue; // markers without a length
+        }
+        let mut len = [0u8; 2];
+        file.read_exact(&mut len)?;
+        let len = u16::from_be_bytes(len) as u64;
+        if len < 2 {
+            return Err(bad());
+        }
+        if (0xE0..=0xEF).contains(&kind) || kind == 0xFE {
+            // Metadata: left out.
+            std::io::copy(&mut file.by_ref().take(len - 2), &mut std::io::sink())?;
+            continue;
+        }
+        hasher.update(&marker);
+        hasher.update(&(len as u16).to_be_bytes());
+        std::io::copy(&mut file.by_ref().take(len - 2), hasher)?;
+        if kind == 0xDA {
+            // The scan: the picture itself, to the end of the file.
+            std::io::copy(file, hasher)?;
+            break;
+        }
+    }
+    // Two copies that only differ in their orientation look different: not the same photo.
+    let orientation = std::fs::File::open(path).ok().and_then(|f| {
+        let exif = exif::Reader::new().read_from_container(&mut std::io::BufReader::new(f)).ok()?;
+        exif.get_field(exif::Tag::Orientation, exif::In::PRIMARY)?.value.get_uint(0)
+    });
+    hasher.update(&orientation.unwrap_or(1).to_le_bytes());
+    Ok(())
+}
+
+/// An MP4 or MOV without its `moov` box, which holds its details (date, place, tracks' names)
+/// as well as the tables describing the media: the media data and the other top-level boxes.
+fn hash_media(file: &mut impl std::io::BufRead, hasher: &mut blake3::Hasher) -> std::io::Result<()> {
+    hasher.update(b"media");
+    let mut seen_media = false;
+    loop {
+        let mut head = [0u8; 8];
+        match file.read_exact(&mut head) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(e) => return Err(e),
+        }
+        let kind = [head[4], head[5], head[6], head[7]];
+        let (size, header) = match u32::from_be_bytes([head[0], head[1], head[2], head[3]]) {
+            1 => {
+                let mut large = [0u8; 8];
+                file.read_exact(&mut large)?;
+                (u64::from_be_bytes(large), 16)
+            }
+            0 => (u64::MAX, 8), // to the end of the file
+            n => (n as u64, 8),
+        };
+        if size != u64::MAX && size < header {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "not an MP4 box"));
+        }
+        let body = size.saturating_sub(header);
+        let mut part = file.by_ref().take(body);
+        if matches!(&kind, b"moov" | b"free" | b"skip" | b"wide" | b"udta" | b"meta" | b"uuid") {
+            std::io::copy(&mut part, &mut std::io::sink())?;
+        } else {
+            seen_media |= &kind == b"mdat";
+            hasher.update(&kind);
+            std::io::copy(&mut part, hasher)?;
+        }
+        if size == u64::MAX {
+            break;
+        }
+    }
+    if seen_media { Ok(()) } else { Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "no media data")) }
 }
 
 /// The file is still the one that was indexed (same size and modification time).
@@ -139,15 +241,15 @@ pub struct DupGroup {
     pub remove: Vec<DupFile>,
 }
 
-/// Sets of identical files, each with the copy kept (oldest file date, then path) and the
-/// others; the largest savings first.
+/// Sets of copies of the same item, each with the copy kept (one with a place, then the oldest
+/// file date, then the path) and the others; the largest savings first.
 pub fn report(conn: &Connection) -> Result<Vec<DupGroup>> {
     let rows: Vec<(String, DupFile)> = conn
         .prepare(
             "SELECT content_hash, id, path, mtime, size, version FROM items
              WHERE content_hash IN (SELECT content_hash FROM items WHERE content_hash IS NOT NULL
                                     GROUP BY content_hash HAVING COUNT(*) > 1)
-             ORDER BY content_hash, mtime, path",
+             ORDER BY content_hash, lat IS NULL, mtime, path",
         )?
         .query_map([], |r| {
             Ok((
@@ -333,5 +435,44 @@ mod tests {
         std::fs::write(lib.root().join("b.jpg"), b"changed").unwrap();
         let result = delete(&mut lib.conn(), &[lib.root()], None, true, &DupStatus::default()).unwrap();
         assert_eq!((result.deleted, result.skipped.len()), (0, 2));
+    }
+
+    #[test]
+    fn a_copy_without_its_place_is_the_same_photo_and_the_one_with_it_is_kept() {
+        let lib = Library::new();
+        let taken = Some("2025:08:01 10:00:00");
+        // Uploaded from a phone's browser (Android leaves the place out), and older...
+        set_mtime(&lib.add("upload.jpg", Photo { taken, ..Photo::default() }), 500);
+        // ...and synced from the phone with its place, newer.
+        set_mtime(&lib.add("synced.jpg", Photo { taken, gps: Some((40.4168, -3.7038)), ..Photo::default() }), 100);
+        // The same picture, turned: it looks different, so it isn't a copy.
+        lib.add("turned.jpg", Photo { taken, orientation: Some(6), ..Photo::default() });
+        lib.scan();
+        run(&lib.cfg.db_path, &DupStatus::default()).unwrap();
+        let groups = report(&lib.conn()).unwrap();
+        assert_eq!(groups.len(), 1);
+        assert_eq!(names(std::slice::from_ref(&groups[0].keep)), ["synced.jpg"]);
+        assert_eq!(names(&groups[0].remove), ["upload.jpg"]);
+    }
+
+    #[test]
+    fn videos_are_compared_without_their_details() {
+        let dir = crate::testutil::TempDir::new();
+        let mp4 = |details: &[u8], media: &[u8]| {
+            let boxed = |kind: &[u8], body: &[u8]| [&((body.len() + 8) as u32).to_be_bytes()[..], kind, body].concat();
+            [boxed(b"ftyp", b"isom\0\0\0\0"), boxed(b"moov", details), boxed(b"mdat", media)].concat()
+        };
+        let write = |name: &str, bytes: Vec<u8>| {
+            let path = dir.file(name);
+            std::fs::write(&path, bytes).unwrap();
+            hash_file(&path).unwrap()
+        };
+        let with_place = write("a.mp4", mp4(b"udta with a place", b"frames"));
+        let without = write("b.mp4", mp4(b"udta", b"frames"));
+        let other = write("c.mp4", mp4(b"udta", b"other frames"));
+        assert_eq!(with_place, without);
+        assert_ne!(without, other);
+        // Not an MP4 inside: the whole file counts.
+        assert_eq!(write("d.mp4", b"hello".to_vec()), blake3::hash(b"hello").to_hex().to_string());
     }
 }

@@ -160,7 +160,7 @@ export default {
 
   // Manage: identical files
   "Duplicate files": "Archivos duplicados",
-  "Identical files (the very same bytes) take space twice. Of each set, the copy with the oldest file date is kept. Nothing is deleted until you click <b>Delete duplicates</b>.": "Los archivos idénticos (exactamente los mismos bytes) ocupan espacio dos veces. De cada grupo se conserva la copia con la fecha de archivo más antigua. No se borra nada hasta que pulses <b>Borrar duplicados</b>.",
+  "Copies of the same photo or video take space twice: the very same file, or the same picture with other details, such as a copy uploaded from a phone that lost its location. Of each set, the copy with a place is kept, otherwise the one with the oldest file date. Nothing is deleted until you click <b>Delete duplicates</b>.": "Las copias de una misma foto o vídeo ocupan espacio dos veces: el mismo archivo, o la misma imagen con otros datos, como una copia subida desde un móvil que perdió su ubicación. De cada grupo se conserva la copia con lugar y, si no, la de fecha de archivo más antigua. No se borra nada hasta que pulses <b>Borrar duplicados</b>.",
   "Waiting for the scan to finish…": "Esperando a que termine el examen de las carpetas…",
   "Checking {done} of {total} files that could be duplicates": "Comprobando {done} de {total} archivos que podrían estar duplicados",
   "Last checked {when}.": "Última comprobación: {when}.",
@@ -185,7 +185,7 @@ export default {
   "Deleting {done} of {total} duplicate files · {size} freed": "Borrando {done} de {total} archivos duplicados · {size} liberados",
   "Updating the gallery · {size} freed": "Actualizando la galería · {size} liberados",
   "Move <b>{files}</b> ({size}) to the bin of the computer running Imadive?": "¿Mover <b>{files}</b> ({size}) a la papelera del ordenador en el que funciona Imadive?",
-  "Of each set of identical files, the one with the oldest file date is kept. A file that changed since the search is left alone.": "De cada grupo de archivos idénticos se conserva el de fecha de archivo más antigua. Un archivo que haya cambiado desde la búsqueda no se toca.",
+  "Of each set of copies, the one with a place is kept, otherwise the one with the oldest file date. A file that changed since the search is left alone.": "De cada grupo de copias se conserva la que tiene lugar y, si no, la de fecha de archivo más antigua. Un archivo que haya cambiado desde la búsqueda no se toca.",
   "Move to the bin": "Mover a la papelera",
   "Delete duplicates?": "¿Borrar los duplicados?",
   "{n} file can't be moved to a bin on its drive, so it can't be recovered once deleted. Its oldest copy is kept either way.": "{n} archivo no se puede mover a una papelera en su disco, así que no se podrá recuperar una vez borrado. Su copia más antigua se conserva en cualquier caso.",
@@ -406,6 +406,7 @@ export default {
   "This video can't be played here.": "Este vídeo no se puede reproducir aquí.",
   "Download it": "Descárgalo",
   // Upload
+  "Android hands photos and videos to the browser without their location, so these won't show on the map. An app that syncs the camera folder, such as Syncthing, keeps it.": "Android pasa las fotos y los vídeos al navegador sin su ubicación, así que no saldrán en el mapa. Una aplicación que sincronice la carpeta de la cámara, como Syncthing, la conserva.",
   "{n} s": "{n} s",
   "The device took too long to hand over the files. With many files at once, Android sometimes gives up: choose fewer at a time (a few hundred), and add more while they upload.": "El dispositivo ha tardado demasiado en pasar los archivos. Con muchos archivos a la vez, Android a veces no lo consigue: elige menos cada vez (unos cientos) y añade más mientras se suben.",
   "Stop waiting": "Dejar de esperar",

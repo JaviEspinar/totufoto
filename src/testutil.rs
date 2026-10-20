@@ -136,11 +136,13 @@ pub struct Photo {
     pub taken: Option<&'static str>,
     /// EXIF GPS position (latitude, longitude) in degrees.
     pub gps: Option<(f64, f64)>,
+    /// EXIF orientation (1 to 8).
+    pub orientation: Option<u16>,
 }
 
 impl Default for Photo {
     fn default() -> Self {
-        Self { width: 64, height: 48, color: [200, 120, 40], taken: None, gps: None }
+        Self { width: 64, height: 48, color: [200, 120, 40], taken: None, gps: None, orientation: None }
     }
 }
 
@@ -162,10 +164,13 @@ impl Photo {
 
     fn exif(&self) -> Option<Vec<u8>> {
         use exif::{Field, In, Rational, Tag, Value};
-        if self.taken.is_none() && self.gps.is_none() {
+        if self.taken.is_none() && self.gps.is_none() && self.orientation.is_none() {
             return None;
         }
         let mut fields = Vec::new();
+        if let Some(orientation) = self.orientation {
+            fields.push(Field { tag: Tag::Orientation, ifd_num: In::PRIMARY, value: Value::Short(vec![orientation]) });
+        }
         if let Some(taken) = self.taken {
             fields.push(Field {
                 tag: Tag::DateTimeOriginal,

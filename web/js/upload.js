@@ -52,6 +52,7 @@ function showArea(targets = null) {
       </div>
       <p class="hint for-touch">${t("Many at once: <b>Choose files</b>, open the folder (for example DCIM › Camera) and use <b>Select all</b> in its menu. <b>Choose photos and videos</b> takes up to 100.")}</p>
       <p class="hint for-touch">${t("Android can take very long, or give up, handing over thousands of files at once: choose a few hundred at a time, and add more while they upload. For a whole phone, copying its camera folder to the server is faster: with a cable, a network share or an app such as Syncthing.")}</p>
+      <p class="hint for-touch">${t("Android hands photos and videos to the browser without their location, so these won't show on the map. An app that syncs the camera folder, such as Syncthing, keeps it.")}</p>
     </div>`;
   }
 }
