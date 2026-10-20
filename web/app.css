@@ -518,10 +518,16 @@ button.candidate { background: none; border: 0; padding: 6px; }
 }
 #viewer .trash:hover { background: rgba(255, 255, 255, 0.16); color: #fff; }
 #viewer .info { background: #161615; border-left: 1px solid #2a2a28; position: relative; display: flex; flex-direction: column; min-height: 0; }
-#viewer .info-body { padding: 20px 18px; overflow-y: auto; min-height: 0; flex: 1; }
+/* A layer of its own below the toggle: Android's Chrome can paint a scrolling area over a
+   button placed above it otherwise. */
+#viewer .info-body { padding: 20px 18px; overflow-y: auto; min-height: 0; flex: 1; position: relative; z-index: 0; }
 #viewer .info h3 { margin: 0 0 4px; font-size: 16px; padding-right: 30px; }
 /* The details fold away like the People column, to a strip with the button to bring them back. */
-#viewer .info-toggle { position: absolute; top: 14px; right: 12px; z-index: 1; margin: 0; color: #a5a29b; }
+#viewer .info-toggle { position: absolute; top: 14px; right: 12px; z-index: 2; margin: 0; color: #a5a29b; }
+/* Both icons centred alike, as blocks, so no line of text (whose height depends on the
+   device's font and its size) pushes one out of the button. */
+#viewer .info-toggle .when-open, #viewer.info-collapsed .info-toggle .when-closed { display: inline-flex; align-items: center; justify-content: center; }
+#viewer .info-toggle svg { display: block; }
 #viewer .info-toggle:hover { background: #2a2a28; color: #fff; }
 #viewer .info-toggle .when-closed, #viewer.info-collapsed .info-toggle .when-open { display: none; }
 #viewer.info-collapsed .info-toggle .when-closed { display: inline-flex; }
