@@ -41,6 +41,12 @@ test("a newer release is found, and a build from source says how to switch to th
     await expect(update).toContainText("Run this once on the server");
     await expect(update.locator(".update-cmd code")).toContainText("scripts/install.sh | sh -s -- ");
     await expect(update.locator(".update-cmd code")).toContainText("--folder ");
+    // Copy works on a plain http page too (a home server), where browsers have no clipboard API.
+    await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+    await page.evaluate(() => Object.defineProperty(window, "isSecureContext", { value: false }));
+    await update.locator("[data-copy-command]").click();
+    await expect(page.locator("#toast")).toContainText("Copied");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain("scripts/install.sh | sh -s -- ");
   } else {
     await expect(update).toContainText("get the new version from the releases page");
   }

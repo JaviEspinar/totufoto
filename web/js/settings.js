@@ -255,6 +255,25 @@ function updateHtml(u) {
     <p><small>${[u.checked ? t("Last checked on GitHub on {when}.", { when: esc(u.checked) }) : "",
       u.automatic ? t("Imadive looks for new releases once a day.") : t("Imadive only looks for new releases when you ask.")].filter(Boolean).join(" ")}</small></p>`;
 }
+/** Copies `text`. The clipboard API only exists on HTTPS pages (and localhost), and the gallery
+ *  on a home network is plain http: there, a hidden text field is copied the old way. */
+function copyText(text) {
+  if (window.isSecureContext && navigator.clipboard) {
+    navigator.clipboard.writeText(text).catch(() => {});
+    return true;
+  }
+  const field = document.createElement("textarea");
+  field.value = text;
+  field.setAttribute("readonly", "");
+  field.style.cssText = "position: fixed; top: 0; left: 0; opacity: 0;";
+  // Inside the open dialog, which takes the focus away from anything outside it.
+  ($("#settingsDlg").open ? $("#settingsDlg") : document.body).append(field);
+  field.select();
+  let copied = false;
+  try { copied = document.execCommand("copy"); } catch {}
+  field.remove();
+  return copied;
+}
 /** Fetches the update state; while something is going on, again every second. */
 async function loadUpdate(url = "/api/update", method = "GET") {
   clearTimeout(updateTimer);
@@ -487,7 +506,11 @@ $("#settingsDlg").addEventListener("click", async e => {
     });
   }
   if (e.target.dataset.copyCommand != null) {
-    return navigator.clipboard.writeText(updateInfo?.command ?? "").then(() => toast(t("Copied"))).catch(() => toast(t("Couldn't copy it; select it and copy it yourself"), true));
+    if (copyText(updateInfo?.command ?? "")) return toast(t("Copied"));
+    // Not even that: the command is selected, ready to copy with the keyboard.
+    const code = $("#settingsUpdate .update-cmd code");
+    if (code) getSelection().selectAllChildren(code);
+    return toast(t("Couldn't copy it; select it and copy it yourself"), true);
   }
   if (e.target.dataset.backup != null) {
     return backUp().catch(err => toast(t("Couldn't make the backup: {error}", { error: err.message }), true));
