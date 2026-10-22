@@ -168,7 +168,12 @@ pub fn changed(cfg: &ScanConfig, status: &ScanStatus) -> Result<bool> {
     if stamps.roots != roots {
         return Ok(true);
     }
-    Ok(stamps.folders.iter().any(|(folder, then)| std::fs::metadata(folder).and_then(|m| m.modified()).ok() != *then))
+    Ok(stamps.folders.iter().any(|(folder, then)| folder_time(folder) != *then))
+}
+
+/// A folder's modification time, read from the folder itself.
+fn folder_time(folder: &Path) -> Option<SystemTime> {
+    std::fs::metadata(folder).and_then(|m| m.modified()).ok()
 }
 
 /// Checks the folders every `every` and scans when something changed (see `changed`).
@@ -570,7 +575,9 @@ fn list_files(roots: &[PathBuf]) -> Listing {
                     }
                 };
                 if entry.file_type().is_dir() {
-                    let modified = entry.metadata().ok().and_then(|m| m.modified().ok());
+                    // Read as `changed` reads it: on Windows a listing's own data can be behind
+                    // for folders, and every check would see a change.
+                    let modified = folder_time(entry.path());
                     listing.folders.push((entry.into_path(), modified));
                     continue;
                 }
