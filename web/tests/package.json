@@ -13,7 +13,7 @@
     "check-strings": "node strings.mjs"
   },
   "devDependencies": {
-    "@playwright/test": "^1.63.0",
-    "acorn": "^8.18.0"
+    "@playwright/test": "^1.64.1",
+    "acorn": "^8.19.0"
   }
 }
