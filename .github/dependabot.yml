@@ -16,6 +16,10 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # ort runs the face models and is pinned to an exact pre-release: its release candidates
+    # change the API (rc.14 did), so it is upgraded by hand, checked with the face self-test.
+    ignore:
+      - dependency-name: ort
     groups:
       minor-and-patch:
         update-types: [minor, patch]
