@@ -219,7 +219,7 @@ A backup is a copy of the index (SQLite, `.imadive`) without the photos' thumbna
 | `POST /api/update/check` | looks for the latest release on GitHub now, and answers as `GET` |
 | `POST /api/update/install` | installs the latest release in the background (`202`); `409` when this copy can't update itself, there is nothing newer, or an update is already running |
 
-`update_available` in `/api/status` says whether a newer release was found.
+`update_available` in `/api/status` says whether a newer release was found. `check_every` in `/api/status` is how often, in minutes, the folders are checked for new files (0: never).
 
 ### Desktop
 

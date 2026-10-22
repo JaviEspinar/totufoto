@@ -149,7 +149,8 @@ Settings is the gear at the top right. (The ImaDive logo at the top left shows t
 **The library**
 
 - The library status, with progress while indexing or grouping faces.
-- *Rescan* picks up new, changed or deleted photos without restarting.
+- New, deleted and renamed files are found on their own: every 5 minutes the gallery takes a quick look at its folders (only the folders' dates, not every file), and scans when one of them changed, for example after Syncthing or a copy added photos. Settings says how often. On the command-line app, `--check-every MINUTES` changes it and `--check-every 0` turns it off.
+- *Rescan* picks up new, changed or deleted photos without restarting, including a photo edited in place, which the quick look can miss (most editors save a new file, which it doesn't).
 - Files that could not be read, with the reason. They are skipped until the file changes, or until you click *Try again*.
 - Photos removed from the gallery, with *Show again*.
 - *Regroup all faces* groups every face from scratch (named people are kept).

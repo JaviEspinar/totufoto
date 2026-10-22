@@ -56,7 +56,7 @@ scripts/           downloads of the face models and ONNX Runtime, with checksums
 
 ## Indexing (`scan.rs`)
 
-A scan runs in a background thread, one at a time: asking for a scan while one runs makes another follow it. Each pass:
+A scan runs in a background thread, one at a time: asking for a scan while one runs makes another follow it. Scans start with the program, after uploads and folder changes, when asked (*Rescan*), and when the periodic check (`scan::spawn_checks`, every `--check-every` minutes) finds that a folder's modification time changed since the last scan (`scan::changed`, which only looks at the folders the last scan went through, so it is quick even on large libraries). Each pass:
 
 1. **Lists the files** under the photo folders (`library::roots`: the command-line folders and the ones saved in Settings, without folders nested in others) and compares them with the index by path, size and modification time.
 2. **Prunes** photos whose files are gone, except under a folder that can't be reached: a missing or empty folder counts as an unplugged drive. Photos removed from the gallery (`excluded`) stay out, and files that failed before are only tried again once they change.

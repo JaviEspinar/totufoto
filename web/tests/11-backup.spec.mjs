@@ -24,6 +24,8 @@ test("Settings ends with the invitation to buy a coffee", async ({ page }) => {
   const coffee = page.locator("#settingsDlg .settings-coffee");
   await expect(coffee).toContainText("ImaDive is free");
   await expect(coffee.locator("a")).toHaveAttribute("href", /ko-fi\.com\/waiting4timeout/);
+  // New files are found on their own (the test server keeps the default, 5 minutes).
+  await expect(page.locator("#settingsCheck")).toContainText("checked every 5 minutes");
 });
 
 test("a newer release is found, and a build from source says how to switch to the ready-made one", async ({ page }) => {

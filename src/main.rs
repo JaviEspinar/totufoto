@@ -52,6 +52,11 @@ struct Args {
     /// check when asked). Also read from IMADIVE_NO_UPDATE_CHECK.
     #[arg(long, env = "IMADIVE_NO_UPDATE_CHECK")]
     no_update_check: bool,
+    /// Every how many minutes the photo folders are checked for new, deleted or renamed files
+    /// (a quick look at each folder; a scan follows when one changed). 0 turns it off. Also
+    /// read from IMADIVE_CHECK_EVERY.
+    #[arg(long, value_name = "MINUTES", default_value_t = 5, env = "IMADIVE_CHECK_EVERY")]
+    check_every: u64,
 }
 
 #[derive(Subcommand)]
@@ -87,6 +92,7 @@ async fn serve(args: Args) -> Result<()> {
         host: None,
         allowed_names: args.allow_host,
         update_check: !args.no_update_check,
+        check_every: (args.check_every > 0).then(|| std::time::Duration::from_secs(args.check_every * 60)),
     })?;
 
     if args.scan_only {

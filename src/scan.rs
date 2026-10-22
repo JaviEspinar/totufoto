@@ -26,7 +26,7 @@ use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
-use std::time::{Instant, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use chrono::{DateTime, Local};
@@ -75,6 +75,16 @@ pub struct ScanStatus {
     pub restoring: AtomicBool,
     /// The backup being made, if any.
     pub backup: Arc<crate::backup::Job>,
+    /// The folders as the last scan saw them, for the periodic check (see `changed`).
+    stamps: Mutex<Option<Stamps>>,
+    /// How often the folders are checked for new files, in minutes (0: never).
+    pub check_every: AtomicU64,
+}
+
+/// The library's folders, each with its modification time, as a scan saw them.
+struct Stamps {
+    roots: Vec<PathBuf>,
+    folders: Vec<(PathBuf, Option<SystemTime>)>,
 }
 
 #[derive(Serialize)]
@@ -92,6 +102,7 @@ pub struct StatusView {
     pub remove_total: u64,
     pub restoring: bool,
     pub backing_up: bool,
+    pub check_every: u64,
 }
 
 impl ScanStatus {
@@ -110,6 +121,7 @@ impl ScanStatus {
             remove_total: self.remove_total.load(Ordering::Relaxed),
             restoring: self.restoring.load(Ordering::Relaxed),
             backing_up: self.backup.running.load(Ordering::Relaxed),
+            check_every: self.check_every.load(Ordering::Relaxed),
         }
     }
 
@@ -142,6 +154,45 @@ impl ScanConfig {
     pub fn is_fixed(&self, path: &Path) -> bool {
         self.fixed_roots.iter().any(|r| r == path)
     }
+}
+
+/// Whether something may have changed in the library since the last scan, cheaply: a folder
+/// whose modification time changed (a file added, removed or renamed in it), one that
+/// appeared or went, a folder added or removed in Settings, or no scan yet. Only the folders
+/// are looked at, not their files; a file changed in place, without its folder changing, is
+/// found by the next full scan.
+pub fn changed(cfg: &ScanConfig, status: &ScanStatus) -> Result<bool> {
+    let roots = cfg.roots(&crate::db::open(&cfg.db_path)?)?;
+    let stamps = status.stamps.lock().unwrap();
+    let Some(stamps) = stamps.as_ref() else { return Ok(true) };
+    if stamps.roots != roots {
+        return Ok(true);
+    }
+    Ok(stamps.folders.iter().any(|(folder, then)| std::fs::metadata(folder).and_then(|m| m.modified()).ok() != *then))
+}
+
+/// Checks the folders every `every` and scans when something changed (see `changed`).
+pub fn spawn_checks(cfg: Arc<ScanConfig>, status: Arc<ScanStatus>, every: Duration) {
+    status.check_every.store(every.as_secs().div_ceil(60), Ordering::Relaxed);
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(every);
+            let busy = status.running.load(Ordering::SeqCst)
+                || status.hold.load(Ordering::SeqCst)
+                || status.restoring.load(Ordering::SeqCst);
+            if busy {
+                continue;
+            }
+            match changed(&cfg, &status) {
+                Ok(true) => {
+                    tracing::info!("the photo folders changed; scanning");
+                    spawn(cfg.clone(), status.clone());
+                }
+                Ok(false) => {}
+                Err(e) => tracing::warn!("checking the photo folders: {e:#}"),
+            }
+        }
+    });
 }
 
 /// Scans in a background thread. If a scan is already running, another one follows it.
@@ -291,7 +342,13 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
         tracing::info!("no photo folders yet; add one in Settings");
         return Ok(());
     }
-    let Listing { files, unreadable } = list_files(&roots);
+    let Listing { files, unreadable, folders } = list_files(&roots);
+    // What the next check compares with. A root that can't be reached now gets no time, so it
+    // counts as changed once it is back.
+    let mut stamps: Vec<(PathBuf, Option<SystemTime>)> =
+        roots.iter().filter(|r| !folders.iter().any(|(f, _)| f == *r)).map(|r| (r.clone(), None)).collect();
+    stamps.extend(folders);
+    *status.stamps.lock().unwrap() = Some(Stamps { roots: roots.clone(), folders: stamps });
     if status.hold.load(Ordering::SeqCst) {
         tracing::info!("scan stopped: a folder is being removed");
         return Ok(());
@@ -486,13 +543,15 @@ fn fill_thumbnails(conn: &Connection, status: &ScanStatus) -> Result<()> {
 struct Listing {
     files: Vec<FileEntry>,
     unreadable: Vec<PathBuf>,
+    /// Every folder gone through, with its modification time, for `changed`.
+    folders: Vec<(PathBuf, Option<SystemTime>)>,
 }
 
 fn list_files(roots: &[PathBuf]) -> Listing {
     let per_root: Vec<Listing> = roots
         .par_iter()
         .map(|root| {
-            let mut listing = Listing { files: Vec::new(), unreadable: Vec::new() };
+            let mut listing = Listing { files: Vec::new(), unreadable: Vec::new(), folders: Vec::new() };
             let walk = WalkDir::new(root)
                 .follow_links(true)
                 .into_iter()
@@ -510,6 +569,11 @@ fn list_files(roots: &[PathBuf]) -> Listing {
                         continue;
                     }
                 };
+                if entry.file_type().is_dir() {
+                    let modified = entry.metadata().ok().and_then(|m| m.modified().ok());
+                    listing.folders.push((entry.into_path(), modified));
+                    continue;
+                }
                 if !entry.file_type().is_file()
                     || !(imaging::is_supported(entry.path()) || crate::video::is_video(entry.path()))
                 {
@@ -529,10 +593,11 @@ fn list_files(roots: &[PathBuf]) -> Listing {
             listing
         })
         .collect();
-    let mut all = Listing { files: Vec::new(), unreadable: Vec::new() };
+    let mut all = Listing { files: Vec::new(), unreadable: Vec::new(), folders: Vec::new() };
     for listing in per_root {
         all.files.extend(listing.files);
         all.unreadable.extend(listing.unreadable);
+        all.folders.extend(listing.folders);
     }
     all
 }
@@ -1144,5 +1209,45 @@ mod tests {
         }
         assert!(!status.rerun.load(Ordering::SeqCst), "no scan left waiting");
         assert_eq!(lib.scan().total, 0, "a.jpg was indexed");
+    }
+
+    #[test]
+    fn a_quick_check_notices_new_deleted_and_renamed_files() {
+        let lib = crate::testutil::Library::new();
+        lib.add("2024/a.jpg", Photo::default());
+        let status = ScanStatus::default();
+        // Before any scan, there is nothing to compare with.
+        assert!(changed(&lib.cfg, &status).unwrap());
+        run(&lib.cfg, &status).unwrap();
+        assert!(!changed(&lib.cfg, &status).unwrap(), "nothing changed since the scan");
+
+        // A new photo in a folder the scan saw.
+        std::thread::sleep(Duration::from_millis(20));
+        lib.add("2024/b.jpg", Photo { color: [1, 2, 3], ..Photo::default() });
+        assert!(changed(&lib.cfg, &status).unwrap());
+        run(&lib.cfg, &status).unwrap();
+        assert!(!changed(&lib.cfg, &status).unwrap());
+
+        // A new folder, and a photo deleted.
+        std::thread::sleep(Duration::from_millis(20));
+        lib.add("2025/c.jpg", Photo { color: [4, 5, 6], ..Photo::default() });
+        assert!(changed(&lib.cfg, &status).unwrap());
+        run(&lib.cfg, &status).unwrap();
+        std::thread::sleep(Duration::from_millis(20));
+        std::fs::remove_file(lib.root().join("2024/a.jpg")).unwrap();
+        assert!(changed(&lib.cfg, &status).unwrap());
+        run(&lib.cfg, &status).unwrap();
+        assert!(!changed(&lib.cfg, &status).unwrap());
+        let items: i64 = lib.conn().query_row("SELECT COUNT(*) FROM items", [], |r| r.get(0)).unwrap();
+        assert_eq!(items, 2);
+
+        // A folder added in Settings counts too.
+        lib.conn()
+            .execute(
+                "INSERT INTO folders (path) VALUES (?)",
+                [lib.dir.file("more/.keep").parent().unwrap().to_string_lossy()],
+            )
+            .unwrap();
+        assert!(changed(&lib.cfg, &status).unwrap());
     }
 }

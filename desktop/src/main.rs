@@ -186,6 +186,8 @@ fn start(app: &mut tauri::App) -> Result<()> {
         allowed_names: Vec::new(),
         // As for the command-line app, which also takes --no-update-check.
         update_check: std::env::var_os("IMADIVE_NO_UPDATE_CHECK").is_none(),
+        // New photos in the folders are found by themselves (see `scan::changed`).
+        check_every: Some(std::time::Duration::from_secs(5 * 60)),
     })?;
     gallery.start_scan();
 
@@ -280,6 +282,7 @@ fn run_self_test(photos: Option<PathBuf>) -> Result<(bool, String)> {
             host: None,
             allowed_names: Vec::new(),
             update_check: false,
+            check_every: None,
         })?;
         gallery.scan_blocking()?;
         let s = gallery.status();

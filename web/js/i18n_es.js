@@ -314,6 +314,8 @@ export default {
   "Couldn't update: {error}": "No se ha podido actualizar: {error}",
   "Copied": "Copiado",
   "Couldn't copy it; select it and copy it yourself": "No se ha podido copiar; selecciónalo y cópialo tú",
+  "New, deleted and renamed files are found on their own: the folders are checked every minute.": "Los archivos nuevos, borrados o renombrados se encuentran solos: las carpetas se revisan cada minuto.",
+  "New, deleted and renamed files are found on their own: the folders are checked every {n} minutes.": "Los archivos nuevos, borrados o renombrados se encuentran solos: las carpetas se revisan cada {n} minutos.",
   // Settings: backups
   "Backup": "Copia de seguridad",
   "A backup keeps people and their names, face groups, your corrections and the list of folders. The photos and videos themselves aren't in it: back them up on their own. Neither are the theme and the language, which each browser keeps.": "Una copia de seguridad guarda las personas y sus nombres, los grupos de caras, tus correcciones y la lista de carpetas. Las fotos y los vídeos no van en ella: haz copia de ellos aparte. Tampoco el tema y el idioma, que guarda cada navegador.",

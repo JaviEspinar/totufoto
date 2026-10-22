@@ -206,6 +206,7 @@ export function renderSettings(error = "") {
   // One card per part, so each is easy to tell apart.
   body.innerHTML = `<section class="set-part"><h4>${t("Folders")}</h4><p>${t("Subfolders are included. Files are only changed when you rotate or delete them.")}</p>${list}${add}<div class="err">${esc(error)}</div></section>
     <section class="set-part"><h4>${t("Library")}</h4><div class="scan-state" id="settingsScan">${scanStateHtml(lastStatus)}</div>
+    <p class="set-note" id="settingsCheck">${checkNoteHtml(lastStatus)}</p>
     <div id="settingsFailures">${failuresHtml()}</div>
     <div id="settingsExcluded">${excludedHtml(lastStatus)}</div>
     <div class="set-sub">${backupHtml()}</div></section>
@@ -281,6 +282,12 @@ async function loadUpdate(url = "/api/update", method = "GET") {
   const el = $("#settingsUpdate");
   if (el) el.innerHTML = updateHtml(updateInfo);
   if (updateBusy(updateInfo) && $("#settingsDlg").open) updateTimer = setTimeout(loadUpdate, 1000);
+}
+/** How new files are found: on their own every few minutes, or with Rescan. */
+function checkNoteHtml(st) {
+  return st?.check_every
+    ? tn(st.check_every, "New, deleted and renamed files are found on their own: the folders are checked every minute.", "New, deleted and renamed files are found on their own: the folders are checked every {n} minutes.")
+    : "";
 }
 /** Backing up the index, and restoring a backup. */
 function backupHtml() {
@@ -442,6 +449,7 @@ export function openSettings() {
     $("#settingsScan").innerHTML = scanStateHtml(st);
     $("#settingsAbout").innerHTML = aboutHtml(st);
     $("#settingsExcluded").innerHTML = excludedHtml(st);
+    $("#settingsCheck").innerHTML = checkNoteHtml(st);
     if (st.failed !== failureCount) loadFailures();
   }).catch(() => {});
   if (lastStatus?.failed !== failureCount) loadFailures();

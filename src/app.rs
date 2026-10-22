@@ -55,6 +55,8 @@ pub struct Config {
     pub allowed_names: Vec<String>,
     /// Look for new releases on GitHub once a day (the Check for updates button works either way).
     pub update_check: bool,
+    /// Check the folders for new files this often (`None`: only when asked, see `scan::changed`).
+    pub check_every: Option<std::time::Duration>,
 }
 
 pub struct Gallery {
@@ -64,6 +66,7 @@ pub struct Gallery {
     allowed_names: Vec<String>,
     updates: Arc<crate::update::Updates>,
     update_check: bool,
+    check_every: Option<std::time::Duration>,
 }
 
 impl Gallery {
@@ -89,6 +92,7 @@ impl Gallery {
         Ok(Self {
             updates,
             update_check: cfg.update_check,
+            check_every: cfg.check_every,
             scan: Arc::new(ScanConfig {
                 fixed_roots: folders,
                 db_path,
@@ -124,6 +128,9 @@ impl Gallery {
         }
         if self.update_check {
             crate::update::spawn_checks(self.updates.clone());
+        }
+        if let Some(every) = self.check_every {
+            scan::spawn_checks(self.scan.clone(), self.status.clone(), every);
         }
         // A server built from source: Settings says how to switch to the ready-made build,
         // which then updates from there (setup is for Linux).
@@ -279,6 +286,7 @@ mod folder_tests {
             host: None,
             allowed_names: Vec::new(),
             update_check: false,
+            check_every: None,
         })
         .expect("starts anyway");
         assert_eq!(gallery.scan.fixed_roots, [resolve_folder(&missing).unwrap()]);

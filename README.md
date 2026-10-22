@@ -203,6 +203,7 @@ Run `imadive --help` for the full list:
 | `--face-threshold` | `0.42` | cosine similarity to treat two faces as the same person; raise it if different people get mixed, lower it if one person is split |
 | `--no-faces` | | skip face recognition |
 | `--scan-only` | | index and exit |
+| `--check-every MINUTES` | `5` | look for new, deleted and renamed files this often: a quick look at each folder, and a scan only when one changed (also `IMADIVE_CHECK_EVERY`); `0` turns it off |
 | `--no-update-check` | | don't look for new releases on GitHub once a day (also `IMADIVE_NO_UPDATE_CHECK=1`); Settings still checks when asked |
 
 When passing options through cargo, put them after `--`, for example `cargo run --release -- ~/Pictures --port 8080`.
