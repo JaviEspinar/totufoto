@@ -57,6 +57,29 @@ test("a newer release is found, and a build from source says how to switch to th
   await expect(page.locator("#settingsBtnDot")).toBeVisible();
 });
 
+test("while an update installs, the server restarting isn't an error, and the page reloads once it's back", async ({ page }) => {
+  const info = over => ({
+    current: "0.0.1", latest: "9.9.9", checked: "2026-10-23 10:00", available: true, kind: "setup", can_install: true,
+    automatic: true, command: null, releases: "https://github.com/waiting4timeout/imadive/releases",
+    state: "idle", done: 0, total: 0, error: null, ...over,
+  });
+  // The server: installing, then gone for a moment (restarting), then back with the new version.
+  let step = "idle", gone = 0;
+  await page.route("**/api/update", route => {
+    if (step === "restarting" && gone++ < 2) return route.abort("connectionrefused");
+    const body = step === "idle" ? info() : step === "installing" ? info({ state: "installing" }) : info({ current: "9.9.9", available: false });
+    if (step === "installing") step = "restarting";
+    return route.fulfill({ json: body });
+  });
+  await page.route("**/api/update/install", route => { step = "installing"; return route.fulfill({ status: 202, body: "" }); });
+  await openSettings(page);
+  const update = page.locator("#settingsUpdate");
+  await update.locator("[data-update-install]").click();
+  await expect(update).toContainText("Restarting");
+  await expect(update).not.toContainText("failed");
+  await page.waitForEvent("load", { timeout: 15_000 });
+});
+
 test("a backup is saved in a folder of the server, with its progress at once, and restored from there", async ({ page }) => {
   const folder = realpathSync(mkdtempSync(join(tmpdir(), "imadive-backups-")));
   try {

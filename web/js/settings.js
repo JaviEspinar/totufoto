@@ -278,10 +278,24 @@ function copyText(text) {
 /** Fetches the update state; while something is going on, again every second. */
 async function loadUpdate(url = "/api/update", method = "GET") {
   clearTimeout(updateTimer);
-  try { updateInfo = await api(url, { method }); } catch (err) { updateInfo = { ...updateInfo, state: "error", error: err.message }; }
+  const before = updateInfo;
+  const installing = ["installing", "restarting"].includes(before?.state);
+  try {
+    updateInfo = await api(url, { method });
+    // Back after an update: the page is the old version's, so it starts again.
+    if (installing && before.current && updateInfo.current !== before.current) return location.reload();
+  } catch (err) {
+    // While an update installs, the server going away is it restarting with the new
+    // version, not a failure: wait for it to come back.
+    updateInfo = installing
+      ? { ...before, state: "restarting" }
+      : { ...before, state: "error", error: err.message };
+  }
   const el = $("#settingsUpdate");
   if (el) el.innerHTML = updateHtml(updateInfo);
-  if (updateBusy(updateInfo) && $("#settingsDlg").open) updateTimer = setTimeout(loadUpdate, 1000);
+  if (updateBusy(updateInfo) && $("#settingsDlg").open) {
+    updateTimer = setTimeout(loadUpdate, updateInfo.state === "restarting" ? 2000 : 1000);
+  }
 }
 /** How new files are found: on their own every few minutes, or with Rescan. */
 function checkNoteHtml(st) {
