@@ -78,7 +78,8 @@ ureq = { version = "3", default-features = false, features = ["rustls", "platfor
 sha2 = "0.10"
 
 [target.'cfg(windows)'.dependencies]
-libloading = "0.9"
+# Already used by Tauri: Windows' own decoders (WIC), for HEIC photos (see src/heif_windows.rs).
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_Graphics_Imaging", "Win32_System_Com"] }
 
 [profile.release]
 lto = "thin"

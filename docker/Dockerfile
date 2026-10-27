@@ -26,13 +26,16 @@ RUN set -eu; \
     mkdir -p /debs /out/heif; cd /debs; \
     for p in libheif1 libde265-0 libaom3 libdav1d6 libx265-199 libnuma1 zlib1g; do apt-get download -qq "$p:$TARGETARCH"; done; \
     for d in *.deb; do dpkg-deb -x "$d" /out/heif; done; \
+    mkdir -p /out/heif/lib; \
     ls /out/heif/usr/lib/*-linux-gnu/libheif.so.1
 
 # Only what the program needs: glibc and the C++ runtime that ONNX Runtime uses. No shell,
 # no package manager; it runs as an unprivileged user (65532).
 FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=unpack /out/opt/imadive /opt/imadive
+# zlib's package installs into /lib, the others into /usr/lib.
 COPY --from=unpack /out/heif/usr/lib/ /usr/lib/
+COPY --from=unpack /out/heif/lib/ /lib/
 COPY --from=unpack --chown=65532:65532 /out/data /data
 COPY --from=unpack /out/photos /photos
 
