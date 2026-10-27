@@ -20,6 +20,10 @@ The Windows app includes the Microsoft Visual C++ runtime DLLs that ONNX Runtime
 
 Places are found with the [`reverse_geocoder`](https://crates.io/crates/reverse_geocoder) crate, which includes a list of world cities derived from [GeoNames](https://www.geonames.org) (cities with more than 1000 inhabitants). GeoNames data is licensed under the [Creative Commons Attribution 4.0 License](https://creativecommons.org/licenses/by/4.0/). Imadive uses it unchanged, as shipped by the crate.
 
+## libheif and libde265 (iPhone photos, HEIC)
+
+HEIC/HEIF photos are decoded with [libheif](https://github.com/strukturag/libheif) and its HEVC decoder [libde265](https://github.com/strukturag/libde265), both under the GNU Lesser General Public License (LGPL) version 3. Imadive doesn't include them: it loads the system's libheif when it finds it (on Linux, the `libheif1` package, which the .deb package depends on and `imadive setup` installs). The Docker image carries Debian 12's unchanged packages of libheif and the decoders it uses (libde265, libaom, dav1d, x265 and libnuma), whose licenses and sources Debian publishes. On Windows, HEIC is decoded by Windows itself, with Microsoft's extensions; on macOS, by the system's `sips`.
+
 ## Rust crates
 
 Imadive is built from open-source Rust crates, listed with their versions in `Cargo.lock`. Their licenses are permissive (mostly MIT and Apache-2.0, also BSD, ISC, Zlib, Unicode-3.0 and Unlicense), except for a few crates used only by the desktop app through Tauri (`cssparser`, `cssparser-macros`, `selectors`, `dtoa-short`, `option-ext`), which are under the Mozilla Public License 2.0; their unmodified source code is available from <https://crates.io>. The certificate authorities trusted when looking for updates come from Mozilla's list, through `webpki-roots` and `webpki-root-certs`, under the Community Data License Agreement, Permissive, Version 2.0.

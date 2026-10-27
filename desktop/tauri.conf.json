@@ -27,6 +27,7 @@
     "linux": {
       "deb": {
         "section": "graphics",
+        "depends": ["libheif1"],
         "files": {
           "/usr/share/metainfo/com.waiting4timeout.imadive.metainfo.xml": "linux/com.waiting4timeout.imadive.metainfo.xml"
         }

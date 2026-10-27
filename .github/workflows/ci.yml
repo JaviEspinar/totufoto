@@ -70,6 +70,14 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # HEIC photos: decoded with the system's libheif on Linux, which the tests then expect
+      # (macOS uses sips; Windows runners lack the HEVC extension, so they check the message).
+      - name: Install libheif
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libheif1 libheif-plugin-libde265
+          echo "IMADIVE_EXPECT_HEIC=1" >> "$GITHUB_ENV"
       - run: cargo test --locked
       # The command-line app itself, as people build it from the README.
       - run: cargo build --locked --release

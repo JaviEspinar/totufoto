@@ -316,6 +316,12 @@ fn apply(settings: &Settings, unit: &str, existing: Option<&Settings>) -> Result
     if source != Path::new(INSTALL_DIR) {
         step(&format!("Copying the program to {INSTALL_DIR}"), &mut || install_files(&source))?;
     }
+    // iPhone photos (HEIC) are decoded with the system's libheif: installed when missing, if
+    // the system has apt. Not having it only leaves those photos out, so a failure here doesn't
+    // stop the install.
+    if cfg!(target_os = "linux") && !imadive::heic_libheif_available() && on_path("apt-get") {
+        let _ = step("Installing libheif, for iPhone photos (HEIC)", &mut install_libheif);
+    }
     step("Preparing the index folder", &mut || {
         fs::create_dir_all(&settings.data).with_context(|| format!("creating {}", settings.data.display()))?;
         run_cmd(Command::new("chown").arg(format!("{0}:", settings.user)).arg(&settings.data))
@@ -703,6 +709,27 @@ fn install_files(source: &Path) -> Result<()> {
     #[cfg(unix)]
     std::os::unix::fs::symlink(target.join("imadive"), LINK).with_context(|| format!("linking {LINK}"))?;
     Ok(())
+}
+
+/// Installs libheif with apt, with its HEVC plugin where the system splits it out (Ubuntu
+/// 24.04 and newer, Debian 13); the package lists are refreshed if the first try fails.
+fn install_libheif() -> Result<()> {
+    let install = || -> Result<()> {
+        let plugin = Command::new("apt-cache")
+            .args(["show", "libheif-plugin-libde265"])
+            .output()
+            .is_ok_and(|o| o.status.success() && !o.stdout.is_empty());
+        let mut cmd = Command::new("apt-get");
+        cmd.env("DEBIAN_FRONTEND", "noninteractive").args(["install", "-y", "-qq", "libheif1"]);
+        if plugin {
+            cmd.arg("libheif-plugin-libde265");
+        }
+        run_cmd(&mut cmd)
+    };
+    install().or_else(|_| {
+        run_cmd(Command::new("apt-get").args(["update", "-qq"]))?;
+        install()
+    })
 }
 
 /// Lets the user change the service file in their editor ($VISUAL, $EDITOR, nano or vi).

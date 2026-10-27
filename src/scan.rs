@@ -1257,4 +1257,29 @@ mod tests {
             .unwrap();
         assert!(changed(&lib.cfg, &status).unwrap());
     }
+
+    #[test]
+    fn heic_photos_are_indexed_with_their_place_or_listed_with_what_to_install() {
+        let lib = crate::testutil::Library::new();
+        let heic = lib.dir.file("photos/iphone/IMG_0001.HEIC");
+        std::fs::copy(Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/heic/portrait.heic"), &heic).unwrap();
+        lib.scan();
+        let conn = lib.conn();
+        let indexed: Option<(i64, i64, Option<f64>)> =
+            conn.query_row("SELECT width, height, lat FROM items", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).ok();
+        match indexed {
+            Some((width, height, lat)) => {
+                assert_eq!((width, height), (256, 320));
+                assert!(lat.is_some(), "its place comes from its EXIF data");
+                let thumbs: i64 = conn.query_row("SELECT COUNT(*) FROM thumbs", [], |r| r.get(0)).unwrap();
+                assert_eq!(thumbs, 1);
+            }
+            None => {
+                let expected = cfg!(target_os = "macos") || std::env::var_os("IMADIVE_EXPECT_HEIC").is_some();
+                assert!(!expected, "HEIC should be indexed here");
+                let error: String = conn.query_row("SELECT error FROM failures", [], |r| r.get(0)).unwrap();
+                assert!(error.contains("libheif") || error.contains("HEIF Image Extensions"), "{error}");
+            }
+        }
+    }
 }

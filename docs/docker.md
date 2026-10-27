@@ -48,6 +48,8 @@ services:
 
 `docker compose up -d` starts it; `docker compose pull && docker compose up -d` updates it. The index carries over.
 
+The image carries libheif (from Debian 12), so iPhone photos (HEIC) work with nothing else to install.
+
 ## Options
 
 **Several photo folders**: mount each one, and list them as the command (the options before them stay as they are):

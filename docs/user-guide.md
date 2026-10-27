@@ -98,6 +98,16 @@ The buttons under the photo's date in the viewer.
 
 Only files inside the gallery's folders can be deleted. The gallery has no login, so anyone who can open it on your network can delete photos and videos too (see [Privacy and security](../README.md#privacy-and-security)).
 
+## iPhone photos (HEIC)
+
+HEIC/HEIF photos, which iPhones take, are shown like any other, with their date, place and faces, as long as the computer running Imadive can decode them:
+
+- **Linux**: with libheif. The .deb package, the Docker image and the server's `imadive setup` install it. For the AppImage or a build from source: `sudo apt install libheif1 libheif-plugin-libde265` (on Debian 12, just `libheif1`).
+- **Windows**: with Microsoft's *HEIF Image Extensions* and *HEVC Video Extensions*, from the Microsoft Store (often already installed; the HEVC one may cost a little).
+- **macOS**: with the system's own `sips`, nothing to install.
+
+Without it, those photos are listed in Settings, under the files that couldn't be read, with what to install; after installing it, *Try again* there brings them in. The viewer and *Download* give them as JPEG, since browsers can't show HEIC.
+
 ## Videos
 
 Videos are part of the timeline, places and Upcoming like photos: their date and place come from the file (MP4 and MOV, as phones and most cameras record them), or the file's date otherwise. In the grid they show a frame from about a second in, made by the gallery the first time it shows them in a browser that can play them (and kept for everyone), or the picture the camera saved beside them (`.THM`); until then, and for formats no browser plays, a generic picture with a play sign. Their length shows in a corner.

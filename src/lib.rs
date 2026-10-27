@@ -9,6 +9,9 @@ mod duplicates;
 pub mod faces;
 mod geo;
 mod guard;
+mod heif;
+#[cfg(windows)]
+mod heif_windows;
 mod http;
 mod imaging;
 mod library;
@@ -19,6 +22,11 @@ pub mod scan;
 mod testutil;
 pub mod update;
 mod video;
+
+/// Whether HEIC/HEIF photos can be decoded with the system's libheif (see `heif`).
+pub fn heic_libheif_available() -> bool {
+    heif::available()
+}
 
 pub use app::{
     Config, DEFAULT_FACE_THRESHOLD, Gallery, Host, enable_faces, init_desktop_logging, init_logging, log_to_file,

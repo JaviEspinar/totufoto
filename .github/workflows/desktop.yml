@@ -156,6 +156,8 @@ jobs:
           set +e
           docker run --rm -v "$PWD:/w" -w /w debian:12 bash -c '
             apt-get update -qq && apt-get install -y -qq ./dist/*.deb > /dev/null || exit 3
+            # HEIC photos: libheif comes with the package.
+            dpkg -s libheif1 > /dev/null || { echo "libheif1 was not installed"; exit 4; }
             bin=$(dpkg -L imadive | grep "^/usr/bin/" | head -1)
             echo "installed: $bin"
             "$bin" --self-test /w/fixtures/photos' > out-deb.txt 2>&1
@@ -245,6 +247,8 @@ jobs:
           systemctl is-active imadive-update.path
           curl -fsS http://127.0.0.1:7878/api/update | grep -q '"kind":"setup"'
           if imadive self-update; then echo "self-update ran without root"; exit 1; fi
+          # iPhone photos: setup installs libheif.
+          dpkg -s libheif1 > /dev/null
           # Run again from the installed copy: a new port, then gone (with its index).
           # (`!` doesn't stop a script under set -e, hence the ifs.)
           sudo imadive setup --yes --port 7979
@@ -298,9 +302,11 @@ jobs:
         run: |
           set -x
           docker run -d --name imadive -p 7878:7878 -v "$PWD/fixtures/photos:/photos:ro" \
-            -e IMADIVE_ALLOW_HOST=photos.test imadive:test
+            -v "$PWD/fixtures/heic:/heic:ro" -e IMADIVE_ALLOW_HOST=photos.test imadive:test /photos /heic
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:7878/api/status | grep -q '"running":false' && break; sleep 2; done
           curl -fsS http://127.0.0.1:7878/api/items | grep -q '"items":\[\['
+          # The iPhone photo (HEIC) too, with the libheif the image carries: no file failed.
+          curl -fsS http://127.0.0.1:7878/api/status | grep -q '"failed":0'
           curl -fsS -H "Host: photos.test:7878" http://127.0.0.1:7878/api/status > /dev/null
           docker logs imadive 2>&1 | grep "face recognition enabled"
           docker rm -f imadive

@@ -65,7 +65,7 @@ Download the file for your system from the [latest release](https://github.com/w
   sudo apt install ./Imadive-*-linux-amd64.deb
   ```
   Installing a newer version the same way updates it; `sudo apt remove imadive` removes it (your library stays in its data folder).
-- **Other Linux distributions** (x86-64): `Imadive-<version>-linux-x86_64.AppImage`, which brings everything it needs, so it runs on most distributions without installing anything. Make it executable and run it:
+- **Other Linux distributions** (x86-64): `Imadive-<version>-linux-x86_64.AppImage`, which brings everything it needs, so it runs on most distributions without installing anything (for iPhone photos, HEIC, it uses the system's libheif). Make it executable and run it:
   ```sh
   chmod +x Imadive-*.AppImage
   ./Imadive-*.AppImage
@@ -208,11 +208,13 @@ Run `imadive --help` for the full list:
 
 When passing options through cargo, put them after `--`, for example `cargo run --release -- ~/Pictures --port 8080`.
 
-Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP, and HEIC/HEIF on macOS (decoded with `sips`); videos in MP4, MOV, M4V, 3GP, WebM, MKV, AVI, WMV, MPEG and MTS.
+Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP and HEIC/HEIF (iPhone photos; see below); videos in MP4, MOV, M4V, 3GP, WebM, MKV, AVI, WMV, MPEG and MTS.
+
+**HEIC/HEIF** is decoded with what the system provides: libheif on Linux (the .deb, the Docker image and `imadive setup` bring it; for the AppImage or a build from source, `sudo apt install libheif1 libheif-plugin-libde265` or your distribution's libheif), Windows' own decoder once Microsoft's *HEIF Image Extensions* and *HEVC Video Extensions* are installed (Microsoft Store), and `sips` on macOS. Without it, those photos are listed in Settings as files that couldn't be read, saying what to install; *Try again* there picks them up afterwards.
 
 ## Limitations
 
-- **Formats**: JPEG, PNG, WebP, TIFF, GIF and BMP everywhere, and HEIC/HEIF only on macOS. No RAW files.
+- **Formats**: JPEG, PNG, WebP, TIFF, GIF, BMP and HEIC/HEIF (with libheif on Linux, Microsoft's HEIF and HEVC extensions on Windows). No RAW files.
 - **Videos** get their thumbnail from a browser that can play them, the first time they show in one (formats no browser plays keep a generic picture), and nobody is looked for in them. They play in the browser when it can play their format: MP4 (H.264) and WebM everywhere, iPhone videos (HEVC) on Apple devices and in Chrome on most recent computers; others (AVI, WMV, MPEG...) can be downloaded.
 - **Photos are tracked by path**: after moving a folder added in Settings, *Moved to…* points the gallery at its new place, keeping everything. A command-line folder that moves is indexed again (named people are matched again automatically).
 - **No login**: anyone who can reach the gallery can use all of it (see [Privacy and security](#privacy-and-security)).
