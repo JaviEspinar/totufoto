@@ -2,7 +2,6 @@
 
 use std::io::Cursor;
 use std::path::Path;
-use std::process::Command;
 
 use anyhow::{Context, Result, anyhow};
 use fast_image_resize::Resizer;
@@ -46,17 +45,22 @@ fn decode_heif(path: &Path) -> Result<DynamicImage> {
     if crate::heif::available() || !(cfg!(windows) || cfg!(target_os = "macos")) {
         return Ok(DynamicImage::ImageRgb8(crate::heif::decode(path)?));
     }
-    #[cfg(windows)]
-    {
-        // WIC gives the picture as stored: turned here by its EXIF orientation, which iPhones
-        // set to match the HEIF rotation.
-        let mut img = DynamicImage::ImageRgb8(crate::heif_windows::decode(path)?);
-        if let Some(orientation) = heif_orientation(path) {
-            img.apply_orientation(orientation);
-        }
-        Ok(img)
+    decode_heif_system(path)
+}
+
+/// HEIC/HEIF with Windows' decoders (WIC), which give the picture as stored: it is turned
+/// here by its EXIF orientation, which iPhones set to match the HEIF rotation.
+#[cfg(windows)]
+fn decode_heif_system(path: &Path) -> Result<DynamicImage> {
+    let mut img = DynamicImage::ImageRgb8(crate::heif_windows::decode(path)?);
+    if let Some(orientation) = heif_orientation(path) {
+        img.apply_orientation(orientation);
     }
-    #[cfg(not(windows))]
+    Ok(img)
+}
+
+#[cfg(not(windows))]
+fn decode_heif_system(path: &Path) -> Result<DynamicImage> {
     decode_sips(path)
 }
 
@@ -74,7 +78,7 @@ fn heif_orientation(path: &Path) -> Option<image::metadata::Orientation> {
 fn decode_sips(path: &Path) -> Result<DynamicImage> {
     let out =
         std::env::temp_dir().join(format!("imadive-{}-{:?}.jpg", std::process::id(), std::thread::current().id()));
-    let status = Command::new("sips")
+    let status = std::process::Command::new("sips")
         // At its own size: `-Z` would also enlarge smaller photos (the gallery resizes later).
         .args(["-s", "format", "jpeg", "-s", "formatOptions", "90"])
         .arg(path)

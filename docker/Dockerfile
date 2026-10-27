@@ -17,13 +17,14 @@ RUN set -eu; \
     mkdir -p /out/opt/imadive /out/data /out/photos; \
     tar -xzf /dist/Imadive-server-*-linux-"$arch".tar.gz -C /out/opt/imadive --strip-components=1; \
     test -x /out/opt/imadive/imadive
-# libheif, for iPhone photos (HEIC), with the decoders it needs: Debian 12's packages for the
-# image's platform, downloaded and unpacked here (no emulation), their libraries copied below.
+# libheif, for iPhone photos (HEIC), with the decoders and zlib it needs (the image has glibc
+# and the C++ runtime): Debian 12's packages for the image's platform, downloaded and unpacked
+# here (no emulation), their libraries copied below.
 RUN set -eu; \
     dpkg --add-architecture "$TARGETARCH"; \
     apt-get update -qq; \
     mkdir -p /debs /out/heif; cd /debs; \
-    for p in libheif1 libde265-0 libaom3 libdav1d6 libx265-199 libnuma1; do apt-get download -qq "$p:$TARGETARCH"; done; \
+    for p in libheif1 libde265-0 libaom3 libdav1d6 libx265-199 libnuma1 zlib1g; do apt-get download -qq "$p:$TARGETARCH"; done; \
     for d in *.deb; do dpkg-deb -x "$d" /out/heif; done; \
     ls /out/heif/usr/lib/*-linux-gnu/libheif.so.1
 
