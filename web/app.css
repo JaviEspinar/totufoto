@@ -595,6 +595,9 @@ dialog::backdrop { background: rgba(0, 0, 0, 0.35); }
 .about-coffee a, .about-credit a { color: var(--accent); }
 .update-cmd { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
 .update-cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 7px 10px; border-radius: 8px; background: var(--chip); font-size: 12px; }
+.browse-list.busy button:not(.reading) { opacity: 0.5; pointer-events: none; }
+.browse-list button.reading { background: var(--chip); }
+.browse-list .reading-note { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; color: var(--muted); flex: none; }
 .browse-extra { margin-top: 10px; }
 /* The backup being made or restored: in the middle of the Library card, under its buttons. */
 #backupProgress .remove-progress { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 12px; font-size: 13px; color: var(--muted); text-align: center; }

@@ -73,8 +73,20 @@ export function browseForFolder({ choose = addFolder, title, intro, button, file
       if (target.dataset.extra != null) { dlg.close(); return onExtra?.(); }
       if (target.dataset.dir) return open(target.dataset.dir);
       if (target.dataset.file) {
+        // Reading a big backup takes a moment: said on the row at once, and nothing else can be
+        // clicked meanwhile.
+        if (list.classList.contains("busy")) return;
+        err.textContent = "";
+        list.classList.add("busy");
+        target.classList.add("reading");
+        target.insertAdjacentHTML("beforeend", `<small class="reading-note"><span class="spinner small" aria-hidden="true"></span>${t("Reading the backup…")}</small>`);
         try { await choose(target.dataset.file); added = true; dlg.close(); }
         catch (e2) { err.textContent = e2.message; }
+        finally {
+          list.classList.remove("busy");
+          target.classList.remove("reading");
+          target.querySelector(".reading-note")?.remove();
+        }
         return;
       }
       if (target.dataset.up != null && here?.parent != null) return open(here.parent);

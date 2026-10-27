@@ -144,6 +144,19 @@ async fn describe(target: PathBuf) -> ApiResult<Json<JsonValue>> {
     let refused = match tokio::task::spawn_blocking(move || backup::inspect(&checked)).await? {
         Ok(Ok(summary)) => return Ok(Json(serde_json::to_value(summary)?)),
         Ok(Err(backup::Refused::NotABackup)) => ApiError::bad_request("this file isn't an Imadive backup"),
+        Ok(Err(backup::Refused::Empty)) => {
+            ApiError::bad_request("this file is empty: the backup wasn't saved completely")
+        }
+        Ok(Err(backup::Refused::NotADatabase)) => ApiError::bad_request(
+            "this file isn't an Imadive backup (it isn't even a database: maybe an incomplete download)",
+        ),
+        Ok(Err(backup::Refused::AnIndex)) => {
+            ApiError::bad_request("this file is an Imadive index, not a backup: make a backup with Back up… instead")
+        }
+        Ok(Err(backup::Refused::Unreadable(why))) => {
+            tracing::warn!("reading a backup: {why}");
+            ApiError::bad_request(format!("this backup can't be read: {why}"))
+        }
         Ok(Err(backup::Refused::Newer(version))) => {
             ApiError::bad_request(format!("this backup was made by a newer Imadive ({version}): update this one first"))
         }

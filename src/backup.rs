@@ -214,7 +214,16 @@ pub struct BackupFolder {
 /// Why a file can't be restored.
 #[derive(Debug)]
 pub enum Refused {
+    /// Empty: an interrupted download or copy, say.
+    Empty,
+    /// Not even a database.
+    NotADatabase,
+    /// An index (`index.sqlite`), not a backup made from one.
+    AnIndex,
+    /// A database, but not Imadive's.
     NotABackup,
+    /// It couldn't be read (the reason).
+    Unreadable(String),
     /// Made by a newer Imadive (this version).
     Newer(String),
 }
@@ -222,10 +231,36 @@ pub enum Refused {
 /// Checks that `path` is a backup this version can restore, brings one made by an older
 /// version up to date (it is changed in place), and says what it holds.
 pub fn inspect(path: &Path) -> Result<Result<Summary, Refused>> {
-    let info = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(anyhow::Error::from)
-        .and_then(|conn| read_info(&conn));
-    let Ok(info) = info else { return Ok(Err(Refused::NotABackup)) };
+    // Why it isn't one, as precisely as can be told: the person chose it on purpose.
+    let mut head = [0u8; 16];
+    let read = std::fs::File::open(path).and_then(|mut f| {
+        use std::io::Read;
+        f.read(&mut head)
+    });
+    match read {
+        Err(e) => return Ok(Err(Refused::Unreadable(e.to_string()))),
+        Ok(0) => return Ok(Err(Refused::Empty)),
+        Ok(n) if n < 16 || &head != b"SQLite format 3\0" => return Ok(Err(Refused::NotADatabase)),
+        Ok(_) => {}
+    }
+    let conn = match Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+        Ok(conn) => conn,
+        Err(e) => return Ok(Err(Refused::Unreadable(e.to_string()))),
+    };
+    let has = |table: &str| -> bool {
+        conn.query_row("SELECT COUNT(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = ?", [table], |r| {
+            r.get(0)
+        })
+        .unwrap_or(false)
+    };
+    if !has("backup_info") {
+        return Ok(Err(if has("items") || has("photos") { Refused::AnIndex } else { Refused::NotABackup }));
+    }
+    let info = match read_info(&conn) {
+        Ok(info) => info,
+        Err(e) => return Ok(Err(Refused::Unreadable(format!("{e:#}")))),
+    };
+    drop(conn);
     if info.get("app").map(String::as_str) != Some("imadive") {
         return Ok(Err(Refused::NotABackup));
     }
@@ -452,12 +487,18 @@ mod tests {
         let dir = TempDir::new();
         let text = dir.file("notes.imadive");
         std::fs::write(&text, "hello").unwrap();
-        assert!(matches!(inspect(&text).unwrap(), Err(Refused::NotABackup)));
+        assert!(matches!(inspect(&text).unwrap(), Err(Refused::NotADatabase)));
+        let empty = dir.file("empty.imadive");
+        std::fs::write(&empty, "").unwrap();
+        assert!(matches!(inspect(&empty).unwrap(), Err(Refused::Empty)));
 
         // An index, but not a backup.
         let index = dir.file("index.sqlite");
         crate::db::open(&index).unwrap();
-        assert!(matches!(inspect(&index).unwrap(), Err(Refused::NotABackup)));
+        assert!(matches!(inspect(&index).unwrap(), Err(Refused::AnIndex)));
+        let other = dir.file("other.sqlite");
+        Connection::open(&other).unwrap().execute_batch("CREATE TABLE notes (text TEXT);").unwrap();
+        assert!(matches!(inspect(&other).unwrap(), Err(Refused::NotABackup)));
 
         let lib = library_with_people();
         let out = lib.dir.file("backup.imadive");
