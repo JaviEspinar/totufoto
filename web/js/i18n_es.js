@@ -544,7 +544,7 @@ export default {
   "choose the backup file to restore": "elige el archivo de copia que quieres restaurar",
   "a backup is being made; wait for it to finish": "se está haciendo una copia; espera a que termine",
   "this file is empty: the backup wasn't saved completely": "este archivo está vacío: la copia no se guardó entera",
-  "this file isn't an Imadive backup (it isn't even a database: maybe an incomplete download)": "este archivo no es una copia de Imadive (ni siquiera es una base de datos: quizá una descarga incompleta)",
+  "this file isn't an Imadive backup (not even a database: an incomplete download?)": "este archivo no es una copia de Imadive (ni siquiera es una base de datos: ¿una descarga incompleta?)",
   "this file is an Imadive index, not a backup: make a backup with Back up… instead": "este archivo es un índice de Imadive, no una copia: haz una copia con Hacer copia…",
   "this backup can't be read: {why}": "esta copia no se puede leer: {why}",
 };

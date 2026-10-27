@@ -147,9 +147,9 @@ async fn describe(target: PathBuf) -> ApiResult<Json<JsonValue>> {
         Ok(Err(backup::Refused::Empty)) => {
             ApiError::bad_request("this file is empty: the backup wasn't saved completely")
         }
-        Ok(Err(backup::Refused::NotADatabase)) => ApiError::bad_request(
-            "this file isn't an Imadive backup (it isn't even a database: maybe an incomplete download)",
-        ),
+        Ok(Err(backup::Refused::NotADatabase)) => {
+            ApiError::bad_request("this file isn't an Imadive backup (not even a database: an incomplete download?)")
+        }
         Ok(Err(backup::Refused::AnIndex)) => {
             ApiError::bad_request("this file is an Imadive index, not a backup: make a backup with Back up… instead")
         }
