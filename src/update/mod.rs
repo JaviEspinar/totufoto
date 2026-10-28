@@ -23,267 +23,31 @@ use sha2::{Digest, Sha256};
 
 use crate::app::Host;
 
+mod install;
+mod kinds;
+mod release;
+
+pub use install::clean_up;
+use install::*;
+pub use kinds::{InstallKind, current_service, server_asset, switch_command};
+pub use release::{download, is_newer, latest_version, releases_url};
+
 /// The project on GitHub, where releases come from.
 pub const REPO: &str = "waiting4timeout/imadive";
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// Installed by `imadive setup`: the program, and the unit that installs updates asked for
 /// from the gallery.
 pub const SETUP_PROGRAM: &str = "/opt/imadive/imadive";
+
 pub const HELPER_PATH_UNIT: &str = "/etc/systemd/system/imadive-update.path";
+
 /// In the data folder: written by the gallery to ask for an update, and by the root service
 /// to say how it went.
 pub const REQUEST_FILE: &str = "update-request";
+
 pub const STATUS_FILE: &str = "update-status.json";
-
-/// GitHub, or a test server standing in for it (`IMADIVE_UPDATE_BASE`).
-fn base() -> String {
-    std::env::var("IMADIVE_UPDATE_BASE").unwrap_or_else(|_| "https://github.com".into())
-}
-
-/// The page listing the releases.
-pub fn releases_url() -> String {
-    format!("https://github.com/{REPO}/releases")
-}
-
-/// How this copy was installed, which decides how it updates.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum InstallKind {
-    /// The Windows desktop app: one .exe, replaced in place.
-    WindowsExe,
-    /// The Linux desktop app as an AppImage ($APPIMAGE), replaced in place.
-    AppImage,
-    /// The Linux desktop app from the .deb package, updated with apt.
-    Deb,
-    /// A server installed with `imadive setup`, with the root service that installs updates.
-    Setup,
-    /// A server installed with an older `imadive setup`, before that service existed.
-    SetupWithoutHelper,
-    Docker,
-    /// Anything else: built from source, or a program started by hand.
-    Source,
-}
-
-impl InstallKind {
-    /// The desktop app's.
-    pub fn desktop() -> Self {
-        if cfg!(windows) {
-            Self::WindowsExe
-        } else if std::env::var_os("APPIMAGE").is_some() {
-            Self::AppImage
-        } else if cfg!(target_os = "linux") {
-            Self::Deb
-        } else {
-            Self::Source
-        }
-    }
-
-    /// The command-line app's (a server).
-    pub fn server() -> Self {
-        if std::env::var("IMADIVE_INSTALL").is_ok_and(|v| v == "docker") {
-            return Self::Docker;
-        }
-        let exe = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
-        if exe.as_deref() == Some(Path::new(SETUP_PROGRAM)) {
-            return if Path::new(HELPER_PATH_UNIT).exists() { Self::Setup } else { Self::SetupWithoutHelper };
-        }
-        Self::Source
-    }
-
-    pub fn can_install(self) -> bool {
-        matches!(self, Self::WindowsExe | Self::AppImage | Self::Deb | Self::Setup)
-    }
-
-    /// What to run to update a copy that can't update itself.
-    pub fn command(self) -> Option<String> {
-        match self {
-            Self::SetupWithoutHelper => {
-                Some(format!("curl -fsSL https://raw.githubusercontent.com/{REPO}/main/scripts/install.sh | sh"))
-            }
-            Self::Docker => Some(format!("docker pull ghcr.io/{REPO}:latest")),
-            // A server built from source gets one to switch to the ready-made build, with its
-            // own settings (see `switch_command`).
-            _ => None,
-        }
-    }
-
-    /// The release file this kind installs.
-    fn asset(self, version: &str) -> Option<String> {
-        match self {
-            Self::WindowsExe => Some(format!("Imadive-{version}-windows-x64.exe")),
-            Self::AppImage => Some(format!("Imadive-{version}-linux-x86_64.AppImage")),
-            Self::Deb => Some(format!("Imadive-{version}-linux-amd64.deb")),
-            Self::Setup | Self::SetupWithoutHelper => Some(server_asset(version)),
-            Self::Docker | Self::Source => None,
-        }
-    }
-}
-
-/// Single quotes for the shell, unless the word needs none.
-fn shell_quote(word: &str) -> String {
-    if !word.is_empty() && word.chars().all(|c| c.is_ascii_alphanumeric() || "/._-:@=+,".contains(c)) {
-        return word.to_string();
-    }
-    format!("'{}'", word.replace('\'', "'\\''"))
-}
-
-/// What a server built from source runs once to become the ready-made one, which then updates
-/// from Settings: its service stopped (setup puts its own in place), then the install script,
-/// whose setup starts from this server's settings (the user it runs as, the index, the
-/// folders, the port) so nothing is indexed again.
-pub fn switch_command(
-    service: Option<&str>,
-    user: Option<&str>,
-    data: &Path,
-    folders: &[PathBuf],
-    port: u16,
-    local: bool,
-) -> String {
-    let mut setup: Vec<String> = Vec::new();
-    if let Some(user) = user {
-        setup.extend(["--user".into(), shell_quote(user)]);
-    }
-    setup.extend(["--data".into(), shell_quote(&data.to_string_lossy())]);
-    for folder in folders {
-        setup.extend(["--folder".into(), shell_quote(&folder.to_string_lossy())]);
-    }
-    setup.extend(["--port".into(), port.to_string()]);
-    if local {
-        setup.push("--local".into());
-    }
-    let install = format!(
-        "curl -fsSL https://raw.githubusercontent.com/{REPO}/main/scripts/install.sh | sh -s -- {}",
-        setup.join(" ")
-    );
-    match service {
-        Some(service) => format!("sudo systemctl disable --now {} && {install}", shell_quote(service)),
-        None => install,
-    }
-}
-
-/// The systemd service this program runs in, if any (from /proc/self/cgroup).
-pub fn current_service() -> Option<String> {
-    let cgroup = std::fs::read_to_string("/proc/self/cgroup").ok()?;
-    cgroup.lines().find_map(|line| {
-        let unit = line.rsplit('/').next()?;
-        unit.strip_suffix(".service").filter(|name| !name.contains('@')).map(str::to_string)
-    })
-}
-
-/// The server archive for this computer's processor.
-pub fn server_asset(version: &str) -> String {
-    format!("Imadive-server-{version}-linux-{}.tar.gz", std::env::consts::ARCH)
-}
-
-/// "1.2.3" as numbers, to compare versions ("0.3.10" is newer than "0.3.9").
-fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
-    let mut parts = v.trim().trim_start_matches('v').split('.').map(|p| p.parse::<u64>().ok());
-    let version = (parts.next()??, parts.next()??, parts.next()??);
-    parts.next().is_none().then_some(version)
-}
-
-pub fn is_newer(latest: &str, current: &str) -> bool {
-    matches!((parse_version(latest), parse_version(current)), (Some(l), Some(c)) if l > c)
-}
-
-/// The version at the end of the address `releases/latest` redirects to (`.../tag/v0.3.3`).
-fn version_from_location(location: &str) -> Option<String> {
-    let tag = location.trim_end_matches('/').rsplit('/').next()?;
-    let version = tag.strip_prefix('v').unwrap_or(tag);
-    parse_version(version).map(|_| version.to_string())
-}
-
-fn agent(redirects: u32) -> ureq::Agent {
-    let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
-    ureq::Agent::config_builder()
-        .max_redirects(redirects)
-        .http_status_as_error(redirects > 0)
-        .timeout_connect(Some(Duration::from_secs(20)))
-        .timeout_recv_response(Some(Duration::from_secs(30)))
-        .tls_config(tls)
-        .user_agent(format!("imadive/{VERSION}"))
-        .build()
-        .into()
-}
-
-/// The latest release's version.
-pub fn latest_version() -> Result<String> {
-    latest_version_at(&base())
-}
-
-fn latest_version_at(base: &str) -> Result<String> {
-    let url = format!("{base}/{REPO}/releases/latest");
-    let response = agent(0).get(&url).call().context("couldn't reach GitHub")?;
-    let location = response
-        .headers()
-        .get("location")
-        .and_then(|l| l.to_str().ok())
-        .with_context(|| format!("GitHub didn't say which release is the latest ({})", response.status()))?;
-    version_from_location(location).with_context(|| format!("couldn't tell the latest version from {location}"))
-}
-
-fn release_file(base: &str, version: &str, name: &str) -> String {
-    format!("{base}/{REPO}/releases/download/v{version}/{name}")
-}
-
-/// The checksum `SHA256SUMS` gives for `name` (lines as `sha256sum` writes them).
-fn checksum_for(sums: &str, name: &str) -> Option<String> {
-    sums.lines().find_map(|line| {
-        let (hash, file) = line.split_once(char::is_whitespace)?;
-        (file.trim().trim_start_matches('*') == name).then(|| hash.to_ascii_lowercase())
-    })
-}
-
-/// Downloads release file `name` of `version` to `dest`, checked against the release's
-/// checksums; `progress` gets the bytes done and the total. A file that doesn't match is
-/// deleted.
-pub fn download(version: &str, name: &str, dest: &Path, progress: &dyn Fn(u64, u64)) -> Result<()> {
-    download_at(&base(), version, name, dest, progress)
-}
-
-fn download_at(base: &str, version: &str, name: &str, dest: &Path, progress: &dyn Fn(u64, u64)) -> Result<()> {
-    let agent = agent(10);
-    let sums = agent
-        .get(&release_file(base, version, "SHA256SUMS"))
-        .call()
-        .context("couldn't download the release's checksums")?
-        .into_body()
-        .read_to_string()?;
-    let expected = checksum_for(&sums, name).with_context(|| format!("{name} isn't in release {version}"))?;
-    let response =
-        agent.get(&release_file(base, version, name)).call().with_context(|| format!("couldn't download {name}"))?;
-    let total = response.body().content_length().unwrap_or(0);
-    let mut reader = response.into_body().into_reader();
-    let mut file = std::fs::File::create(dest).with_context(|| format!("writing {}", dest.display()))?;
-    let mut hasher = Sha256::new();
-    let (mut buf, mut done) = (vec![0u8; 256 * 1024], 0u64);
-    let copied = (|| -> Result<()> {
-        loop {
-            let n = reader.read(&mut buf).context("the download was interrupted")?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-            file.write_all(&buf[..n])?;
-            done += n as u64;
-            progress(done, total);
-        }
-        file.sync_all()?;
-        Ok(())
-    })();
-    drop(file);
-    let actual: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
-    let checked = copied.and_then(|()| {
-        if actual != expected {
-            bail!("{name} doesn't match its checksum; it wasn't installed");
-        }
-        Ok(())
-    });
-    if checked.is_err() {
-        let _ = std::fs::remove_file(dest);
-    }
-    checked
-}
 
 /// What the page shows in Settings.
 #[derive(Clone, Debug, Serialize)]
@@ -463,104 +227,22 @@ impl Updates {
             self.total.store(total, Ordering::Relaxed);
         };
         let asset = self.kind.asset(version).context("this copy can't update itself")?;
-        let restart = |what: &str| {
-            tracing::info!("{what}; restarting");
-            self.set_state("restarting", None);
-            match host {
-                Some(host) => host.restart(),
-                None => tracing::warn!("no desktop app to restart"),
-            }
-        };
         match self.kind {
-            InstallKind::WindowsExe => {
-                let exe = std::env::current_exe()?;
-                let fresh = exe.with_extension("exe.new");
-                download(version, &asset, &fresh, &progress)?;
-                self.set_state("installing", None);
-                replace_running(&exe, &fresh)?;
-                restart("installed");
-            }
-            InstallKind::AppImage => {
-                let target = PathBuf::from(std::env::var_os("APPIMAGE").context("APPIMAGE isn't set")?);
-                let fresh = target.with_extension("AppImage.new");
-                download(version, &asset, &fresh, &progress)?;
-                self.set_state("installing", None);
-                make_executable(&fresh)?;
-                std::fs::rename(&fresh, &target).with_context(|| format!("replacing {}", target.display()))?;
-                restart("installed");
-            }
-            InstallKind::Deb => {
-                let package = std::env::temp_dir().join(&asset);
-                download(version, &asset, &package, &progress)?;
-                self.set_state("installing", None);
-                install_deb(&package)?;
-                let _ = std::fs::remove_file(&package);
-                restart("installed");
-            }
-            InstallKind::Setup => {
-                let _ = std::fs::remove_file(self.data_dir.join(STATUS_FILE));
-                std::fs::write(self.data_dir.join(REQUEST_FILE), chrono::Local::now().to_rfc3339())
-                    .context("asking the update service")?;
-                tracing::info!("asked the update service to install {version}");
-            }
+            InstallKind::WindowsExe => install::windows_exe(self, version, &asset, &progress)?,
+            InstallKind::AppImage => install::app_image(self, version, &asset, &progress)?,
+            InstallKind::Deb => install::deb(self, version, &asset, &progress)?,
+            // The update service installs it and restarts the gallery.
+            InstallKind::Setup => return install::ask_the_update_service(self, version),
             _ => bail!("this copy can't update itself"),
+        }
+        tracing::info!("installed; restarting");
+        self.set_state("restarting", None);
+        match host {
+            Some(host) => host.restart(),
+            None => tracing::warn!("no desktop app to restart"),
         }
         Ok(())
     }
-}
-
-/// Puts `fresh` in place of the running program `exe`. Windows can't overwrite a running
-/// program, but it can rename it: the old one becomes `.old`, deleted on the next start.
-fn replace_running(exe: &Path, fresh: &Path) -> Result<()> {
-    let old = exe.with_extension("exe.old");
-    let _ = std::fs::remove_file(&old);
-    std::fs::rename(exe, &old).with_context(|| format!("moving {} aside", exe.display()))?;
-    if let Err(e) = std::fs::rename(fresh, exe) {
-        let _ = std::fs::rename(&old, exe);
-        return Err(e).with_context(|| format!("putting the new {} in place", exe.display()));
-    }
-    Ok(())
-}
-
-/// Deletes what an update on Windows left behind (the program it replaced).
-pub fn clean_up() {
-    if let Ok(exe) = std::env::current_exe() {
-        let _ = std::fs::remove_file(exe.with_extension("exe.old"));
-    }
-}
-
-#[cfg(unix)]
-fn make_executable(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn make_executable(_path: &Path) -> Result<()> {
-    Ok(())
-}
-
-/// Installs a .deb with apt, which asks for the password in a system dialog (pkexec).
-fn install_deb(package: &Path) -> Result<()> {
-    let status = std::process::Command::new("pkexec")
-        .args(["apt-get", "install", "-y", "--allow-downgrades"])
-        .arg(package)
-        .status();
-    match status {
-        Ok(s) if s.success() => Ok(()),
-        // pkexec: 126 when the password dialog was dismissed, 127 when not allowed.
-        Ok(s) if matches!(s.code(), Some(126 | 127)) => bail!("the update was cancelled"),
-        Ok(s) => bail!("apt couldn't install the package ({s}); it is in {}", package.display()),
-        Err(e) => bail!("couldn't ask for the password ({e}); install {} yourself", package.display()),
-    }
-}
-
-/// An error the root service reported, if it failed.
-fn helper_error(data_dir: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(data_dir.join(STATUS_FILE)).ok()?;
-    let status: serde_json::Value = serde_json::from_str(&text).ok()?;
-    (status["state"] == "error").then(|| status["error"].as_str().unwrap_or("the update failed").to_string())
 }
 
 /// Checks a minute after starting, then once a day.
@@ -578,6 +260,7 @@ pub fn spawn_checks(updates: Arc<Updates>) {
 
 #[cfg(test)]
 mod tests {
+    use super::release::*;
     use super::*;
 
     #[test]
