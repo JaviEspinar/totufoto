@@ -8,9 +8,9 @@ It comes as a desktop app for Windows and Linux, and as a command-line app that 
 
 <table>
 <tr>
-<td align="center" width="25%"><a href="https://github.com/waiting4timeout/imadive/releases/download/v0.3.5/Imadive-0.3.5-windows-x64.exe"><img src="docs/icons/windows.svg" width="56" height="56" alt=""><br><b>Windows</b></a><br><sub>10 and 11 · .exe</sub></td>
-<td align="center" width="25%"><a href="https://github.com/waiting4timeout/imadive/releases/download/v0.3.5/Imadive-0.3.5-linux-amd64.deb"><img src="docs/icons/debian.svg" width="56" height="56" alt=""><br><b>Debian</b></a><br><sub>Ubuntu, Linux Mint · .deb</sub></td>
-<td align="center" width="25%"><a href="https://github.com/waiting4timeout/imadive/releases/download/v0.3.5/Imadive-0.3.5-linux-x86_64.AppImage"><img src="docs/icons/linux.svg" width="56" height="56" alt=""><br><b>Other Linux</b></a><br><sub>x86-64 · AppImage</sub></td>
+<td align="center" width="25%"><a href="https://github.com/waiting4timeout/imadive/releases/download/v0.4.2/Imadive-0.4.2-windows-x64.exe"><img src="docs/icons/windows.svg" width="56" height="56" alt=""><br><b>Windows</b></a><br><sub>10 and 11 · .exe</sub></td>
+<td align="center" width="25%"><a href="https://github.com/waiting4timeout/imadive/releases/download/v0.4.2/Imadive-0.4.2-linux-amd64.deb"><img src="docs/icons/debian.svg" width="56" height="56" alt=""><br><b>Debian</b></a><br><sub>Ubuntu, Linux Mint · .deb</sub></td>
+<td align="center" width="25%"><a href="https://github.com/waiting4timeout/imadive/releases/download/v0.4.2/Imadive-0.4.2-linux-x86_64.AppImage"><img src="docs/icons/linux.svg" width="56" height="56" alt=""><br><b>Other Linux</b></a><br><sub>x86-64 · AppImage</sub></td>
 <td align="center" width="25%"><a href="https://github.com/JaviEspinar/totufoto/blob/main/docs/server.md"><img src="docs/icons/server.svg" width="56" height="56" alt=""><br><b>Server</b></a><br><sub>Home server</sub></td>
 </tr>
 </table>
