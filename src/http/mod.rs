@@ -33,7 +33,7 @@ const FAVICON_SVG: &str = include_str!("../../web/favicon.svg");
 
 /// The page's script: ES modules, one per area. The page loads main.js, which imports the
 /// others (see web/tests/script-order.mjs for the order they run in).
-const SCRIPTS: [(&str, &str); 14] = [
+const SCRIPTS: [(&str, &str); 17] = [
     ("i18n", include_str!("../../web/js/i18n.js")),
     ("i18n_es", include_str!("../../web/js/i18n_es.js")),
     ("core", include_str!("../../web/js/core.js")),
@@ -46,13 +46,15 @@ const SCRIPTS: [(&str, &str); 14] = [
     ("views", include_str!("../../web/js/views.js")),
     ("viewer", include_str!("../../web/js/viewer.js")),
     ("settings", include_str!("../../web/js/settings.js")),
+    ("browse", include_str!("../../web/js/browse.js")),
+    ("updates", include_str!("../../web/js/updates.js")),
+    ("backup", include_str!("../../web/js/backup.js")),
     ("status", include_str!("../../web/js/status.js")),
     ("main", include_str!("../../web/js/main.js")),
 ];
 
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
-/// The project's pages, linked from Settings. Update it when the repository moves.
-/// The project's page (`update::REPO` on GitHub).
+/// The project's page, linked from Settings (`update::REPO` on GitHub; a test checks).
 const PROJECT_URL: &str = "https://github.com/waiting4timeout/imadive";
 /// The author's page ("Created by W4T" in the About dialog).
 const AUTHOR_URL: &str = "https://waiting4timeout.github.io/";

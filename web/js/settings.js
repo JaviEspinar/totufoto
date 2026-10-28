@@ -1,115 +1,22 @@
-// Settings: photo folders, browsing for one, the library status and About.
-// One of the page's modules; main.js starts the page.
+// Settings: photo folders, the library status, people, appearance and About; the Updates
+// card is updates.js, the Backup part backup.js, the folder browser browse.js. Also the About
+// dialog opened from the logo. One of the page's modules; main.js starts the page.
 import { lang, languages, num, t, tn } from "./i18n.js";
-import { $, api, del, esc, fmtBytes, icon, loadMeta, plural, post, pref } from "./core.js";
+import { $, api, del, esc, loadMeta, plural, post, pref } from "./core.js";
+import { backupActions, backupHtml, restoreFrom, watchBackup } from "./backup.js";
+import { browseForFolder } from "./browse.js";
 import { items } from "./items.js";
 import { toast } from "./people.js";
-import { render } from "./views.js";
-import { askChoice } from "./viewer.js";
 import { lastStatus, pollStatus, setLastStatus, updateIndexPill } from "./status.js";
+import { loadUpdate, updateActions, updateCardHtml } from "./updates.js";
+import { askChoice } from "./viewer.js";
+import { render } from "./views.js";
 
 // ---- folders -----------------------------------------------------------------------
 export let folderInfo = { folders: [], desktop: false };
 export async function loadFolders() {
   folderInfo = await api("/api/folders");
   return folderInfo;
-}
-/** Picks a folder on the server by browsing its folders (the browser has no picker for
- *  those). Resolves to true once one was added, or, with `choose` (an async function of the
- *  path), once it accepted one; `title`, `intro` and `button` then say what for. With `files`
- *  (an extension), the files of each folder are listed too, and clicking one gives it to
- *  `choose` instead of the folder (no button then). `extra` is HTML under the list, whose
- *  `[data-extra]` buttons call `onExtra` with the dialog closed. */
-export function browseForFolder({ choose = addFolder, title, intro, button, files, extra, onExtra } = {}) {
-  const dlg = $("#browseDlg"), list = $(".browse-list", dlg), input = $("#browsePath"), err = $(".err", dlg);
-  const hereBtn = $("[data-add-here]", dlg), extraBox = $(".browse-extra", dlg);
-  const texts = [[$("#browseTitle"), title], [$(".dlg-body > p", dlg), intro], [hereBtn, button]];
-  const before = texts.map(([el]) => el.innerHTML);
-  for (const [el, text] of texts) if (text) el.innerHTML = text;
-  hereBtn.hidden = !!files;
-  extraBox.innerHTML = extra ?? "";
-  extraBox.hidden = !extra;
-  const folderIcon = icon("folder", 16), fileIcon = icon("file", 16);
-  let here = null, token = 0;
-  const open = async path => {
-    const mine = ++token;
-    // What the field says now: if it changes while this loads (a path typed or pasted
-    // meanwhile), the answer doesn't overwrite it.
-    const before = input.value;
-    err.textContent = "";
-    list.innerHTML = `<div class="empty">${t("Loading…")}</div>`;
-    try {
-      const query = new URLSearchParams();
-      if (path != null) query.set("path", path);
-      if (files) query.set("files", files);
-      const r = await api(`/api/folders/browse${query.size ? `?${query}` : ""}`);
-      if (mine !== token) return;
-      here = r;
-      if (input.value === before) {
-        input.value = r.path;
-        input.scrollLeft = input.scrollWidth; // the end of a long path is the folder you're in
-      }
-      $("[data-up]", dlg).disabled = r.parent == null;
-      $("[data-add-here]", dlg).disabled = !r.path;
-      const entries = [
-        ...r.dirs.map(d => `<button type="button" data-dir="${esc(d.path)}">${folderIcon}<span>${esc(d.name)}</span></button>`),
-        ...(r.files ?? []).map(f => `<button type="button" class="file" data-file="${esc(f.path)}">${fileIcon}<span>${esc(f.name)}</span></button>`),
-      ];
-      list.innerHTML = entries.length ? entries.join("")
-        : `<div class="empty">${files ? t("No folders or backups inside.") : t("No folders inside.")}</div>`;
-      list.scrollTop = 0;
-    } catch (e) {
-      if (mine !== token) return;
-      err.textContent = e.message;
-      list.innerHTML = "";
-      if (here) input.value = here.path;
-    }
-  };
-  return new Promise(resolve => {
-    let added = false;
-    const onClick = async e => {
-      const target = e.target.closest("button") ?? e.target;
-      if (target === dlg || target.dataset.close != null) return dlg.close();
-      if (target.dataset.extra != null) { dlg.close(); return onExtra?.(); }
-      if (target.dataset.dir) return open(target.dataset.dir);
-      if (target.dataset.file) {
-        // Reading a big backup takes a moment: said on the row at once, and nothing else can be
-        // clicked meanwhile.
-        if (list.classList.contains("busy")) return;
-        err.textContent = "";
-        list.classList.add("busy");
-        target.classList.add("reading");
-        target.insertAdjacentHTML("beforeend", `<small class="reading-note"><span class="spinner small" aria-hidden="true"></span>${t("Reading the backup…")}</small>`);
-        try { await choose(target.dataset.file); added = true; dlg.close(); }
-        catch (e2) { err.textContent = e2.message; }
-        finally {
-          list.classList.remove("busy");
-          target.classList.remove("reading");
-          target.querySelector(".reading-note")?.remove();
-        }
-        return;
-      }
-      if (target.dataset.up != null && here?.parent != null) return open(here.parent);
-      if (target.dataset.addHere != null && here?.path) {
-        target.disabled = true;
-        try { await choose(here.path); added = true; dlg.close(); }
-        catch (e2) { err.textContent = e2.message; target.disabled = false; }
-      }
-    };
-    const onKey = e => { if (e.key === "Enter" && e.target === input) { e.preventDefault(); open(input.value); } };
-    dlg.addEventListener("click", onClick);
-    dlg.addEventListener("keydown", onKey);
-    dlg.addEventListener("close", () => {
-      dlg.removeEventListener("click", onClick);
-      dlg.removeEventListener("keydown", onKey);
-      texts.forEach(([el], i) => { el.innerHTML = before[i]; });
-      hereBtn.hidden = false;
-      extraBox.hidden = true;
-      resolve(added);
-    }, { once: true });
-    dlg.showModal();
-    open(null);
-  });
 }
 /** Tells the gallery where a folder that can't be found is now (moved, renamed, or copied
  *  to another drive): its photos and videos keep everything instead of being indexed again. */
@@ -137,6 +44,8 @@ async function moveFolder(from) {
     button: t("It's this one"),
   });
 }
+/** Adds a folder chosen in the server's folder browser. */
+export const browseToAdd = () => browseForFolder({ choose: addFolder });
 export async function addFolder(path) {
   const added = await post(path == null ? "/api/folders/pick" : "/api/folders", path == null ? {} : { path });
   if (added === null) return false; // picker cancelled
@@ -226,197 +135,14 @@ export function renderSettings(error = "") {
       <small>${t("New faces are placed into people after every scan. This groups every face again from scratch instead: named people and faces you placed stay where they are, unnamed groups may change. It can take a long time on large libraries.")}</small></div>
       <button class="btn" data-regroup>${t("Regroup")}</button></div></section>
     <section class="set-part">${appearanceHtml()}</section>
-    <section class="set-part" id="settingsUpdate">${updateHtml(updateInfo)}</section>
+    ${updateCardHtml()}
     <div id="settingsAbout">${aboutHtml(lastStatus)}</div>`;
-}
-// ---- updates ---------------------------------------------------------------------------
-let updateInfo = null, updateTimer = 0;
-const updateBusy = u => ["checking", "downloading", "installing", "restarting"].includes(u?.state);
-/** This version, the latest release, and the buttons to check and to update. */
-function updateHtml(u) {
-  if (!u) return `<h4>${t("Updates")}</h4><p>${t("Loading…")}</p>`;
-  const busy = updateBusy(u);
-  const whatsNew = u.latest ? ` <a href="${esc(u.releases)}/tag/v${esc(u.latest)}" target="_blank" rel="noopener">${t("What's new")}</a>` : "";
-  const text = u.available
-    ? `<b class="update-available">${t("Imadive {latest} is available (you have {current}).", { latest: esc(u.latest), current: esc(u.current) })}</b>${whatsNew}`
-    : u.latest ? t("Imadive {current} is up to date.", { current: esc(u.current) }) : t("This is Imadive {current}.", { current: esc(u.current) });
-  let progress = "";
-  if (u.state === "checking") progress = `<div>${t("Checking for updates…")}</div><progress></progress>`;
-  if (u.state === "downloading") {
-    progress = `<div>${u.total ? t("Downloading {done} of {total}", { done: fmtBytes(u.done), total: fmtBytes(u.total) }) : t("Downloading…")}</div>
-      <progress ${u.total ? `max="${u.total}" value="${u.done}"` : ""}></progress>`;
-  }
-  if (u.state === "installing") progress = `<div>${t("Installing… The gallery restarts when it's done.")}</div><progress></progress>`;
-  if (u.state === "restarting") progress = `<div>${t("Restarting…")}</div><progress></progress>`;
-  // Copies that can't update themselves: what to run, and where (never in this browser).
-  const lead = {
-    source: t("This server was built from source, so it can't update itself. Run this once on the server, in a terminal or over SSH, to switch to the ready-made version: it keeps your index, your people and your folders, and from then on updates install from here with one click."),
-    setup_without_helper: t("Run this once on the server, in a terminal or over SSH. It also adds the update service, so the next updates install from here."),
-    docker: t("Run this on the computer that runs the container, then start the container again with the new image."),
-  }[u.kind];
-  const command = u.available && !u.can_install
-    ? u.command && lead
-      ? `<p>${lead}</p><div class="update-cmd"><code>${esc(u.command)}</code><button class="btn" data-copy-command>${t("Copy")}</button></div>`
-      : `<p>${t("This copy can't update itself: get the new version from the releases page.")}</p>`
-    : "";
-  const buttons = `<div class="add-row">${u.available && u.can_install ? `<button class="btn primary" data-update-install ${busy ? "disabled" : ""}>${t("Update")}</button>` : ""}
-    <button class="btn" data-update-check ${busy ? "disabled" : ""}>${t("Check for updates")}</button></div>`;
-  return `<h4>${t("Updates")}</h4><p>${text}</p>
-    ${progress ? `<div class="remove-progress">${progress}</div>` : ""}
-    ${u.state === "error" && u.error ? `<div class="err">${esc(t("The last attempt failed: {error}", { error: u.error }))}</div>` : ""}
-    ${command}${buttons}
-    <p><small>${[u.checked ? t("Last checked on GitHub on {when}.", { when: esc(u.checked) }) : "",
-      u.automatic ? t("Imadive looks for new releases once a day.") : t("Imadive only looks for new releases when you ask.")].filter(Boolean).join(" ")}</small></p>`;
-}
-/** Copies `text`. The clipboard API only exists on HTTPS pages (and localhost), and the gallery
- *  on a home network is plain http: there, a hidden text field is copied the old way. */
-function copyText(text) {
-  if (window.isSecureContext && navigator.clipboard) {
-    navigator.clipboard.writeText(text).catch(() => {});
-    return true;
-  }
-  const field = document.createElement("textarea");
-  field.value = text;
-  field.setAttribute("readonly", "");
-  field.style.cssText = "position: fixed; top: 0; left: 0; opacity: 0;";
-  // Inside the open dialog, which takes the focus away from anything outside it.
-  ($("#settingsDlg").open ? $("#settingsDlg") : document.body).append(field);
-  field.select();
-  let copied = false;
-  try { copied = document.execCommand("copy"); } catch {}
-  field.remove();
-  return copied;
-}
-/** Fetches the update state; while something is going on, again every second. */
-async function loadUpdate(url = "/api/update", method = "GET") {
-  clearTimeout(updateTimer);
-  const before = updateInfo;
-  const installing = ["installing", "restarting"].includes(before?.state);
-  try {
-    updateInfo = await api(url, { method });
-    // Back after an update: the page is the old version's, so it starts again.
-    if (installing && before.current && updateInfo.current !== before.current) return location.reload();
-  } catch (err) {
-    // While an update installs, the server going away is it restarting with the new
-    // version, not a failure: wait for it to come back.
-    updateInfo = installing
-      ? { ...before, state: "restarting" }
-      : { ...before, state: "error", error: err.message };
-  }
-  const el = $("#settingsUpdate");
-  if (el) el.innerHTML = updateHtml(updateInfo);
-  if (updateBusy(updateInfo) && $("#settingsDlg").open) {
-    updateTimer = setTimeout(loadUpdate, updateInfo.state === "restarting" ? 2000 : 1000);
-  }
 }
 /** How new files are found: on their own every few minutes, or with Rescan. */
 function checkNoteHtml(st) {
   return st?.check_every
     ? tn(st.check_every, "New, deleted and renamed files are found on their own: the folders are checked every minute.", "New, deleted and renamed files are found on their own: the folders are checked every {n} minutes.")
     : "";
-}
-/** Backing up the index, and restoring a backup. */
-function backupHtml() {
-  return `<h5>${t("Backup")}</h5>
-    <p>${t("A backup keeps people and their names, face groups, your corrections and the list of folders. The photos and videos themselves aren't in it: back them up on their own. Neither are the theme and the language, which each browser keeps.")}</p>
-    <div class="add-row"><button class="btn" data-backup ${backupBusy ? "disabled" : ""}>${t("Back up…")}</button><button class="btn" data-restore ${backupBusy ? "disabled" : ""}>${t("Restore…")}</button></div>
-    <div id="backupProgress">${backupState}</div>
-    <input type="file" id="restoreFile" accept=".imadive" hidden>`;
-}
-/** What the Backup card shows under its buttons, kept across redraws of Settings. */
-let backupState = "", backupBusy = false, backupTimer = 0;
-function showBackup(html, busy) {
-  backupState = html;
-  backupBusy = busy;
-  const el = $("#backupProgress");
-  if (el) el.innerHTML = html;
-  for (const b of document.querySelectorAll("#settingsDlg [data-backup], #settingsDlg [data-restore]")) b.disabled = busy;
-}
-const progressBar = (text, done, total) =>
-  `<div class="remove-progress"><div>${text}</div><progress ${total ? `max="${total}" value="${done}"` : ""}></progress></div>`;
-/** Follows the backup being made until it is done. */
-async function watchBackup() {
-  clearTimeout(backupTimer);
-  let p;
-  try { p = await api("/api/backup/progress"); } catch (err) { return showBackup(`<div class="err">${esc(err.message)}</div>`, false); }
-  if (p.running) {
-    const pct = p.total ? Math.min(100, Math.floor((100 * p.done) / p.total)) : 0;
-    showBackup(progressBar(p.total ? t("Making the backup… {pct}%", { pct }) : t("Making the backup…"), p.done, p.total), true);
-    backupTimer = setTimeout(watchBackup, 500);
-    return;
-  }
-  if (p.error) {
-    showBackup(`<div class="err">${esc(t("Couldn't make the backup: {error}", { error: p.error }))}</div>`, false);
-    toast(t("Couldn't make the backup: {error}", { error: p.error }), true);
-  } else if (p.path) {
-    showBackup(`<p class="backup-done">${t("Saved in {path}", { path: `<bdi>${esc(p.path)}</bdi>` })}</p>`, false);
-    toast(t("Backup saved in {path}", { path: p.path }));
-  } else showBackup("", false);
-}
-/** Makes a backup: in a folder of the server chosen in its folder browser, or where the
- *  desktop app's save dialog says. It runs in the background; the card follows it. */
-async function backUp() {
-  const start = async folder => {
-    // Said at once: the backup of a large library takes a while.
-    showBackup(progressBar(t("Making the backup…")), true);
-    try { return await post("/api/backup/save", folder == null ? {} : { folder }); }
-    catch (err) { showBackup("", false); throw err; }
-  };
-  if (folderInfo.desktop) {
-    const r = await start(null);
-    if (!r) return showBackup("", false); // the save dialog was cancelled
-    return watchBackup();
-  }
-  const chosen = await browseForFolder({
-    choose: start,
-    title: t("Where to save the backup"),
-    intro: t("Folders on the computer running Imadive. The backup is saved in the folder you're in."),
-    button: t("Save here"),
-  });
-  if (chosen) watchBackup();
-}
-/** What a backup holds, then restoring it once confirmed. */
-async function confirmRestore(summary) {
-  const folders = summary.folders.map(f => `<li><bdi>${esc(f.path)}</bdi>${f.here ? "" : ` <span class="off">${t("not on this computer")}</span>`}</li>`).join("");
-  const missing = summary.folders.some(f => !f.here);
-  const choice = await askChoice(`<p>${t("Made on {date} by Imadive {version}.", { date: esc(summary.created), version: esc(summary.version) })}</p>
-    <p>${[tn(summary.photos, "{n} photo", "{n} photos"), tn(summary.videos, "{n} video", "{n} videos"), tn(summary.named, "{n} named person", "{n} named people")].join(" · ")}</p>
-    ${folders ? `<p>${t("Folders:")}</p><ul class="restore-folders">${folders}</ul>` : ""}
-    ${missing ? `<p>${t("The photos of folders that aren't on this computer are kept, shown as not available. If they are somewhere else here, use <b>Moved to…</b> in Settings afterwards.")}</p>` : ""}
-    <p>${t("Everything in this gallery is replaced by the backup: people, names, groups and folders. The photos and videos aren't touched. The index it replaces is kept in the data folder, as <b>index.before-restore.sqlite</b>.")}</p>
-    <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button><button class="btn danger" data-choice="restore">${t("Restore")}</button></div>`,
-    t("Restore this backup?"));
-  if (choice !== "restore") return;
-  showBackup(progressBar(t("Restoring the backup…")), true);
-  try { await post("/api/backup/restore"); }
-  catch (err) { showBackup("", false); throw err; }
-  // Everything the page holds came from the index it replaced.
-  location.reload();
-}
-async function restoreFrom(file) {
-  showBackup(progressBar(t("Reading the backup…")), true);
-  let summary;
-  try { summary = await api("/api/backup/inspect", { method: "PUT", body: file }); }
-  finally { showBackup("", false); }
-  await confirmRestore(summary);
-}
-/** Restore…: a backup file on the server, chosen in its folder browser, or one uploaded from
- *  this device; in the desktop app, the system's open dialog. */
-async function restore() {
-  if (folderInfo.desktop) {
-    const summary = await post("/api/backup/inspect", { pick: true });
-    return summary && confirmRestore(summary);
-  }
-  let summary = null;
-  await browseForFolder({
-    files: "imadive",
-    title: t("Choose a backup"),
-    intro: t("Folders and backups on the computer running Imadive. Click the backup to restore."),
-    choose: async path => { summary = await post("/api/backup/inspect", { path }); },
-    extra: `<button type="button" class="btn" data-extra>${t("Upload one from this device…")}</button>`,
-    onExtra: () => $("#restoreFile").click(),
-  });
-  if (summary) await confirmRestore(summary);
 }
 /** The theme and the language, remembered in this browser. */
 function appearanceHtml() {
@@ -513,7 +239,65 @@ $("#aboutDlg").addEventListener("click", e => {
   }
 });
 $("#settingsBtn").onclick = () => { openSettings(); loadFolders().then(() => { if ($("#settingsDlg").open) renderSettings(); }); };
-$("#settingsDlg").addEventListener("click", async e => {
+/** Starts something the server does in the background, and follows it in the Library card. */
+async function startWork(button, url, method = "POST") {
+  button.disabled = true;
+  button.textContent = t("Starting…");
+  await (method === "DELETE" ? del(url) : post(url)).catch(err => renderSettings(err.message));
+  setTimeout(pollStatus, 300);
+}
+/** Removes a saved folder from the gallery, once confirmed, with its progress in its row. */
+async function removeFolder(path) {
+  const choice = await askChoice(`<p class="gone-path">${esc(path)}</p>
+    <p>${t("Its photos and videos leave the gallery, with their faces. The files stay on disk, and adding the folder again brings them back.")}</p>
+    <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button><button class="btn danger" data-choice="remove">${t("Remove folder")}</button></div>`,
+    t("Remove this folder from the gallery?"));
+  if (choice !== "remove") return;
+  // Progress in the folder's row at once; the status polling keeps it current.
+  setLastStatus({ ...lastStatus, removing: path, remove_done: 0, remove_total: 0 });
+  renderSettings();
+  const watch = setInterval(async () => {
+    const st = await api("/api/status").catch(() => null);
+    if (!st?.removing) return;
+    setLastStatus(st);
+    const el = $("#removeProgress");
+    if (el) el.innerHTML = removeProgressHtml(st);
+    updateIndexPill(st);
+  }, 500);
+  let r;
+  try { r = await del("/api/folders", { path }); }
+  finally {
+    clearInterval(watch);
+    setLastStatus({ ...lastStatus, removing: null });
+  }
+  toast(tn(r.removed, "{n} file removed from the gallery", "{n} files removed from the gallery")
+    + (r.kept ? `; ${tn(r.kept, "{n} stays, as another folder includes it", "{n} stay, as another folder includes them")}` : ""));
+  await Promise.all([loadFolders(), loadMeta()]);
+  renderSettings();
+  render(); // the view behind Settings shows the photos that are left
+  setTimeout(pollStatus, 300);
+}
+/** What Settings' buttons do, by their data attribute (`data-rescan` is `rescan`). Each card's
+ *  module brings its own; they report their own errors. */
+const folderActions = {
+  pick: async () => { if (await addFolder(null)) renderSettings(); },
+  browse: async () => { if (await browseToAdd()) { await loadFolders(); renderSettings(); } },
+  move: button => moveFolder(button.dataset.move),
+  remove: button => removeFolder(button.dataset.remove),
+};
+const actions = {
+  logs: () => post("/api/logs/reveal").catch(err => toast(t("Couldn't open the log folder: {error}", { error: err.message }), true)),
+  rescan: button => startWork(button, "/api/scan"),
+  retry: button => startWork(button, "/api/failures/retry"),
+  showExcluded: button => startWork(button, "/api/excluded", "DELETE"),
+  regroup: button => startWork(button, "/api/regroup"),
+  ...updateActions,
+  ...backupActions,
+  // Changing folders shows its errors in the Folders card.
+  ...Object.fromEntries(Object.entries(folderActions).map(([name, run]) =>
+    [name, button => Promise.resolve(run(button)).catch(err => renderSettings(err.message))])),
+};
+$("#settingsDlg").addEventListener("click", e => {
   const dlg = $("#settingsDlg");
   if (e.target === dlg || e.target.dataset.close != null) return dlg.close();
   // The desktop app opens links in the system browser.
@@ -522,80 +306,8 @@ $("#settingsDlg").addEventListener("click", async e => {
     e.preventDefault();
     return post("/api/open", { url: link.href }).catch(err => toast(t("Couldn't open the link: {error}", { error: err.message }), true));
   }
-  if (e.target.closest("[data-logs]")) {
-    return post("/api/logs/reveal").catch(err => toast(t("Couldn't open the log folder: {error}", { error: err.message }), true));
-  }
-  const start = async (button, url, method = "POST") => {
-    button.disabled = true;
-    button.textContent = t("Starting…");
-    await (method === "DELETE" ? del(url) : post(url)).catch(err => renderSettings(err.message));
-    setTimeout(pollStatus, 300);
-  };
-  if (e.target.dataset.updateCheck != null) return loadUpdate("/api/update/check", "POST");
-  if (e.target.dataset.updateInstall != null) {
-    e.target.disabled = true;
-    return post("/api/update/install").then(() => loadUpdate()).catch(err => {
-      toast(t("Couldn't update: {error}", { error: err.message }), true);
-      loadUpdate();
-    });
-  }
-  if (e.target.dataset.copyCommand != null) {
-    if (copyText(updateInfo?.command ?? "")) return toast(t("Copied"));
-    // Not even that: the command is selected, ready to copy with the keyboard.
-    const code = $("#settingsUpdate .update-cmd code");
-    if (code) getSelection().selectAllChildren(code);
-    return toast(t("Couldn't copy it; select it and copy it yourself"), true);
-  }
-  if (e.target.dataset.backup != null) {
-    return backUp().catch(err => toast(t("Couldn't make the backup: {error}", { error: err.message }), true));
-  }
-  if (e.target.dataset.restore != null) {
-    return restore().catch(err => toast(t("Couldn't restore the backup: {error}", { error: err.message }), true));
-  }
-  if (e.target.dataset.regroup != null) return start(e.target, "/api/regroup");
-  if (e.target.dataset.showExcluded != null) return start(e.target, "/api/excluded", "DELETE");
-  if (e.target.dataset.retry != null) return start(e.target, "/api/failures/retry");
-  if (e.target.dataset.rescan != null) {
-    e.target.disabled = true;
-    e.target.textContent = t("Starting…");
-    await post("/api/scan").catch(err => renderSettings(err.message));
-    return setTimeout(pollStatus, 300);
-  }
-  try {
-    if (e.target.dataset.pick != null) { if (await addFolder(null)) renderSettings(); }
-    else if (e.target.dataset.browse != null) { if (await browseForFolder()) { await loadFolders(); renderSettings(); } }
-    else if (e.target.dataset.move) await moveFolder(e.target.dataset.move);
-    else if (e.target.dataset.remove) {
-      const path = e.target.dataset.remove;
-      const choice = await askChoice(`<p class="gone-path">${esc(path)}</p>
-        <p>${t("Its photos and videos leave the gallery, with their faces. The files stay on disk, and adding the folder again brings them back.")}</p>
-        <div class="dlg-actions"><button class="btn" data-choice="cancel">${t("Cancel")}</button><button class="btn danger" data-choice="remove">${t("Remove folder")}</button></div>`,
-        t("Remove this folder from the gallery?"));
-      if (choice !== "remove") return;
-      // Progress in the folder's row at once; the status polling keeps it current.
-      setLastStatus({ ...lastStatus, removing: path, remove_done: 0, remove_total: 0 });
-      renderSettings();
-      const watch = setInterval(async () => {
-        const st = await api("/api/status").catch(() => null);
-        if (!st?.removing) return;
-        setLastStatus(st);
-        const el = $("#removeProgress");
-        if (el) el.innerHTML = removeProgressHtml(st);
-        updateIndexPill(st);
-      }, 500);
-      let r;
-      try { r = await del("/api/folders", { path }); }
-      finally {
-        clearInterval(watch);
-        setLastStatus({ ...lastStatus, removing: null });
-      }
-      toast(tn(r.removed, "{n} file removed from the gallery", "{n} files removed from the gallery")
-        + (r.kept ? `; ${tn(r.kept, "{n} stays, as another folder includes it", "{n} stay, as another folder includes them")}` : ""));
-      await Promise.all([loadFolders(), loadMeta()]);
-      renderSettings();
-      render(); // the view behind Settings shows the photos that are left
-      setTimeout(pollStatus, 300);
-    }
-  } catch (err) { renderSettings(err.message); }
+  const button = e.target.closest("button");
+  const name = button && Object.keys(button.dataset).find(key => key in actions);
+  if (name) actions[name](button);
 });
 $("#settingsDlg").addEventListener("close", () => { if (!items.length) render(); });

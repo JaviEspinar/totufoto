@@ -5,7 +5,7 @@ import { $, api, dateLabel, esc, fmtDate, fmtDay, fmtMonth, icon, itemQuery, per
 import { renderPeopleList } from "./sidebar.js";
 import { toast } from "./people.js";
 import { currentJob, render, syncRangeInputs } from "./views.js";
-import { addFolder, browseForFolder, folderInfo } from "./settings.js";
+import { addFolder, browseToAdd, folderInfo } from "./settings.js";
 import { firstIndexHtml, lastStatus } from "./status.js";
 import { makeVideoThumb } from "./videothumbs.js";
 
@@ -254,7 +254,7 @@ export async function renderPhotos(main, job) {
       main.innerHTML = `<div class="welcome"><h2>${t("Welcome to Imadive")}</h2>
         <p>${t("Add a folder with photos and videos. It is indexed in the background, and subfolders are included.")}</p>
         <button class="btn primary" id="welcomeAdd">${t("Add folder…")}</button></div>`;
-      $("#welcomeAdd").onclick = () => (folderInfo.desktop ? addFolder(null) : browseForFolder())
+      $("#welcomeAdd").onclick = () => (folderInfo.desktop ? addFolder(null) : browseToAdd())
         .then(ok => ok && render()).catch(err => toast(err.message, true));
       return;
     }
