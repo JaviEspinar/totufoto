@@ -133,6 +133,22 @@ impl ScanStatus {
     fn set_phase(&self, phase: &str) {
         *self.phase.lock().unwrap() = phase.to_string();
     }
+
+    /// A new scan's progress starts from zero.
+    fn reset_counters(&self) {
+        for counter in [&self.total, &self.done, &self.errors, &self.faces, &self.group_done, &self.group_total] {
+            counter.store(0, Ordering::Relaxed);
+        }
+    }
+
+    /// The folders as this scan saw them, for the periodic check (`changed`). A photo folder
+    /// that can't be reached now gets no time, so it counts as changed once it is back.
+    fn remember_folders(&self, roots: &[PathBuf], folders: Vec<(PathBuf, Option<SystemTime>)>) {
+        let mut stamps: Vec<(PathBuf, Option<SystemTime>)> =
+            roots.iter().filter(|r| !folders.iter().any(|(f, _)| f == *r)).map(|r| (r.clone(), None)).collect();
+        stamps.extend(folders);
+        *self.stamps.lock().unwrap() = Some(Stamps { roots: roots.to_vec(), folders: stamps });
+    }
 }
 
 pub struct ScanConfig {
@@ -334,10 +350,7 @@ fn run_here(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
 
 fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
     let started = Instant::now();
-    for counter in [&status.total, &status.done, &status.errors, &status.faces, &status.group_done, &status.group_total]
-    {
-        counter.store(0, Ordering::Relaxed);
-    }
+    status.reset_counters();
     status.set_phase("listing files");
     let mut conn = crate::db::open(&cfg.db_path)?;
     let roots = cfg.roots(&conn)?;
@@ -348,144 +361,26 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
         return Ok(());
     }
     let Listing { files, unreadable, folders } = list_files(&roots);
-    // What the next check compares with. A root that can't be reached now gets no time, so it
-    // counts as changed once it is back.
-    let mut stamps: Vec<(PathBuf, Option<SystemTime>)> =
-        roots.iter().filter(|r| !folders.iter().any(|(f, _)| f == *r)).map(|r| (r.clone(), None)).collect();
-    stamps.extend(folders);
-    *status.stamps.lock().unwrap() = Some(Stamps { roots: roots.clone(), folders: stamps });
-    if status.hold.load(Ordering::SeqCst) {
-        tracing::info!("scan stopped: a folder is being removed");
+    status.remember_folders(&roots, folders);
+    if stopped(status) {
         return Ok(());
     }
-    // Photos on a folder that is currently unavailable (say, an unplugged drive) are kept, and
-    // so are those in a folder or file that couldn't be read (a disk error, say): their files
-    // are still there, the scan just couldn't see them this time.
-    let mut offline: Vec<PathBuf> = roots.iter().filter(|r| !crate::library::reachable(r)).cloned().collect();
-    for r in &offline {
-        tracing::warn!("folder {} is not available; keeping its photos", r.display());
-    }
-    for path in unreadable.iter().take(20) {
-        tracing::warn!("{} couldn't be read; keeping the photos indexed in it", path.display());
-    }
-    if unreadable.len() > 20 {
-        tracing::warn!("and {} more that couldn't be read", unreadable.len() - 20);
-    }
-    offline.extend(unreadable);
-
+    let offline = offline_folders(&roots, unreadable);
     let models = cfg.models.clone().filter(ModelPaths::exist);
-    let known: HashMap<String, (i64, i64, i64, bool)> = {
-        let mut stmt = conn.prepare("SELECT path, id, mtime, size, faces_scanned FROM items")?;
-        stmt.query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))))?
-            .collect::<Result<_, _>>()?
-    };
+    let index = Index::load(&conn)?;
+    let plan = plan(
+        &index,
+        files,
+        &Scope { roots: &roots, offline: &offline, whole_library: !cfg.fixed_roots.is_empty() },
+        models.is_some(),
+    );
+    apply_removals(&mut conn, &plan)?;
 
-    // Photos the user removed from the gallery stay out of it.
-    let excluded: HashSet<String> =
-        conn.prepare("SELECT path FROM excluded")?.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
-    // Files that failed before are only retried once they change.
-    let failed: HashMap<String, (i64, i64)> = conn
-        .prepare("SELECT path, mtime, size FROM failures")?
-        .query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?
-        .collect::<Result<_, _>>()?;
-
-    let present: HashSet<String> = files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
-    {
-        let mut forget = conn.prepare("DELETE FROM failures WHERE path = ?")?;
-        for path in failed.keys().filter(|p| !present.contains(*p) && root_of(&offline, Path::new(p)).is_none()) {
-            forget.execute([path])?;
-        }
-    }
-    // With folders given on the command line, the folders (those and the saved ones) are the
-    // whole library, so photos outside them go. Folders managed only from Settings remove
-    // their own photos when removed, so a scan only drops photos inside the current folders
-    // whose files are gone.
-    let whole_library = !cfg.fixed_roots.is_empty();
-    let stale: Vec<i64> = known
-        .iter()
-        .filter(|(p, _)| {
-            let path = Path::new(p);
-            !present.contains(*p)
-                && root_of(&offline, path).is_none()
-                && (whole_library || root_of(&roots, path).is_some())
-        })
-        .map(|(_, v)| v.0)
-        .collect();
-    let removed = stale.len();
-    let todo: Vec<FileEntry> = files
-        .into_iter()
-        .filter_map(|mut f| match known.get(f.path.to_string_lossy().as_ref()) {
-            // Changed files, and photos indexed while face recognition was unavailable: read
-            // again, and updated in place.
-            Some(&(id, mtime, size, faces_scanned))
-                if mtime != f.mtime || size != f.size || (models.is_some() && !faces_scanned) =>
-            {
-                f.known = Some(id);
-                Some(f)
-            }
-            Some(_) => None,
-            None => {
-                let path = f.path.to_string_lossy();
-                let wanted = !excluded.contains(path.as_ref()) && failed.get(path.as_ref()) != Some(&(f.mtime, f.size));
-                wanted.then_some(f)
-            }
-        })
-        .collect();
-    let updated = todo.iter().filter(|f| f.known.is_some()).count();
-
-    if !stale.is_empty() {
-        // Named people whose photos are going keep their face, to rejoin them if they return.
-        crate::db::remember_named_people(&conn, None)?;
-        let tx = conn.transaction()?;
-        for id in &stale {
-            tx.execute("DELETE FROM items WHERE id = ?", [id])?;
-        }
-        tx.commit()?;
-    }
-
-    status.total.store(todo.len() as u64, Ordering::Relaxed);
+    status.total.store(plan.todo.len() as u64, Ordering::Relaxed);
     status.set_phase("indexing files");
-    tracing::info!("{} photos to index ({updated} changed), {removed} removed", todo.len());
-
-    let (sender, receiver) = mpsc::sync_channel::<Outcome>(256);
-    // Set when saving fails: the remaining files aren't read for nothing.
-    let saving_failed = AtomicBool::new(false);
-    std::thread::scope(|s| -> Result<()> {
-        s.spawn(|| {
-            todo.into_par_iter().for_each_with(sender, |sender, file| {
-                if status.hold.load(Ordering::Relaxed) || saving_failed.load(Ordering::Relaxed) {
-                    return; // stopped: what is done so far is kept, the rest waits for the next scan
-                }
-                let copy = FileEntry { path: file.path.clone(), mtime: file.mtime, size: file.size, known: file.known };
-                // A file that crashes a decoder (or the face models) is a failed file, not a failed scan.
-                let processed =
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| process(file, models.as_ref())));
-                let outcome = match processed {
-                    Ok(Ok(p)) => Outcome::Indexed(p),
-                    Ok(Err((file, e))) => {
-                        tracing::warn!("{}: {e:#}", file.path.display());
-                        Outcome::Failed(file, format!("{e:#}"))
-                    }
-                    Err(panic) => {
-                        let why = panic
-                            .downcast_ref::<&str>()
-                            .map(|s| s.to_string())
-                            .or_else(|| panic.downcast_ref::<String>().cloned())
-                            .unwrap_or_else(|| "unknown error".into());
-                        tracing::error!("{}: crashed while reading it: {why}", copy.path.display());
-                        Outcome::Failed(copy, format!("crashed while reading it: {why}"))
-                    }
-                };
-                if sender.send(outcome).is_err() {
-                    saving_failed.store(true, Ordering::Relaxed);
-                }
-            });
-        });
-        write_results(&mut conn, receiver, status)
-    })?;
-
-    if status.hold.load(Ordering::SeqCst) {
-        tracing::info!("scan stopped: a folder is being removed");
+    tracing::info!("{} photos to index ({} changed), {} removed", plan.todo.len(), plan.updated, plan.stale.len());
+    index_files(&mut conn, plan.todo, models.as_ref(), status)?;
+    if stopped(status) {
         return Ok(());
     }
     if models.is_some() {
@@ -504,6 +399,207 @@ fn scan(cfg: &ScanConfig, status: &ScanStatus) -> Result<()> {
         status.errors.load(Ordering::Relaxed)
     );
     Ok(())
+}
+
+/// A folder is being removed (or moved, or a backup restored): the scan ends here, and one
+/// starts afterwards.
+fn stopped(status: &ScanStatus) -> bool {
+    let held = status.hold.load(Ordering::SeqCst);
+    if held {
+        tracing::info!("scan stopped: a folder is being removed");
+    }
+    held
+}
+
+/// The folders whose photos are kept even though their files weren't seen: the photo folders
+/// that can't be reached now (an unplugged drive, say), and the folders and files that
+/// couldn't be read (a disk error, say). Their files are still there; the scan just couldn't
+/// see them this time.
+fn offline_folders(roots: &[PathBuf], unreadable: Vec<PathBuf>) -> Vec<PathBuf> {
+    let mut offline: Vec<PathBuf> = roots.iter().filter(|r| !crate::library::reachable(r)).cloned().collect();
+    for r in &offline {
+        tracing::warn!("folder {} is not available; keeping its photos", r.display());
+    }
+    for path in unreadable.iter().take(20) {
+        tracing::warn!("{} couldn't be read; keeping the photos indexed in it", path.display());
+    }
+    if unreadable.len() > 20 {
+        tracing::warn!("and {} more that couldn't be read", unreadable.len() - 20);
+    }
+    offline.extend(unreadable);
+    offline
+}
+
+/// An item the index already has, as its file was when it was read.
+#[derive(Clone, Copy)]
+struct Known {
+    id: i64,
+    mtime: i64,
+    size: i64,
+    /// Its faces were looked for (not while face recognition was unavailable).
+    faces_scanned: bool,
+}
+
+/// What the index says about the files, for `plan`.
+#[derive(Default)]
+struct Index {
+    /// Every item, by path.
+    known: HashMap<String, Known>,
+    /// Items removed from the gallery by the user: they stay out of it.
+    excluded: HashSet<String>,
+    /// Files that couldn't be read, with their date and size then: only tried again once they change.
+    failed: HashMap<String, (i64, i64)>,
+}
+
+impl Index {
+    fn load(conn: &Connection) -> Result<Self> {
+        let known = conn
+            .prepare("SELECT path, id, mtime, size, faces_scanned FROM items")?
+            .query_map([], |r| {
+                Ok((r.get(0)?, Known { id: r.get(1)?, mtime: r.get(2)?, size: r.get(3)?, faces_scanned: r.get(4)? }))
+            })?
+            .collect::<Result<_, _>>()?;
+        let excluded =
+            conn.prepare("SELECT path FROM excluded")?.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        let failed = conn
+            .prepare("SELECT path, mtime, size FROM failures")?
+            .query_map([], |r| Ok((r.get(0)?, (r.get(1)?, r.get(2)?))))?
+            .collect::<Result<_, _>>()?;
+        Ok(Self { known, excluded, failed })
+    }
+}
+
+/// Where the library is, for `plan`.
+struct Scope<'a> {
+    roots: &'a [PathBuf],
+    /// Folders (and files) whose photos are kept although they weren't seen.
+    offline: &'a [PathBuf],
+    /// The folders given on the command line (with the saved ones) are the whole library, so
+    /// photos outside them go. Folders managed only from Settings remove their own photos when
+    /// removed, so then a scan only drops photos inside the current folders whose files are gone.
+    whole_library: bool,
+}
+
+/// What a scan does with what it found.
+struct Plan {
+    /// Files to read: new ones, and changed ones (with their item's id, updated in place).
+    todo: Vec<FileEntry>,
+    /// How many of `todo` are changed files.
+    updated: usize,
+    /// Items whose files are gone: they leave the gallery.
+    stale: Vec<i64>,
+    /// Failures of files that are gone: forgotten.
+    forget_failures: Vec<String>,
+}
+
+/// Compares the files found with the index: what to read, what leaves the gallery, which
+/// failures to forget. Decides, and touches nothing.
+fn plan(index: &Index, files: Vec<FileEntry>, scope: &Scope, faces_available: bool) -> Plan {
+    let present: HashSet<String> = files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
+    let kept_offline = |path: &Path| root_of(scope.offline, path).is_some();
+    let forget_failures =
+        index.failed.keys().filter(|p| !present.contains(*p) && !kept_offline(Path::new(p))).cloned().collect();
+    let stale = index
+        .known
+        .iter()
+        .filter(|(p, _)| {
+            let path = Path::new(p);
+            !present.contains(*p)
+                && !kept_offline(path)
+                && (scope.whole_library || root_of(scope.roots, path).is_some())
+        })
+        .map(|(_, k)| k.id)
+        .collect();
+    let todo: Vec<FileEntry> = files
+        .into_iter()
+        .filter_map(|mut f| {
+            let path = f.path.to_string_lossy();
+            match index.known.get(path.as_ref()) {
+                // Changed files, and photos indexed while face recognition was unavailable: read
+                // again, and updated in place.
+                Some(k) if k.mtime != f.mtime || k.size != f.size || (faces_available && !k.faces_scanned) => {
+                    f.known = Some(k.id);
+                    Some(f)
+                }
+                Some(_) => None,
+                None => {
+                    let wanted = !index.excluded.contains(path.as_ref())
+                        && index.failed.get(path.as_ref()) != Some(&(f.mtime, f.size));
+                    wanted.then_some(f)
+                }
+            }
+        })
+        .collect();
+    let updated = todo.iter().filter(|f| f.known.is_some()).count();
+    Plan { todo, updated, stale, forget_failures }
+}
+
+/// Forgets the failures of files that are gone, and removes the items whose files are gone.
+fn apply_removals(conn: &mut Connection, plan: &Plan) -> Result<()> {
+    {
+        let mut forget = conn.prepare("DELETE FROM failures WHERE path = ?")?;
+        for path in &plan.forget_failures {
+            forget.execute([path])?;
+        }
+    }
+    if !plan.stale.is_empty() {
+        // Named people whose photos are going keep their face, to rejoin them if they return.
+        crate::db::remember_named_people(conn, None)?;
+        let tx = conn.transaction()?;
+        for id in &plan.stale {
+            tx.execute("DELETE FROM items WHERE id = ?", [id])?;
+        }
+        tx.commit()?;
+    }
+    Ok(())
+}
+
+/// Reads `todo` in parallel and saves what comes out as it comes, on this thread (SQLite's
+/// single writer). Stops between files when the scan is held or saving failed.
+fn index_files(
+    conn: &mut Connection,
+    todo: Vec<FileEntry>,
+    models: Option<&ModelPaths>,
+    status: &ScanStatus,
+) -> Result<()> {
+    let (sender, receiver) = mpsc::sync_channel::<Outcome>(256);
+    // Set when saving fails: the remaining files aren't read for nothing.
+    let saving_failed = AtomicBool::new(false);
+    std::thread::scope(|s| -> Result<()> {
+        s.spawn(|| {
+            todo.into_par_iter().for_each_with(sender, |sender, file| {
+                if status.hold.load(Ordering::Relaxed) || saving_failed.load(Ordering::Relaxed) {
+                    return; // stopped: what is done so far is kept, the rest waits for the next scan
+                }
+                if sender.send(process_safely(file, models)).is_err() {
+                    saving_failed.store(true, Ordering::Relaxed);
+                }
+            });
+        });
+        write_results(conn, receiver, status)
+    })
+}
+
+/// Reads one file. A file that crashes a decoder (or the face models) is a failed file, not a
+/// failed scan.
+fn process_safely(file: FileEntry, models: Option<&ModelPaths>) -> Outcome {
+    let copy = FileEntry { path: file.path.clone(), mtime: file.mtime, size: file.size, known: file.known };
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| process(file, models))) {
+        Ok(Ok(p)) => Outcome::Indexed(p),
+        Ok(Err((file, e))) => {
+            tracing::warn!("{}: {e:#}", file.path.display());
+            Outcome::Failed(file, format!("{e:#}"))
+        }
+        Err(panic) => {
+            let why = panic
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown error".into());
+            tracing::error!("{}: crashed while reading it: {why}", copy.path.display());
+            Outcome::Failed(copy, format!("crashed while reading it: {why}"))
+        }
+    }
 }
 
 /// Photos without a thumbnail get one again: after a restore, since backups leave them out.
@@ -1281,5 +1377,81 @@ mod tests {
                 assert!(error.contains("libheif") || error.contains("HEIF Image Extensions"), "{error}");
             }
         }
+    }
+
+    /// A file found by the listing.
+    fn found(path: &str, mtime: i64, size: i64) -> FileEntry {
+        FileEntry { path: PathBuf::from(path), mtime, size, known: None }
+    }
+
+    fn known(id: i64, mtime: i64, size: i64) -> Known {
+        Known { id, mtime, size, faces_scanned: true }
+    }
+
+    fn paths(todo: &[FileEntry]) -> Vec<String> {
+        let mut p: Vec<String> = todo.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
+        p.sort();
+        p
+    }
+
+    #[test]
+    fn the_plan_reads_new_and_changed_files_only() {
+        let mut index = Index::default();
+        index.known.insert("/lib/same.jpg".into(), known(1, 100, 10));
+        index.known.insert("/lib/edited.jpg".into(), known(2, 100, 10));
+        index.known.insert("/lib/no-faces-yet.jpg".into(), Known { faces_scanned: false, ..known(3, 100, 10) });
+        index.excluded.insert("/lib/removed-by-hand.jpg".into());
+        index.failed.insert("/lib/broken.jpg".into(), (100, 10));
+        index.failed.insert("/lib/fixed.jpg".into(), (100, 10));
+        let files = vec![
+            found("/lib/same.jpg", 100, 10),
+            found("/lib/edited.jpg", 200, 12),
+            found("/lib/no-faces-yet.jpg", 100, 10),
+            found("/lib/new.jpg", 100, 10),
+            found("/lib/removed-by-hand.jpg", 100, 10),
+            found("/lib/broken.jpg", 100, 10),
+            found("/lib/fixed.jpg", 300, 11),
+        ];
+        let roots = [PathBuf::from("/lib")];
+        let scope = Scope { roots: &roots, offline: &[], whole_library: false };
+
+        let plan = plan(&index, files, &scope, true);
+        assert_eq!(paths(&plan.todo), ["/lib/edited.jpg", "/lib/fixed.jpg", "/lib/new.jpg", "/lib/no-faces-yet.jpg"]);
+        // Changed files keep their item's id, so they are updated in place.
+        let edited = plan.todo.iter().find(|f| f.path.ends_with("edited.jpg")).unwrap();
+        assert_eq!(edited.known, Some(2));
+        assert_eq!(plan.updated, 2);
+        assert!(plan.stale.is_empty() && plan.forget_failures.is_empty());
+
+        // Without face recognition, a photo whose faces weren't looked for isn't read again.
+        let files = vec![found("/lib/no-faces-yet.jpg", 100, 10)];
+        assert!(super::plan(&index, files, &scope, false).todo.is_empty());
+    }
+
+    #[test]
+    fn the_plan_removes_only_what_is_really_gone() {
+        let mut index = Index::default();
+        index.known.insert("/lib/gone.jpg".into(), known(1, 100, 10));
+        index.known.insert("/drive/unplugged.jpg".into(), known(2, 100, 10));
+        index.known.insert("/lib/bad-disk/unreadable.jpg".into(), known(3, 100, 10));
+        index.known.insert("/elsewhere/old-folder.jpg".into(), known(4, 100, 10));
+        index.failed.insert("/lib/gone-broken.jpg".into(), (1, 1));
+        index.failed.insert("/drive/broken.jpg".into(), (1, 1));
+        let roots = [PathBuf::from("/lib"), PathBuf::from("/drive")];
+        // The drive is unplugged, and a folder of the library couldn't be read.
+        let offline = [PathBuf::from("/drive"), PathBuf::from("/lib/bad-disk")];
+
+        // Folders from Settings: only what's gone inside the current folders leaves.
+        let scope = Scope { roots: &roots, offline: &offline, whole_library: false };
+        let mut plan = plan(&index, Vec::new(), &scope, true);
+        plan.stale.sort();
+        assert_eq!(plan.stale, [1], "photos of unplugged or unreadable folders, and outside the folders, stay");
+        assert_eq!(plan.forget_failures, ["/lib/gone-broken.jpg"]);
+
+        // Command-line folders are the whole library: photos outside them go too.
+        let scope = Scope { roots: &roots, offline: &offline, whole_library: true };
+        let mut plan = super::plan(&index, Vec::new(), &scope, true);
+        plan.stale.sort();
+        assert_eq!(plan.stale, [1, 4]);
     }
 }
