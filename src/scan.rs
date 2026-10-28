@@ -9,11 +9,13 @@
 //!   asked for while one runs sets `rerun`, and the same thread scans again afterwards.
 //!   `running` is set for the length of one pass, and cleared by a guard even on a panic.
 //! - **Identical files**: searched on the scan thread after each scan, or on a thread of
-//!   their own when asked (`dups.running`); deleted by one request at a time
-//!   (`dups.deleting`, refused with 409 while set).
-//! - **Removing a folder**: one at a time (`removing`). It sets `hold`, which makes a
-//!   running scan stop between photos and new scans end at once, waits for `running` to
-//!   clear, removes the photos, then clears both and starts a scan for the other folders.
+//!   their own when asked (`dups.running`).
+//! - **Work that changes the library** ([`Work`]: removing or moving a folder, restoring a
+//!   backup, deleting the duplicate copies) runs alone: [`ScanStatus::begin`] refuses it while
+//!   other work runs (the handlers answer 409, saying what is going on). Except for deleting
+//!   duplicates, it sets `hold`, which makes a running scan stop between photos and new scans
+//!   end at once; the work waits for `running` to clear, and its guard, however the work ends,
+//!   clears `hold` and starts a scan for what is left to index.
 //! - **Rotating** is refused while `running` is set, so a scan never reads a file that is
 //!   being rewritten.
 //!
@@ -64,21 +66,60 @@ pub struct ScanStatus {
     regroup: AtomicBool,
     /// The search for identical files, run after each scan.
     pub dups: Arc<crate::duplicates::DupStatus>,
-    /// While set (a folder is being removed), a running scan stops between photos and new
-    /// scans end at once, so none puts back photos that are being removed.
+    /// While set (by `begin`, for work that changes the library), a running scan stops
+    /// between photos and new scans end at once, so none puts back or reads what it changes.
     pub hold: AtomicBool,
-    /// The folder being removed, with how many of its photos are done.
-    pub removing: Mutex<Option<String>>,
+    /// The work that changes the library running now, if any: one at a time (see `begin`).
+    work: Mutex<Option<Work>>,
+    /// How many of the folder's photos a removal has done.
     pub remove_done: AtomicU64,
     pub remove_total: AtomicU64,
-    /// A backup is being restored (scans are held meanwhile).
-    pub restoring: AtomicBool,
     /// The backup being made, if any.
     pub backup: Arc<crate::backup::Job>,
     /// The folders as the last scan saw them, for the periodic check (see `changed`).
     stamps: Mutex<Option<Stamps>>,
     /// How often the folders are checked for new files, in minutes (0: never).
     pub check_every: AtomicU64,
+}
+
+/// Work that changes the library, and runs alone: two of them at once could undo each other
+/// (a folder moved while it is removed, a backup restored while duplicates are deleted), and
+/// a scan meanwhile could put back or read what they change.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Work {
+    /// Removing the saved folder at this path, with its photos.
+    RemovingFolder(String),
+    /// Pointing a saved folder at its new place (`library::move_folder`).
+    MovingFolder,
+    /// Replacing the index with a backup.
+    Restoring,
+    /// Moving the duplicate copies to the bin.
+    DeletingDuplicates,
+}
+
+impl Work {
+    /// Scans wait while it runs. Deleting duplicates only removes copies of files the index
+    /// keeps, so a scan meanwhile does no harm.
+    fn holds_scans(&self) -> bool {
+        !matches!(self, Self::DeletingDuplicates)
+    }
+}
+
+/// Running work (see `ScanStatus::begin`); dropping it ends it.
+pub struct WorkGuard {
+    status: Arc<ScanStatus>,
+    cfg: Arc<ScanConfig>,
+    holds: bool,
+}
+
+impl Drop for WorkGuard {
+    fn drop(&mut self) {
+        *self.status.work.lock().unwrap() = None;
+        if self.holds {
+            self.status.hold.store(false, Ordering::SeqCst);
+            spawn(self.cfg.clone(), self.status.clone());
+        }
+    }
 }
 
 /// The library's folders, each with its modification time, as a scan saw them.
@@ -116,10 +157,13 @@ impl ScanStatus {
             faces: self.faces.load(Ordering::Relaxed),
             group_done: self.group_done.load(Ordering::Relaxed),
             group_total: self.group_total.load(Ordering::Relaxed),
-            removing: self.removing.lock().unwrap().clone(),
+            removing: match self.work() {
+                Some(Work::RemovingFolder(path)) => Some(path),
+                _ => None,
+            },
             remove_done: self.remove_done.load(Ordering::Relaxed),
             remove_total: self.remove_total.load(Ordering::Relaxed),
-            restoring: self.restoring.load(Ordering::Relaxed),
+            restoring: self.work() == Some(Work::Restoring),
             backing_up: self.backup.running.load(Ordering::Relaxed),
             check_every: self.check_every.load(Ordering::Relaxed),
         }
@@ -132,6 +176,28 @@ impl ScanStatus {
 
     fn set_phase(&self, phase: &str) {
         *self.phase.lock().unwrap() = phase.to_string();
+    }
+
+    /// The work that changes the library running now, if any.
+    pub fn work(&self) -> Option<Work> {
+        self.work.lock().unwrap().clone()
+    }
+
+    /// Starts `work`, unless other work is running: that one is the error. Work that changes
+    /// the files or the index holds the scans while it runs. Dropping the guard, however the
+    /// work ends (also when the request that asked for it is gone), lets scans run again and
+    /// starts one, for what the work left to index.
+    pub fn begin(self: &Arc<Self>, work: Work, cfg: &Arc<ScanConfig>) -> Result<WorkGuard, Work> {
+        let mut current = self.work.lock().unwrap();
+        if let Some(other) = current.as_ref() {
+            return Err(other.clone());
+        }
+        let holds = work.holds_scans();
+        if holds {
+            self.hold.store(true, Ordering::SeqCst);
+        }
+        *current = Some(work);
+        Ok(WorkGuard { status: self.clone(), cfg: cfg.clone(), holds })
     }
 
     /// A new scan's progress starts from zero.
@@ -198,9 +264,7 @@ pub fn spawn_checks(cfg: Arc<ScanConfig>, status: Arc<ScanStatus>, every: Durati
     std::thread::spawn(move || {
         loop {
             std::thread::sleep(every);
-            let busy = status.running.load(Ordering::SeqCst)
-                || status.hold.load(Ordering::SeqCst)
-                || status.restoring.load(Ordering::SeqCst);
+            let busy = status.running.load(Ordering::SeqCst) || status.hold.load(Ordering::SeqCst);
             if busy {
                 continue;
             }

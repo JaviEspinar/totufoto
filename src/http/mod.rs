@@ -182,6 +182,24 @@ impl IntoResponse for ApiError {
 
 type ApiResult<T> = Result<T, ApiError>;
 
+/// Why something that changes the library can't start now: other such work is running.
+fn busy(work: crate::scan::Work) -> ApiError {
+    use crate::scan::Work;
+    match work {
+        Work::RemovingFolder(_) => ApiError::conflict("a folder is being removed; wait for it to finish"),
+        Work::MovingFolder => ApiError::conflict("a folder is being moved; wait for it to finish"),
+        Work::Restoring => ApiError::conflict("a backup is being restored; wait for it to finish"),
+        Work::DeletingDuplicates => ApiError::conflict("the duplicates are being deleted; wait for it to finish"),
+    }
+}
+
+/// Waits for a running scan to stop (work that holds the scans makes it stop between files).
+async fn scan_stopped(s: &Shared) {
+    while s.status.running.load(std::sync::atomic::Ordering::SeqCst) {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
 async fn db<T: Send + 'static>(
     state: &Shared,
     f: impl FnOnce(&mut Connection) -> Result<T> + Send + 'static,
@@ -559,35 +577,64 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn busy_work_refuses_a_second_start_and_frees_itself() {
+    async fn work_that_changes_the_library_runs_alone_and_frees_itself() {
+        use crate::scan::Work;
         use std::sync::atomic::Ordering::SeqCst;
         let (lib, id) = library_with_a_photo();
         let (app, status) = app_with_status(&lib);
+        let cfg = Arc::new(ScanConfig {
+            fixed_roots: lib.cfg.fixed_roots.clone(),
+            db_path: lib.cfg.db_path.clone(),
+            models: None,
+            cluster_threshold: 0.42,
+        });
 
-        // A deletion of duplicates already running: a second one is refused, and the
-        // refusal doesn't clear the running one's flag.
-        status.dups.deleting.store(true, SeqCst);
-        let (code, body) = call(&app, "POST", "/api/duplicates/delete", Some(json!({}))).await;
-        assert_eq!(code, StatusCode::CONFLICT);
-        assert!(body["error"].as_str().is_some());
-        assert!(status.dups.deleting.load(SeqCst));
-        // Once it ends, a new one runs, and frees the flag when done.
-        status.dups.deleting.store(false, SeqCst);
+        // Each kind of work refuses every other while it runs, with what is going on.
+        for (running, says) in [
+            (Work::RemovingFolder("/elsewhere".into()), "being removed"),
+            (Work::MovingFolder, "being moved"),
+            (Work::Restoring, "backup is being restored"),
+            (Work::DeletingDuplicates, "duplicates are being deleted"),
+        ] {
+            let guard = status.begin(running.clone(), &cfg).unwrap();
+            assert_eq!(status.hold.load(SeqCst), running != Work::DeletingDuplicates, "{running:?}");
+            for (method, uri, body) in [
+                ("POST", "/api/duplicates/delete", Some(json!({}))),
+                ("DELETE", "/api/folders?path=%2Fsaved%2Ffolder", None),
+                ("POST", "/api/folders/move", Some(json!({ "from": "/a", "to": "/b" }))),
+                ("POST", "/api/backup/restore", None),
+            ] {
+                let (code, answer) = call(&app, method, uri, body).await;
+                // A restore with nothing chosen is refused before (409 too); the others say why.
+                assert_eq!(code, StatusCode::CONFLICT, "{method} {uri} during {running:?}");
+                if uri != "/api/backup/restore" {
+                    assert!(answer["error"].as_str().unwrap().contains(says), "{uri}: {answer}");
+                }
+            }
+            // A refusal doesn't end the running work.
+            assert_eq!(status.work(), Some(running.clone()));
+            drop(guard);
+            assert_eq!(status.work(), None);
+            assert!(!status.hold.load(SeqCst), "scans may run again");
+        }
+        // The status says what is removed or restored, for the page.
+        let guard = status.begin(Work::RemovingFolder("/elsewhere".into()), &cfg).unwrap();
+        assert_eq!(status.view().removing.as_deref(), Some("/elsewhere"));
+        drop(guard);
+        let guard = status.begin(Work::Restoring, &cfg).unwrap();
+        assert!(status.view().restoring);
+        drop(guard);
+
+        // Free again: a deletion of duplicates runs, and ends its work when done.
         let (code, _) = call(&app, "POST", "/api/duplicates/delete", Some(json!({}))).await;
         assert_eq!(code, StatusCode::OK);
-        assert!(!status.dups.deleting.load(SeqCst));
+        assert_eq!(status.work(), None);
 
         // Rotating waits for the scan.
         status.running.store(true, SeqCst);
         let (code, _) = call(&app, "POST", &format!("/api/items/{id}/rotate"), Some(json!({ "turns": 1 }))).await;
         assert_eq!(code, StatusCode::CONFLICT);
         status.running.store(false, SeqCst);
-
-        // One folder removal at a time.
-        *status.removing.lock().unwrap() = Some("/elsewhere".into());
-        let (code, body) = call(&app, "DELETE", "/api/folders?path=%2Fsaved%2Ffolder", None).await;
-        assert_eq!(code, StatusCode::CONFLICT);
-        assert!(body["error"].as_str().unwrap().contains("being removed"), "{body}");
     }
 
     #[tokio::test]

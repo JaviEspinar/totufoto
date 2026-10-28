@@ -34,8 +34,7 @@ pub struct DupStatus {
     /// When the last search finished (local time), if any.
     pub finished: Mutex<Option<String>>,
     rerun: AtomicBool,
-    /// Deleting the duplicates: one deletion at a time, with its progress.
-    pub deleting: AtomicBool,
+    /// The progress of deleting the duplicates (one at a time: `scan::Work::DeletingDuplicates`).
     pub delete_done: AtomicU64,
     pub delete_total: AtomicU64,
     pub delete_freed: AtomicU64,

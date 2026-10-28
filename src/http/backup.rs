@@ -17,7 +17,7 @@ use serde_json::{Value as JsonValue, json};
 use tokio::io::AsyncWriteExt;
 
 use crate::backup;
-use crate::scan;
+use crate::scan::Work;
 
 use super::{ApiError, ApiResult, Shared};
 
@@ -51,6 +51,10 @@ pub(super) struct SaveBody {
 pub(super) async fn save(State(s): State<Shared>, body: Option<Json<SaveBody>>) -> ApiResult<Response> {
     if s.status.backup.running.load(SeqCst) {
         return Err(ApiError::conflict("a backup is already being made"));
+    }
+    // The index is being replaced: a backup now would read it half way.
+    if s.status.work() == Some(Work::Restoring) {
+        return Err(super::busy(Work::Restoring));
     }
     let out = match body.and_then(|Json(b)| b.folder).filter(|f| !f.trim().is_empty()) {
         Some(folder) => {
@@ -176,33 +180,11 @@ pub(super) async fn restore(State(s): State<Shared>) -> ApiResult<Json<JsonValue
     if s.status.backup.running.load(SeqCst) {
         return Err(ApiError::conflict("a backup is being made; wait for it to finish"));
     }
-    if s.status.removing.lock().unwrap().is_some() || s.status.dups.deleting.load(SeqCst) {
-        return Err(ApiError::conflict("the gallery is busy removing files; wait for it to finish"));
-    }
-    if s.status.hold.swap(true, SeqCst) {
-        return Err(ApiError::conflict("a folder is being removed or moved; wait for it to finish"));
-    }
-    s.status.restoring.store(true, SeqCst);
-    let _guard = RestoreGuard { s: s.clone() };
-    while s.status.running.load(SeqCst) {
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
+    let _work = s.status.begin(Work::Restoring, &s.scan).map_err(super::busy)?;
+    super::scan_stopped(&s).await;
     let (db_path, fixed, from) = (s.scan.db_path.clone(), s.scan.fixed_roots.clone(), source.clone());
     tokio::task::spawn_blocking(move || backup::restore(&db_path, &fixed, &from)).await??;
     remove_with_journal(&source);
     tracing::info!("restored a backup; the index it replaced is in {}", backup::BEFORE_RESTORE);
     Ok(Json(json!({ "restored": true })))
-}
-
-/// Ends a restore however it goes: scans may run again, and one starts.
-struct RestoreGuard {
-    s: Shared,
-}
-
-impl Drop for RestoreGuard {
-    fn drop(&mut self) {
-        self.s.status.restoring.store(false, SeqCst);
-        self.s.status.hold.store(false, SeqCst);
-        scan::spawn(self.s.scan.clone(), self.s.status.clone());
-    }
 }

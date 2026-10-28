@@ -11,7 +11,7 @@ use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 
 use crate::library;
-use crate::scan::{self};
+use crate::scan::{self, Work, WorkGuard};
 
 use super::{ApiError, ApiResult, Shared, db};
 
@@ -80,20 +80,6 @@ pub(super) async fn pick_folder(State(s): State<Shared>, body: Option<Json<PickB
     }
 }
 
-/// Ends a folder removal however it goes: scans may run again (and one picks up the
-/// remaining folders).
-pub(super) struct RemovalGuard {
-    s: Shared,
-}
-
-impl Drop for RemovalGuard {
-    fn drop(&mut self) {
-        *self.s.status.removing.lock().unwrap() = None;
-        self.s.status.hold.store(false, std::sync::atomic::Ordering::SeqCst);
-        scan::spawn(self.s.scan.clone(), self.s.status.clone());
-    }
-}
-
 #[derive(Deserialize)]
 pub(super) struct MoveBody {
     from: String,
@@ -105,17 +91,11 @@ pub(super) struct MoveBody {
 /// `library::move_folder`). Scans wait while it runs; one starts afterwards, for files that
 /// are new or changed in the new place.
 pub(super) async fn move_folder(State(s): State<Shared>, Json(body): Json<MoveBody>) -> ApiResult<Response> {
-    use std::sync::atomic::Ordering::SeqCst;
     if s.scan.is_fixed(std::path::Path::new(&body.from)) {
         return Err(ApiError::conflict("this folder is given on the command line: change it there"));
     }
-    if s.status.removing.lock().unwrap().is_some() || s.status.hold.swap(true, SeqCst) {
-        return Err(ApiError::conflict("a folder is being removed or moved; wait for it to finish"));
-    }
-    let _guard = HoldGuard { s: s.clone() };
-    while s.status.running.load(SeqCst) {
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
+    let _work = s.status.begin(Work::MovingFolder, &s.scan).map_err(super::busy)?;
+    super::scan_stopped(&s).await;
     let scan_cfg = s.scan.clone();
     let (from, to) = (PathBuf::from(&body.from), PathBuf::from(&body.to));
     let moved = db(&s, move |conn| library::move_folder(conn, &scan_cfg.fixed_roots, &from, &to)).await?;
@@ -143,46 +123,24 @@ pub(super) async fn move_folder(State(s): State<Shared>, Json(body): Json<MoveBo
     }
 }
 
-/// Ends a folder move however it goes: scans may run again, and one starts.
-struct HoldGuard {
-    s: Shared,
-}
-
-impl Drop for HoldGuard {
-    fn drop(&mut self) {
-        self.s.status.hold.store(false, std::sync::atomic::Ordering::SeqCst);
-        scan::spawn(self.s.scan.clone(), self.s.status.clone());
-    }
-}
-
 pub(super) async fn remove_folder(State(s): State<Shared>, Query(body): Query<FolderBody>) -> ApiResult<Response> {
-    use std::sync::atomic::Ordering::{Relaxed, SeqCst};
+    use std::sync::atomic::Ordering::Relaxed;
     if s.scan.is_fixed(std::path::Path::new(&body.path)) {
         return Err(ApiError::conflict("this folder is given on the command line; remove it there"));
     }
-    {
-        let mut removing = s.status.removing.lock().unwrap();
-        if removing.is_some() {
-            return Err(ApiError::conflict("a folder is being removed; wait for it to finish"));
-        }
-        *removing = Some(body.path.clone());
-    }
+    // Scans are held: one still running (the folder was just added, say) would put its photos back.
+    let work = s.status.begin(Work::RemovingFolder(body.path.clone()), &s.scan).map_err(super::busy)?;
     s.status.remove_done.store(0, Relaxed);
     s.status.remove_total.store(0, Relaxed);
-    // A scan still running (the folder was just added, say) would put its photos back.
-    s.status.hold.store(true, SeqCst);
     // Its own task: it finishes (and lets scans run again) even if the page is closed.
-    let task = tokio::spawn(remove_folder_now(s.clone(), body.path));
+    let task = tokio::spawn(remove_folder_now(s.clone(), body.path, work));
     let (removed, kept) = task.await??;
     Ok(Json(json!({ "removed": removed, "kept": kept })).into_response())
 }
 
-pub(super) async fn remove_folder_now(s: Shared, path: String) -> ApiResult<(usize, usize)> {
-    use std::sync::atomic::Ordering::{Relaxed, SeqCst};
-    let _guard = RemovalGuard { s: s.clone() };
-    while s.status.running.load(SeqCst) {
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
+pub(super) async fn remove_folder_now(s: Shared, path: String, _work: WorkGuard) -> ApiResult<(usize, usize)> {
+    use std::sync::atomic::Ordering::Relaxed;
+    super::scan_stopped(&s).await;
     let scan_cfg = s.scan.clone();
     let status = s.status.clone();
     db(&s, move |conn| {

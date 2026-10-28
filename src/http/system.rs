@@ -123,7 +123,7 @@ pub(super) async fn duplicates_report(State(s): State<Shared>) -> ApiResult<Json
         "done": dups.done.load(Relaxed),
         "total": dups.total.load(Relaxed),
         "finished": *dups.finished.lock().unwrap(),
-        "deleting": dups.deleting.load(Relaxed),
+        "deleting": s.status.work() == Some(crate::scan::Work::DeletingDuplicates),
         "files": files,
         "bytes": bytes,
         "groups": groups,
@@ -146,15 +146,12 @@ pub(super) struct DupDelete {
 /// Moves the duplicate copies to the bin (or deletes them for good when asked), keeping the
 /// oldest file of each set.
 pub(super) async fn duplicates_delete(State(s): State<Shared>, Json(body): Json<DupDelete>) -> ApiResult<Response> {
-    let dups = s.status.dups.clone();
-    if dups.deleting.swap(true, std::sync::atomic::Ordering::SeqCst) {
-        return Err(ApiError::conflict("the duplicates are already being deleted"));
-    }
+    let work = s.status.begin(crate::scan::Work::DeletingDuplicates, &s.scan).map_err(super::busy)?;
     let scan_cfg = s.scan.clone();
-    let progress = dups.clone();
+    let progress = s.status.dups.clone();
     let result = db(&s, move |conn| {
-        // Cleared when the work ends, even if the page that asked for it is gone by then.
-        let _deleting = crate::scan::ClearOnDrop(&progress.deleting);
+        // Ended when the deletion ends, even if the page that asked for it is gone by then.
+        let _work = work;
         let roots = scan_cfg.roots(conn)?;
         crate::duplicates::delete(conn, &roots, body.ids.as_deref(), body.permanently, &progress)
     })
@@ -172,7 +169,7 @@ pub(super) async fn duplicates_progress(State(s): State<Shared>) -> Json<JsonVal
         "searching": dups.running.load(Relaxed),
         "checked": dups.done.load(Relaxed),
         "to_check": dups.total.load(Relaxed),
-        "deleting": dups.deleting.load(Relaxed),
+        "deleting": s.status.work() == Some(crate::scan::Work::DeletingDuplicates),
         "done": dups.delete_done.load(Relaxed),
         "total": dups.delete_total.load(Relaxed),
         "freed": dups.delete_freed.load(Relaxed),

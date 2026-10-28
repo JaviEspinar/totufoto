@@ -148,6 +148,8 @@ Faces moved by hand are never moved by automatic grouping.
 
 ## Library and scanning
 
+Work that changes the library runs one at a time: removing or moving a folder, restoring a backup and deleting the duplicates. While one runs, the others answer `409`, with an `error` saying which one is going on (for example `"a folder is being moved; wait for it to finish"`).
+
 ### `GET /api/status`
 
 Progress of the current or last scan, cheap enough to poll. `phase` is `listing files`, `indexing files`, `grouping faces`, `making thumbnails` (after a restore) or, after an error, `failed`.
