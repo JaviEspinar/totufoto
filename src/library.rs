@@ -285,6 +285,23 @@ pub enum RemoveItem {
     Outside,
 }
 
+/// Why a file is still on the disk.
+pub enum NotRemoved {
+    /// Its drive has no bin (the reason): it can only be deleted permanently.
+    NoBin(String),
+    Failed(std::io::Error),
+}
+
+/// Moves a file to the bin, or deletes it when `permanently`. Callers check first that it is
+/// in the photo folders.
+pub fn remove_from_disk(file: &Path, permanently: bool) -> Result<(), NotRemoved> {
+    if permanently {
+        std::fs::remove_file(file).map_err(NotRemoved::Failed)
+    } else {
+        trash::delete(file).map_err(|e| NotRemoved::NoBin(e.to_string()))
+    }
+}
+
 /// Removes an item from the gallery or from disk. Only files inside the folders are
 /// deleted.
 pub fn remove_item(conn: &mut Connection, roots: &[PathBuf], id: i64, from: RemoveFrom) -> Result<RemoveItem> {
@@ -303,14 +320,14 @@ pub fn remove_item(conn: &mut Connection, roots: &[PathBuf], id: i64, from: Remo
         return Ok(RemoveItem::Outside);
     }
     if file.exists() {
-        if permanently {
-            std::fs::remove_file(&file)?;
-            tracing::info!("{path}: deleted permanently");
-        } else if let Err(e) = trash::delete(&file) {
-            tracing::warn!("{path}: can't move to the bin: {e}");
-            return Ok(RemoveItem::NoBin { path, error: e.to_string() });
-        } else {
-            tracing::info!("{path}: moved to the bin");
+        match remove_from_disk(&file, permanently) {
+            Ok(()) if permanently => tracing::info!("{path}: deleted permanently"),
+            Ok(()) => tracing::info!("{path}: moved to the bin"),
+            Err(NotRemoved::NoBin(error)) => {
+                tracing::warn!("{path}: can't move to the bin: {error}");
+                return Ok(RemoveItem::NoBin { path, error });
+            }
+            Err(NotRemoved::Failed(e)) => return Err(e.into()),
         }
     }
     crate::db::forget_item(conn, id)?;

@@ -107,22 +107,37 @@ export async function pollStatus() {
   $("#settingsBtnDot").hidden = !s.update_available;
   const wasRemoving = lastStatus?.removing ?? null;
   lastStatus = s;
-  // A folder removal (from this page or another device): its row in Settings follows it.
+  followRemoval(s, wasRemoving);
+  showScanState(s);
+  await followScan(s);
+  wasRunning = s.running;
+  setTimeout(pollStatus, s.running || s.removing ? 1500 : 10000);
+}
+
+/** A folder removal (from this page or another device): its row in Settings follows it. */
+function followRemoval(s, wasRemoving) {
   const removeRow = $("#removeProgress");
   if (removeRow && s.removing) removeRow.innerHTML = removeProgressHtml(s);
   if ((s.removing ?? null) !== wasRemoving && $("#settingsDlg").open) {
     loadFolders().then(() => { if ($("#settingsDlg").open) renderSettings(); });
   }
+}
+
+/** The indexing pill, the first index's progress, and the indexing problems in Settings. */
+function showScanState(s) {
   updateIndexPill(s);
   const first = $("#firstIndex");
   if (first) first.innerHTML = firstIndexHtml(s);
-  // Indexing problems are shown in Settings.
   const settingsScan = $("#settingsScan");
   if (settingsScan) {
     settingsScan.innerHTML = scanStateHtml(s);
     $("#settingsExcluded").innerHTML = excludedHtml(s);
     if (s.failed !== failureCount) loadFailures();
   }
+}
+
+/** Shows what a scan found: everything when it ends, and the first photos during the first index. */
+async function followScan(s) {
   if (wasRunning && !s.running) {
     await Promise.all([loadMeta(), loadFolders()]);
     if ($("#settingsDlg").open && !$("#settingsDlg").contains(document.activeElement?.closest("input"))) renderSettings(); // new photo counts
@@ -134,6 +149,4 @@ export async function pollStatus() {
     firstItemsCheck = Date.now();
     render();
   }
-  wasRunning = s.running;
-  setTimeout(pollStatus, s.running || s.removing ? 1500 : 10000);
 }

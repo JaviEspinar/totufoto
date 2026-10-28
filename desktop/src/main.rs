@@ -154,29 +154,11 @@ const PORT: u16 = 47878;
 
 /// Starts the gallery server on its local port and opens the window on it.
 fn start(app: &mut tauri::App) -> Result<()> {
-    let data_dir = adopt_old_folder(&app.path().app_data_dir().context("finding the app data folder")?);
-    // On Windows the window's own data (saved preferences) is in a second folder.
-    if let Ok(local) = app.path().app_local_data_dir() {
-        adopt_old_folder(&local);
-    }
-    // In the data folder, which only exists from here on; earlier lines only reach the terminal.
-    let log = data_dir.join("logs").join("imadive.log");
-    let log = match imadive::log_to_file(&log) {
-        Ok(()) => Some(log),
-        Err(e) => {
-            tracing::warn!("no log file: {e:#}");
-            None
-        }
-    };
+    let data_dir = data_folder(app)?;
+    let log = log_to_file(&data_dir);
     tracing::info!("Imadive {} on {}", env!("CARGO_PKG_VERSION"), std::env::consts::OS);
     tracing::info!("data folder: {}", data_dir.display());
-    let models = match runtime::install(&data_dir.join("runtime")) {
-        Ok(rt) => imadive::enable_faces(&rt.models, Some(&rt.onnxruntime)),
-        Err(e) => {
-            tracing::warn!("face recognition disabled: {e:#}");
-            None
-        }
-    };
+    let models = face_models(&data_dir);
     let gallery = Gallery::open(Config {
         data_dir,
         folders: Vec::new(),
@@ -190,7 +172,46 @@ fn start(app: &mut tauri::App) -> Result<()> {
         check_every: Some(std::time::Duration::from_secs(5 * 60)),
     })?;
     gallery.start_scan();
+    let port = serve(gallery)?;
+    open_window(app, port)
+}
 
+/// The app's data folder, carried over from Totufoto's if needed.
+fn data_folder(app: &tauri::App) -> Result<PathBuf> {
+    let data_dir = adopt_old_folder(&app.path().app_data_dir().context("finding the app data folder")?);
+    // On Windows the window's own data (saved preferences) is in a second folder.
+    if let Ok(local) = app.path().app_local_data_dir() {
+        adopt_old_folder(&local);
+    }
+    Ok(data_dir)
+}
+
+/// Logs to a file in the data folder, which only exists from here on (earlier lines only
+/// reach the terminal). Returns the file, for Settings to show.
+fn log_to_file(data_dir: &Path) -> Option<PathBuf> {
+    let log = data_dir.join("logs").join("imadive.log");
+    match imadive::log_to_file(&log) {
+        Ok(()) => Some(log),
+        Err(e) => {
+            tracing::warn!("no log file: {e:#}");
+            None
+        }
+    }
+}
+
+/// The face models, with the ONNX Runtime the app carries; `None` turns face recognition off.
+fn face_models(data_dir: &Path) -> Option<imadive::faces::ModelPaths> {
+    match runtime::install(&data_dir.join("runtime")) {
+        Ok(rt) => imadive::enable_faces(&rt.models, Some(&rt.onnxruntime)),
+        Err(e) => {
+            tracing::warn!("face recognition disabled: {e:#}");
+            None
+        }
+    }
+}
+
+/// Serves the gallery on [`PORT`], or on a free port when that one is taken. Returns the port.
+fn serve(gallery: Gallery) -> Result<u16> {
     let listener = match std::net::TcpListener::bind(("127.0.0.1", PORT)) {
         Ok(listener) => listener,
         Err(e) => {
@@ -209,7 +230,10 @@ fn start(app: &mut tauri::App) -> Result<()> {
             tracing::error!("gallery server stopped: {e:#}");
         }
     });
+    Ok(port)
+}
 
+fn open_window(app: &tauri::App, port: u16) -> Result<()> {
     let url = format!("http://127.0.0.1:{port}/").parse()?;
     WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
         .title("Imadive")

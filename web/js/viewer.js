@@ -136,16 +136,10 @@ export async function openViewer(i, { keepImage = false } = {}) {
   if (rotation && rotation.id !== items[i].id) flushRotation();
   viewerIndex = i;
   resetZoom();
-  // No arrow where there is no photo to go to.
-  $(".prev", viewer).hidden = i === 0;
-  $(".next", viewer).hidden = i === items.length - 1;
-  const { id, width: w, height: h, version: v } = items[i];
-  const trash = $(".trash", viewer);
-  trash.title = isVideo(items[i]) ? t("Delete this video (Delete key)") : t("Delete this photo (Delete key)");
-  trash.setAttribute("aria-label", isVideo(items[i]) ? t("Delete this video") : t("Delete this photo"));
-  viewer.setAttribute("aria-label", isVideo(items[i]) ? t("Video") : t("Photo"));
+  labelViewer(i);
   viewer.classList.add("open");
   setViewerModal(true);
+  const { id, width: w, height: h, version: v } = items[i];
   if (!keepImage) await showViewerImage(i, id, w, h, v);
   if (viewerIndex !== i) return;
   let d;
@@ -158,28 +152,67 @@ export async function openViewer(i, { keepImage = false } = {}) {
     return;
   }
   if (viewerIndex !== i) return;
-  $(".boxes", viewer).innerHTML = d.faces.map(f => {
-    const person = personById(f.person);
-    const label = person ? personName(person) : "";
-    return `<div class="box" style="left:${f.box[0] * 100}%;top:${f.box[1] * 100}%;width:${f.box[2] * 100}%;height:${f.box[3] * 100}%">${label ? `<span>${esc(label)}</span>` : ""}</div>`;
-  }).join("");
+  $(".boxes", viewer).innerHTML = d.faces.map(faceBoxHtml).join("");
   viewerPath = d.path;
-  const place = d.city ? `${d.city}${d.region ? ", " + d.region : ""}, ${regionName(d.country)}` : null;
-  setDetails(`
+  setDetails(detailsHtml(d, id, v));
+}
+
+/** The arrows and the labels that depend on the item: no arrow where there is nothing to go to. */
+function labelViewer(i) {
+  $(".prev", viewer).hidden = i === 0;
+  $(".next", viewer).hidden = i === items.length - 1;
+  const video = isVideo(items[i]);
+  const trash = $(".trash", viewer);
+  trash.title = video ? t("Delete this video (Delete key)") : t("Delete this photo (Delete key)");
+  trash.setAttribute("aria-label", video ? t("Delete this video") : t("Delete this photo"));
+  viewer.setAttribute("aria-label", video ? t("Video") : t("Photo"));
+}
+
+/** A face's box over the photo, with the person's name. */
+function faceBoxHtml(f) {
+  const person = personById(f.person);
+  const label = person ? personName(person) : "";
+  return `<div class="box" style="left:${f.box[0] * 100}%;top:${f.box[1] * 100}%;width:${f.box[2] * 100}%;height:${f.box[3] * 100}%">${label ? `<span>${esc(label)}</span>` : ""}</div>`;
+}
+
+/** The details panel: date, size, actions, place, people (photos only) and file. */
+function detailsHtml(d, id, v) {
+  return `
     <h3>${esc(fmtFull(d.taken))}</h3>
     <div class="s">${d.duration != null ? `${[t("Video"), fmtDuration(d.duration)].filter(Boolean).join(" · ")} · ` : ""}${d.dateFromExif ? "" : `${t("Date from file (no EXIF)")} · `}${d.width} × ${d.height}</div>
-    <div class="item-acts">
+    ${itemActionsHtml(d, id, v)}
+    ${placeHtml(d)}
+    ${d.duration != null ? "" : peopleHtml(d.faces)}
+    <h5>${t("File")}</h5><div class="s">${esc(d.path)}</div>`;
+}
+
+function itemActionsHtml(d, id, v) {
+  const video = d.duration != null;
+  return `<div class="item-acts">
       ${folderInfo.desktop && canShareFiles
-        ? `<button data-share-item="${id}" title="${d.duration != null ? t("Send this video with another app") : t("Send this photo with another app")}">${icon("share", 15)} ${t("Share")}</button>`
-        : `<a class="btn-like" href="/original/${id}?download=1&v=${v}" download title="${d.duration != null ? t("Save the video on this device") : t("Save the photo on this device")}">${icon("download", 15)} ${t("Download")}</a>`}
+        ? `<button data-share-item="${id}" title="${video ? t("Send this video with another app") : t("Send this photo with another app")}">${icon("share", 15)} ${t("Share")}</button>`
+        : `<a class="btn-like" href="/original/${id}?download=1&v=${v}" download title="${video ? t("Save the video on this device") : t("Save the photo on this device")}">${icon("download", 15)} ${t("Download")}</a>`}
       ${d.rotatable ? `<button data-rotate="-1" title="${t("Rotate left (Shift+R)")}" aria-label="${t("Rotate left")}">${icon("rotate", 15)}</button><button data-rotate="1" title="${t("Rotate right (R)")}" aria-label="${t("Rotate right")}">${icon("rotate", 15, true)}</button>` : ""}
       ${folderInfo.desktop ? `<button data-reveal="${id}" title="${t("Show the file in its folder")}">${icon("folder", 15)} ${t("Open in folder")}</button>` : ""}
-    </div>
-    ${place ? `<h5>${t("Place")}</h5><div>${esc(place)}</div><div class="s"><a href="https://www.openstreetmap.org/?mlat=${d.lat}&mlon=${d.lon}#map=14/${d.lat}/${d.lon}" target="_blank" rel="noopener">${t("Open map")}</a></div>` : ""}
-    ${d.duration != null ? "" : `<h5>${t("People ({n})", { n: d.faces.length })}</h5>
-    ${d.faces.length ? d.faces.map(f => {
-      const person = personById(f.person);
-      return `<div class="vface"><img src="/face/${f.id}" alt="">
+    </div>`;
+}
+
+function placeHtml(d) {
+  if (!d.city) return "";
+  const place = `${d.city}${d.region ? ", " + d.region : ""}, ${regionName(d.country)}`;
+  return `<h5>${t("Place")}</h5><div>${esc(place)}</div><div class="s"><a href="https://www.openstreetmap.org/?mlat=${d.lat}&mlon=${d.lon}#map=14/${d.lat}/${d.lon}" target="_blank" rel="noopener">${t("Open map")}</a></div>`;
+}
+
+function peopleHtml(faces) {
+  return `<h5>${t("People ({n})", { n: faces.length })}</h5>
+    ${faces.length ? faces.map(faceRowHtml).join("") : `<div class="s">${t("No faces detected.")}</div>`}
+    <label><input type="checkbox" id="showBoxes" ${viewer.classList.contains("boxes") ? "checked" : ""}> ${t("Show face boxes")}</label>`;
+}
+
+/** A face in the details: who it is, and the buttons to name, move or pick it for the card. */
+function faceRowHtml(f) {
+  const person = personById(f.person);
+  return `<div class="vface"><img src="/face/${f.id}" alt="">
         <span class="who">${person?.name
           ? `<span class="n" data-person="${f.person}" title="${t("Show {name}'s photos", { name: esc(person.name) })}" tabindex="0" role="button">${esc(person.name)}</span>`
           : `<span class="n unnamed editable" data-name-face="${f.id}" data-current="${f.person ?? ""}" title="${t("Click to name this person")}" tabindex="0" role="button">${person ? esc(personName(person)) : t("Not grouped")}</span>`}
@@ -190,9 +223,6 @@ export async function openViewer(i, { keepImage = false } = {}) {
             ? `<button class="is-cover" disabled title="${t("This face is on {name}'s card in People", { name: esc(personName(person)) })}">✓ ${t("Card photo")}</button>`
             : `<button data-cover="${f.id}" title="${t("Show this face on {name}'s card in People", { name: esc(personName(person)) })}">${t("Card photo")}</button>`}
         </span></span></div>`;
-    }).join("") : `<div class="s">${t("No faces detected.")}</div>`}
-    <label><input type="checkbox" id="showBoxes" ${viewer.classList.contains("boxes") ? "checked" : ""}> ${t("Show face boxes")}</label>`}
-    <h5>${t("File")}</h5><div class="s">${esc(d.path)}</div>`);
 }
 /** The full photo couldn't be loaded: ask the server why. A file that is gone (its folder
  *  still there) is removed from the gallery; an unreachable folder removes nothing. */

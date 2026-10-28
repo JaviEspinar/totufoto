@@ -23,6 +23,8 @@ use rayon::prelude::*;
 use rusqlite::{Connection, params};
 use serde::Serialize;
 
+use crate::library::NotRemoved;
+
 /// Files read at the same time: fingerprinting is limited by the disk, not the CPU.
 const READERS: usize = 4;
 
@@ -322,25 +324,23 @@ pub fn delete(
         for file in remove {
             status.delete_done.fetch_add(1, Ordering::Relaxed);
             let path = PathBuf::from(&file.path);
-            if !keep_ok || !unchanged(&path, file.mtime, file.size) || crate::library::root_of(roots, &path).is_none() {
+            if !keep_ok || !still_the_copy_found(roots, &path, file) {
                 result.skipped.push(file.path.clone());
                 continue;
             }
-            if permanently {
-                match std::fs::remove_file(&path) {
-                    Ok(()) => result.deleted += 1,
-                    Err(e) => {
-                        tracing::warn!("{}: {e}", file.path);
-                        result.skipped.push(file.path.clone());
-                        continue;
-                    }
+            match crate::library::remove_from_disk(&path, permanently) {
+                Ok(()) if permanently => result.deleted += 1,
+                Ok(()) => result.binned += 1,
+                Err(NotRemoved::NoBin(error)) => {
+                    tracing::warn!("{}: can't move to the bin: {error}", file.path);
+                    result.no_bin.push(file.id);
+                    continue;
                 }
-            } else if let Err(e) = trash::delete(&path) {
-                tracing::warn!("{}: can't move to the bin: {e}", file.path);
-                result.no_bin.push(file.id);
-                continue;
-            } else {
-                result.binned += 1;
+                Err(NotRemoved::Failed(e)) => {
+                    tracing::warn!("{}: {e}", file.path);
+                    result.skipped.push(file.path.clone());
+                    continue;
+                }
             }
             result.freed += file.size;
             status.delete_freed.fetch_add(file.size as u64, Ordering::Relaxed);
@@ -356,6 +356,12 @@ pub fn delete(
         result.freed
     );
     Ok(result)
+}
+
+/// A copy is deleted only while it is the file the search found (same size and date), inside
+/// the photo folders.
+fn still_the_copy_found(roots: &[PathBuf], path: &Path, file: &DupFile) -> bool {
+    unchanged(path, file.mtime, file.size) && crate::library::root_of(roots, path).is_some()
 }
 
 /// Summary for the status line: how many duplicate files and bytes.

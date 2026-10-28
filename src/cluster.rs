@@ -61,18 +61,22 @@ pub fn update_groups(conn: &mut Connection, threshold: f32, full: bool, progress
     crate::db::remember_named_people(conn, None)
 }
 
-/// Remembered faces of named people who have no faces in the index right now (`with_faces`
-/// are the people that do).
-fn face_memories(conn: &Connection, with_faces: &HashSet<i64>) -> Result<Vec<(i64, Vec<f32>)>> {
+/// The ids of the people the user has named.
+fn named_people(conn: &Connection) -> Result<HashSet<i64>> {
+    Ok(conn
+        .prepare("SELECT id FROM persons WHERE name IS NOT NULL")?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?)
+}
+
+/// The face remembered for each named person, which still attracts their faces when none of
+/// their photos are in the index.
+fn face_memories(conn: &Connection) -> Result<Vec<(i64, Vec<f32>)>> {
     let rows: Vec<(i64, Vec<u8>)> = conn
         .prepare("SELECT id, face_memory FROM persons WHERE name IS NOT NULL AND face_memory IS NOT NULL")?
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
         .collect::<Result<_, _>>()?;
-    Ok(rows
-        .into_iter()
-        .filter(|(id, _)| !with_faces.contains(id))
-        .map(|(id, bytes)| (id, embedding_from_bytes(&bytes)))
-        .collect())
+    Ok(rows.into_iter().map(|(id, bytes)| (id, embedding_from_bytes(&bytes))).collect())
 }
 
 fn delete_empty_people(conn: &Connection) -> Result<()> {
@@ -80,6 +84,20 @@ fn delete_empty_people(conn: &Connection) -> Result<()> {
         "DELETE FROM persons WHERE name IS NULL AND id NOT IN (SELECT DISTINCT person_id FROM faces WHERE person_id IS NOT NULL)",
         [],
     )?;
+    Ok(())
+}
+
+fn new_person(conn: &Connection) -> Result<i64> {
+    conn.execute("INSERT INTO persons (name) VALUES (NULL)", [])?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// Saves each face's person (`None`: in no group).
+fn set_people(conn: &Connection, assignment: impl IntoIterator<Item = (i64, Option<i64>)>) -> Result<()> {
+    let mut update = conn.prepare("UPDATE faces SET person_id = ? WHERE id = ?")?;
+    for (face, person) in assignment {
+        update.execute(params![person, face])?;
+    }
     Ok(())
 }
 
@@ -114,15 +132,26 @@ fn best(embedding: &[f32], centroids: &[Vec<f32>]) -> Option<(usize, f32)> {
     centroids.iter().enumerate().map(|(i, c)| (i, dot(embedding, c))).max_by(|a, b| a.1.total_cmp(&b.1))
 }
 
+/// For each embedding, the closest of `centroids` when similar enough. One step of progress
+/// each.
+fn closest_each(
+    embeddings: &[&[f32]],
+    centroids: &[Vec<f32>],
+    threshold: f32,
+    progress: &Progress,
+) -> Vec<Option<usize>> {
+    embeddings
+        .par_iter()
+        .map(|e| {
+            progress.add(1);
+            best(e, centroids).filter(|m| m.1 >= threshold).map(|m| m.0)
+        })
+        .collect()
+}
+
 /// Regroups every face from scratch (named people and faces placed by the user are kept).
 pub fn recluster(conn: &mut Connection, threshold: f32, progress: &Progress) -> Result<()> {
-    let named: HashSet<i64> = conn
-        .prepare("SELECT id FROM persons WHERE name IS NOT NULL")?
-        .query_map([], |r| r.get(0))?
-        .collect::<Result<_, _>>()?;
-
-    let mut fixed: HashMap<i64, Vec<usize>> = HashMap::new();
-    let mut free: Vec<usize> = Vec::new();
+    let named = named_people(conn)?;
     let faces: Vec<Face> = conn
         .prepare("SELECT id, person_id, embedding, rejected FROM faces ORDER BY score DESC")?
         .query_map([], |r| {
@@ -134,6 +163,45 @@ pub fn recluster(conn: &mut Connection, threshold: f32, progress: &Progress) -> 
             })
         })?
         .collect::<Result<_, _>>()?;
+    let regrouped = regroup(&faces, &named, face_memories(conn)?, threshold, progress);
+    let previous = previous_ids(&regrouped.groups, &faces, &named);
+
+    let tx = conn.transaction()?;
+    let mut assignment = regrouped.assignment;
+    for (group, previous) in regrouped.groups.iter().zip(previous) {
+        let person = match previous {
+            Some(person) => person,
+            None => new_person(&tx)?,
+        };
+        assignment.extend(group.iter().map(|&i| (faces[i].id, Some(person))));
+    }
+    set_people(&tx, assignment)?;
+    tx.execute("UPDATE faces SET grouped = 1 WHERE grouped = 0", [])?;
+    delete_empty_people(&tx)?;
+    tx.commit()?;
+    tracing::info!("regrouped {} faces into {} people", faces.len(), regrouped.groups.len() + named.len());
+    Ok(())
+}
+
+/// What regrouping decided, before anything is saved.
+struct Regrouped {
+    /// Faces matched to a named person, or left in no group, by face id.
+    assignment: HashMap<i64, Option<i64>>,
+    /// The new unnamed groups, as indices into the faces, largest first.
+    groups: Vec<Vec<usize>>,
+}
+
+/// Regrouping without the database: free faces are matched to the named people, and the rest
+/// clustered. Faces of named people and faces the user placed are in no result: they stay.
+fn regroup(
+    faces: &[Face],
+    named: &HashSet<i64>,
+    memories: Vec<(i64, Vec<f32>)>,
+    threshold: f32,
+    progress: &Progress,
+) -> Regrouped {
+    let mut fixed: HashMap<i64, Vec<usize>> = HashMap::new();
+    let mut free: Vec<usize> = Vec::new();
     for (i, f) in faces.iter().enumerate() {
         match f.person {
             Some(p) if named.contains(&p) => fixed.entry(p).or_default().push(i),
@@ -149,26 +217,20 @@ pub fn recluster(conn: &mut Connection, threshold: f32, progress: &Progress) -> 
 
     // 1. Attach free faces to named persons (also those with no photos left, by the face
     // remembered for them).
-    let mut named_ids: Vec<i64> = fixed.keys().copied().collect();
-    let named_groups: Vec<Vec<usize>> = named_ids.iter().map(|id| fixed[id].clone()).collect();
-    let mut named_centroids = centroids(&named_groups, &faces);
-    for (person, memory) in face_memories(conn, &fixed.keys().copied().collect())? {
-        named_ids.push(person);
+    let (mut ids, named_groups): (Vec<i64>, Vec<Vec<usize>>) = fixed.into_iter().unzip();
+    let mut named_centroids = centroids(&named_groups, faces);
+    let with_faces: HashSet<i64> = ids.iter().copied().collect();
+    for (person, memory) in memories.into_iter().filter(|(person, _)| !with_faces.contains(person)) {
+        ids.push(person);
         named_centroids.push(memory);
     }
-    let matches: Vec<Option<usize>> = free
-        .par_iter()
-        .map(|&i| {
-            progress.add(1);
-            best(&faces[i].embedding, &named_centroids).filter(|m| m.1 >= threshold).map(|m| m.0)
-        })
-        .collect();
+    let embeddings: Vec<&[f32]> = free.iter().map(|&i| faces[i].embedding.as_slice()).collect();
     let mut assignment: HashMap<i64, Option<i64>> = HashMap::new();
     let mut rest = Vec::new();
-    for (&i, m) in free.iter().zip(matches) {
+    for (&i, m) in free.iter().zip(closest_each(&embeddings, &named_centroids, threshold, progress)) {
         match m {
             Some(k) => {
-                assignment.insert(faces[i].id, Some(named_ids[k]));
+                assignment.insert(faces[i].id, Some(ids[k]));
             }
             None => rest.push(i),
         }
@@ -176,11 +238,26 @@ pub fn recluster(conn: &mut Connection, threshold: f32, progress: &Progress) -> 
 
     progress.total.store((free.len() + rest.len() * (1 + REFINE_PASSES)) as u64, Ordering::Relaxed);
 
-    // 2. Greedy clustering of the remaining faces (highest detection score first).
+    // 2. Greedy clustering of the remaining faces, then refinement passes.
+    let mut groups = greedy(&rest, faces, threshold, progress);
+    for _ in 0..REFINE_PASSES {
+        groups = refine(&groups, &rest, faces, threshold, progress);
+    }
+
+    // 3. Groups too small to be a person leave their faces in no group.
+    groups.sort_by_key(|g| std::cmp::Reverse(g.len()));
+    let (groups, alone): (Vec<_>, Vec<_>) = groups.into_iter().partition(|g| g.len() >= MIN_CLUSTER_SIZE);
+    assignment.extend(alone.iter().flatten().map(|&i| (faces[i].id, None)));
+    Regrouped { assignment, groups }
+}
+
+/// Each face, highest detection score first, joins the closest group when similar enough,
+/// or starts a new one.
+fn greedy(rest: &[usize], faces: &[Face], threshold: f32, progress: &Progress) -> Vec<Vec<usize>> {
     let mut groups: Vec<Vec<usize>> = Vec::new();
     let mut sums: Vec<Vec<f32>> = Vec::new();
     let mut unit: Vec<Vec<f32>> = Vec::new();
-    for &i in &rest {
+    for &i in rest {
         progress.add(1);
         let e = &faces[i].embedding;
         let hit = if unit.len() > 256 {
@@ -202,68 +279,65 @@ pub fn recluster(conn: &mut Connection, threshold: f32, progress: &Progress) -> 
             }
         }
     }
+    groups
+}
 
-    // 3. Refinement: reassign every face to its closest centroid.
-    for _ in 0..REFINE_PASSES {
-        let cents = centroids(&groups, &faces);
-        let targets: Vec<Option<usize>> = rest
-            .par_iter()
-            .map(|&i| {
-                progress.add(1);
-                best(&faces[i].embedding, &cents).filter(|h| h.1 >= threshold).map(|h| h.0)
-            })
-            .collect();
-        let mut next: Vec<Vec<usize>> = vec![Vec::new(); groups.len()];
-        for (&i, t) in rest.iter().zip(targets) {
-            match t {
-                Some(k) => next[k].push(i),
-                None => next.push(vec![i]),
-            }
+/// Reassigns every face to its closest group's centroid; faces close to none start their own.
+fn refine(
+    groups: &[Vec<usize>],
+    rest: &[usize],
+    faces: &[Face],
+    threshold: f32,
+    progress: &Progress,
+) -> Vec<Vec<usize>> {
+    let cents = centroids(groups, faces);
+    let embeddings: Vec<&[f32]> = rest.iter().map(|&i| faces[i].embedding.as_slice()).collect();
+    let mut next: Vec<Vec<usize>> = vec![Vec::new(); groups.len()];
+    for (&i, t) in rest.iter().zip(closest_each(&embeddings, &cents, threshold, progress)) {
+        match t {
+            Some(k) => next[k].push(i),
+            None => next.push(vec![i]),
         }
-        next.retain(|g| !g.is_empty());
-        groups = next;
     }
+    next.retain(|g| !g.is_empty());
+    next
+}
 
-    // 4. Persist: reuse the previous unnamed person id where possible.
-    let tx = conn.transaction()?;
+/// The id each group keeps, so ids stay stable: the unnamed person most of its faces had,
+/// unless a larger group took it first. `None`: a new person.
+fn previous_ids(groups: &[Vec<usize>], faces: &[Face], named: &HashSet<i64>) -> Vec<Option<i64>> {
     let mut claimed: HashSet<i64> = HashSet::new();
-    groups.sort_by_key(|g| std::cmp::Reverse(g.len()));
-    for group in &groups {
-        if group.len() < MIN_CLUSTER_SIZE {
+    groups
+        .iter()
+        .map(|group| {
+            let mut votes: HashMap<i64, usize> = HashMap::new();
             for &i in group {
-                assignment.insert(faces[i].id, None);
+                if let Some(p) = faces[i].person.filter(|p| !named.contains(p) && !claimed.contains(p)) {
+                    *votes.entry(p).or_default() += 1;
+                }
             }
-            continue;
-        }
-        let mut votes: HashMap<i64, usize> = HashMap::new();
-        for &i in group {
-            if let Some(p) = faces[i].person.filter(|p| !named.contains(p) && !claimed.contains(p)) {
-                *votes.entry(p).or_default() += 1;
-            }
-        }
-        let person = match votes.into_iter().max_by_key(|v| v.1) {
-            Some((p, _)) => p,
-            None => {
-                tx.execute("INSERT INTO persons (name) VALUES (NULL)", [])?;
-                tx.last_insert_rowid()
-            }
-        };
-        claimed.insert(person);
-        for &i in group {
-            assignment.insert(faces[i].id, Some(person));
-        }
-    }
-    {
-        let mut update = tx.prepare("UPDATE faces SET person_id = ? WHERE id = ?")?;
-        for (face, person) in &assignment {
-            update.execute(params![person, face])?;
-        }
-    }
-    tx.execute("UPDATE faces SET grouped = 1 WHERE grouped = 0", [])?;
-    delete_empty_people(&tx)?;
-    tx.commit()?;
-    tracing::info!("regrouped {} faces into {} people", faces.len(), claimed.len() + named.len());
-    Ok(())
+            let person = votes.into_iter().max_by_key(|v| v.1).map(|v| v.0);
+            claimed.extend(person);
+            person
+        })
+        .collect()
+}
+
+/// What placing new faces needs: each person's centroid, the new faces, and the earlier
+/// faces still in no group ("loose"), as (face id, embedding).
+struct ToPlace {
+    people: Vec<i64>,
+    centroids: Vec<Vec<f32>>,
+    new_faces: Vec<(i64, Vec<f32>)>,
+    loose: Vec<(i64, Vec<f32>)>,
+}
+
+/// Where placing put the new faces, before anything is saved.
+struct Placed {
+    /// (face id, person) for the new faces that joined someone.
+    joined: Vec<(i64, i64)>,
+    /// The face ids of each new person.
+    new_people: Vec<Vec<i64>>,
 }
 
 /// Places only the faces no grouping pass has seen yet. Each joins the closest existing
@@ -271,11 +345,38 @@ pub fn recluster(conn: &mut Connection, threshold: f32, progress: &Progress) -> 
 /// that are still in no group, and every set of two or more becomes a new person. Much
 /// cheaper than [`recluster`]: it compares the new faces only.
 fn group_new_faces(conn: &mut Connection, threshold: f32, progress: &Progress) -> Result<()> {
-    let named: HashSet<i64> = conn
-        .prepare("SELECT id FROM persons WHERE name IS NOT NULL")?
-        .query_map([], |r| r.get(0))?
-        .collect::<Result<_, _>>()?;
-    // Stream the faces: people's centroids are accumulated, only new and loose faces kept.
+    let to_place = faces_to_place(conn)?;
+    let placed = place(&to_place, threshold, progress);
+
+    let tx = conn.transaction()?;
+    let mut assignment: Vec<(i64, Option<i64>)> = placed.joined.iter().map(|&(face, p)| (face, Some(p))).collect();
+    for members in &placed.new_people {
+        let person = new_person(&tx)?;
+        assignment.extend(members.iter().map(|&face| (face, Some(person))));
+    }
+    set_people(&tx, assignment)?;
+    {
+        let mut seen = tx.prepare("UPDATE faces SET grouped = 1 WHERE id = ?")?;
+        for (id, _) in &to_place.new_faces {
+            seen.execute([id])?;
+        }
+    }
+    delete_empty_people(&tx)?;
+    tx.commit()?;
+    let new_people = placed.new_people.len();
+    tracing::info!(
+        "grouped {} new faces: {} joined existing people, {} new {}",
+        to_place.new_faces.len(),
+        placed.joined.len(),
+        new_people,
+        if new_people == 1 { "person" } else { "people" }
+    );
+    Ok(())
+}
+
+/// Streams the faces: people's centroids are accumulated, only new and loose faces kept.
+fn faces_to_place(conn: &Connection) -> Result<ToPlace> {
+    let named = named_people(conn)?;
     let mut sums: HashMap<i64, Vec<f32>> = HashMap::new();
     let mut new_faces: Vec<(i64, Vec<f32>)> = Vec::new();
     let mut loose: Vec<(i64, Vec<f32>)> = Vec::new();
@@ -303,35 +404,40 @@ fn group_new_faces(conn: &mut Connection, threshold: f32, progress: &Progress) -
         }
     }
     let with_faces: HashSet<i64> = sums.keys().copied().collect();
-    let (mut ids, mut units): (Vec<i64>, Vec<Vec<f32>>) = sums.into_iter().unzip();
-    units.par_iter_mut().for_each(|u| normalize(u));
+    let (mut people, mut centroids): (Vec<i64>, Vec<Vec<f32>>) = sums.into_iter().unzip();
+    centroids.par_iter_mut().for_each(|c| normalize(c));
     // Named people with no photos left still attract their faces.
-    for (person, memory) in face_memories(conn, &with_faces)? {
-        ids.push(person);
-        units.push(memory);
+    for (person, memory) in face_memories(conn)?.into_iter().filter(|(person, _)| !with_faces.contains(person)) {
+        people.push(person);
+        centroids.push(memory);
     }
-    progress.start(new_faces.len() * 2);
+    Ok(ToPlace { people, centroids, new_faces, loose })
+}
 
-    // 1. New faces join the closest person.
-    let matches: Vec<Option<i64>> = new_faces
-        .par_iter()
-        .map(|(_, e)| {
-            progress.add(1);
-            best(e, &units).filter(|m| m.1 >= threshold).map(|m| ids[m.0])
-        })
-        .collect();
-    let mut assignment: Vec<(i64, i64)> = Vec::new();
-    let mut rest: Vec<usize> = Vec::new();
-    for (i, m) in matches.into_iter().enumerate() {
+/// Placing without the database: new faces join the closest person, and the others pair up.
+fn place(to_place: &ToPlace, threshold: f32, progress: &Progress) -> Placed {
+    progress.start(to_place.new_faces.len() * 2);
+    let embeddings: Vec<&[f32]> = to_place.new_faces.iter().map(|(_, e)| e.as_slice()).collect();
+    let mut joined: Vec<(i64, i64)> = Vec::new();
+    let mut rest: Vec<&(i64, Vec<f32>)> = Vec::new();
+    for (face, m) in to_place.new_faces.iter().zip(closest_each(&embeddings, &to_place.centroids, threshold, progress))
+    {
         match m {
-            Some(p) => assignment.push((new_faces[i].0, p)),
-            None => rest.push(i),
+            Some(k) => joined.push((face.0, to_place.people[k])),
+            None => rest.push(face),
         }
     }
+    progress.add(joined.len() as u64);
+    let new_people = pair_up(&rest, &to_place.loose, threshold, progress);
+    Placed { joined, new_people }
+}
 
-    // 2. The others pair up with each other and with loose faces (union-find over both).
+/// The new faces that joined no one pair up with each other and with loose faces (union-find
+/// over both). Every set of two or more, as face ids, becomes a new person; loose faces like
+/// no new face stay as they are.
+fn pair_up(rest: &[&(i64, Vec<f32>)], loose: &[(i64, Vec<f32>)], threshold: f32, progress: &Progress) -> Vec<Vec<i64>> {
     // Pool indices: 0..rest.len() are the unmatched new faces, then the loose faces.
-    let pool = |k: usize| if k < rest.len() { &new_faces[rest[k]] } else { &loose[k - rest.len()] };
+    let pool = |k: usize| if k < rest.len() { rest[k] } else { &loose[k - rest.len()] };
     let edges: Vec<Vec<usize>> = (0..rest.len())
         .into_par_iter()
         .map(|k| {
@@ -340,7 +446,6 @@ fn group_new_faces(conn: &mut Connection, threshold: f32, progress: &Progress) -
             (k + 1..rest.len() + loose.len()).filter(|&j| dot(e, &pool(j).1) >= threshold).collect()
         })
         .collect();
-    progress.add((new_faces.len() - rest.len()) as u64);
     let mut parent: Vec<usize> = (0..rest.len() + loose.len()).collect();
     fn root(parent: &mut [usize], mut i: usize) -> usize {
         while parent[i] != i {
@@ -360,40 +465,18 @@ fn group_new_faces(conn: &mut Connection, threshold: f32, progress: &Progress) -
     let mut components: HashMap<usize, Vec<usize>> = HashMap::new();
     for k in (0..rest.len()).chain(edges.iter().flatten().copied()) {
         let r = root(&mut parent, k);
-        let members = components.entry(r).or_default();
-        if !members.contains(&k) {
-            members.push(k);
-        }
+        components.entry(r).or_default().push(k);
     }
-
-    let tx = conn.transaction()?;
-    let mut new_people = 0;
-    for members in components.values().filter(|m| m.len() >= MIN_CLUSTER_SIZE) {
-        tx.execute("INSERT INTO persons (name) VALUES (NULL)", [])?;
-        let person = tx.last_insert_rowid();
-        new_people += 1;
-        assignment.extend(members.iter().map(|&k| (pool(k).0, person)));
-    }
-    {
-        let mut update = tx.prepare("UPDATE faces SET person_id = ? WHERE id = ?")?;
-        for (face, person) in &assignment {
-            update.execute(params![person, face])?;
-        }
-        let mut seen = tx.prepare("UPDATE faces SET grouped = 1 WHERE id = ?")?;
-        for (id, _) in &new_faces {
-            seen.execute([id])?;
-        }
-    }
-    delete_empty_people(&tx)?;
-    tx.commit()?;
-    tracing::info!(
-        "grouped {} new faces: {} joined existing people, {} new {}",
-        new_faces.len(),
-        assignment.len() - components.values().filter(|m| m.len() >= MIN_CLUSTER_SIZE).map(|m| m.len()).sum::<usize>(),
-        new_people,
-        if new_people == 1 { "person" } else { "people" }
-    );
-    Ok(())
+    components
+        .into_values()
+        .map(|mut members| {
+            members.sort_unstable();
+            members.dedup();
+            members
+        })
+        .filter(|members| members.len() >= MIN_CLUSTER_SIZE)
+        .map(|members| members.into_iter().map(|k| pool(k).0).collect())
+        .collect()
 }
 
 #[cfg(test)]
@@ -436,6 +519,57 @@ mod tests {
     fn group(conn: &mut Connection, full: bool) {
         let (done, total) = (AtomicU64::new(0), AtomicU64::new(0));
         update_groups(conn, 0.42, full, &Progress { done: &done, total: &total }).unwrap();
+    }
+
+    fn quietly<R>(f: impl FnOnce(&Progress) -> R) -> R {
+        let (done, total) = (AtomicU64::new(0), AtomicU64::new(0));
+        f(&Progress { done: &done, total: &total })
+    }
+
+    fn face(id: i64, person: Option<i64>, embedding: Vec<f32>) -> Face {
+        Face { id, person, embedding, moved_by_user: false }
+    }
+
+    #[test]
+    fn regrouping_matches_named_people_and_clusters_the_rest() {
+        let named = HashSet::from([10]);
+        let faces = vec![
+            face(1, Some(10), near(0, 0)),
+            face(2, Some(10), near(0, 1)),
+            face(3, None, near(0, 2)),
+            face(4, Some(30), near(1, 3)),
+            face(5, None, near(1, 4)),
+            face(6, None, near(2, 5)),
+            Face { moved_by_user: true, ..face(7, Some(20), near(1, 6)) },
+            face(8, None, near(3, 7)),
+        ];
+        // Person 11 is named but has no photos left: its remembered face still attracts.
+        let memories = vec![(11, near(3, 8))];
+        let r = quietly(|p| regroup(&faces, &named, memories, 0.42, p));
+        assert_eq!(r.assignment.get(&3), Some(&Some(10)), "joins the named person");
+        assert_eq!(r.assignment.get(&8), Some(&Some(11)), "joins by the remembered face");
+        assert_eq!(r.assignment.get(&6), Some(&None), "alone, in no group");
+        assert!(!r.assignment.contains_key(&1) && !r.assignment.contains_key(&7), "fixed faces stay");
+        let ids: Vec<Vec<i64>> = r.groups.iter().map(|g| g.iter().map(|&i| faces[i].id).collect()).collect();
+        assert_eq!(ids, vec![vec![4, 5]]);
+        assert_eq!(previous_ids(&r.groups, &faces, &named), vec![Some(30)], "keeps its id");
+    }
+
+    #[test]
+    fn a_previous_id_goes_to_the_largest_group_only() {
+        let faces = vec![face(1, Some(5), near(0, 0)), face(2, Some(5), near(0, 1)), face(3, Some(5), near(1, 2))];
+        let groups = vec![vec![0, 1], vec![2]];
+        assert_eq!(previous_ids(&groups, &faces, &HashSet::new()), vec![Some(5), None]);
+    }
+
+    #[test]
+    fn unmatched_new_faces_pair_up_with_each_other_and_loose_faces() {
+        let (a, b, c) = ((1, near(0, 0)), (2, near(0, 1)), (3, near(1, 2)));
+        let loose = vec![(4, near(1, 3)), (5, near(2, 4))];
+        let mut people = quietly(|p| pair_up(&[&a, &b, &c], &loose, 0.42, p));
+        people.iter_mut().for_each(|m| m.sort_unstable());
+        people.sort();
+        assert_eq!(people, vec![vec![1, 2], vec![3, 4]], "face 5 is like no new face: it stays loose");
     }
 
     /// Faces 1-3 look alike, 4-5 look alike, 6 like nobody else.
