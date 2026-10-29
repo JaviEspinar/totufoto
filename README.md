@@ -13,16 +13,24 @@ It comes as a desktop app for Windows and Linux, and as a command-line app that 
 - **People, found on your computer.** Faces are detected and grouped locally; no photo or face ever leaves it.
 - **From any device at home.** Share it on your network and open it on a phone, or upload photos to it from the phone's browser.
 
-**Compared with [Immich](https://immich.app) and [PhotoPrism](https://www.photoprism.app):** both are excellent and do more, and both usually run as several services with Docker, a database server among them. Immich is built around backing up your phones with its own apps; if that's what you need, it's the better choice. Imadive is for a gallery of the folders you already have, in a single program you can also run on a desktop, with nothing else to set up.
-
 #### Latest Releases
+
+**1. Self-hosted server**: the gallery for every device at home, on a Linux server, a NAS or a Raspberry Pi.
+
+<table>
+<tr>
+<td align="center" width="25%"><a href="docs/server.md"><img src="docs/icons/server.svg" width="56" height="56" alt=""><br><b>Linux server</b></a><br><sub>x86-64 and ARM64 · one command</sub></td>
+<td align="center" width="25%"><a href="docs/docker.md"><img src="docs/icons/docker.svg" width="56" height="56" alt=""><br><b>Docker</b></a><br><sub>x86-64 and ARM64 · image</sub></td>
+</tr>
+</table>
+
+**2. Desktop apps**: the gallery on one computer, in its own window.
 
 <table>
 <tr>
 <td align="center" width="25%"><a href="https://github.com/waiting4timeout/imadive/releases/download/v0.3.5/Imadive-0.3.5-windows-x64.exe"><img src="docs/icons/windows.svg" width="56" height="56" alt=""><br><b>Windows</b></a><br><sub>10 and 11 · .exe</sub></td>
 <td align="center" width="25%"><a href="https://github.com/waiting4timeout/imadive/releases/download/v0.3.5/Imadive-0.3.5-linux-amd64.deb"><img src="docs/icons/debian.svg" width="56" height="56" alt=""><br><b>Debian</b></a><br><sub>Ubuntu, Linux Mint · .deb</sub></td>
 <td align="center" width="25%"><a href="https://github.com/waiting4timeout/imadive/releases/download/v0.3.5/Imadive-0.3.5-linux-x86_64.AppImage"><img src="docs/icons/linux.svg" width="56" height="56" alt=""><br><b>Other Linux</b></a><br><sub>x86-64 · AppImage</sub></td>
-<td align="center" width="25%"><a href="https://github.com/JaviEspinar/totufoto/blob/main/docs/server.md"><img src="docs/icons/server.svg" width="56" height="56" alt=""><br><b>Server</b></a><br><sub>Home server</sub></td>
 </tr>
 </table>
 
