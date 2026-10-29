@@ -20,7 +20,7 @@
     "publisher": "waiting4timeout",
     "homepage": "https://github.com/JaviEspinar/totufoto",
     "copyright": "© 2026 waiting4timeout",
-    "license": "PolyForm-Noncommercial-1.0.0",
+    "license": "AGPL-3.0-only",
     "category": "Photography",
     "shortDescription": "Fast local photo and video gallery with places and people",
     "longDescription": "Imadive indexes your photo and video folders and shows them as a timeline, by place, with upcoming anniversaries and the people found by face recognition. Everything runs on your computer; nothing is uploaded.",

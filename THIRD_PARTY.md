@@ -1,6 +1,6 @@
 # Third-party components
 
-Imadive's own code is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). The release downloads also contain, or the build fetches, the following components under their own terms. These terms apply on their own, whatever license you have for Imadive's code.
+Imadive's own code is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). The release downloads also contain, or the build fetches, the following components under their own terms. These terms apply on their own, whatever license you have for Imadive's code.
 
 ## Face recognition models (desktop app and server archives; fetched by `scripts/fetch-models.*`)
 

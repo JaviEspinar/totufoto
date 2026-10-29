@@ -2,7 +2,7 @@
 
 A fast local photo and video gallery written in Rust. Point it at your photo folders and it indexes them in parallel: timeline, places, upcoming anniversaries and people found by face recognition. Everything runs on your computer and your photos are never uploaded; the files only change when you ask (rotating or deleting a photo).
 
-It comes as a desktop app for Windows and Linux, and as a command-line app that serves the gallery to your browser. It is free for personal and other non-commercial use, and its source code is available ([license](#license)).
+It comes as a desktop app for Windows and Linux, and as a command-line app that serves the gallery to your browser. It is free and open-source software ([AGPL-3.0](#license)).
 
 <p align="center"><img src="docs/screenshots/demo.webp" width="100%" alt="A short loop of the gallery: the timeline, a photo with its people named, the People tab, one person's photos, and the photos grouped by place"></p>
 
@@ -238,7 +238,7 @@ Supported formats: JPEG, PNG, WebP, TIFF, GIF, BMP and HEIC/HEIF (iPhone photos;
 - **Photos are tracked by path**: after moving a folder added in Settings, *Moved to…* points the gallery at its new place, keeping everything. A command-line folder that moves is indexed again (named people are matched again automatically).
 - **No login**: anyone who can reach the gallery can use all of it (see [Privacy and security](#privacy-and-security)).
 - **Desktop app**: Windows and Linux only, not signed. On macOS use the command-line app.
-- **Face recognition** needs ONNX Runtime, which Microsoft doesn't publish for Intel Macs, and its models are for non-commercial use only (see [License](#license)).
+- **Face recognition** needs ONNX Runtime, which Microsoft doesn't publish for Intel Macs, and its models are for non-commercial use only, whatever Imadive's own license (see [License](#license)).
 
 ## Troubleshooting
 
@@ -269,11 +269,11 @@ Bug reports, ideas and pull requests are welcome: see [CONTRIBUTING.md](CONTRIBU
 
 ## License
 
-Imadive is **source-available**: you may use, copy, change and share it for personal and other non-commercial purposes under the [PolyForm Noncommercial License 1.0.0](LICENSE). Non-profits, schools, public institutions and evaluation are covered too. For commercial use, ask [waiting4timeout](https://github.com/waiting4timeout) for a commercial license.
+Imadive is **free and open-source software**, licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0). You may use it for any purpose, commercial ones included, and study, change and share it. If you share a changed version, or let people use one over a network, you must offer its source code under the same license. If those terms don't suit you (to build Imadive into a closed product, say), ask [waiting4timeout](https://github.com/waiting4timeout) for a commercial license.
 
-This is not an open-source license in the OSI sense, because it does not allow commercial use.
+Copyright 2026 waiting4timeout.
 
 Third-party components come with their own terms, listed in [THIRD_PARTY.md](THIRD_PARTY.md). Two of them matter in particular:
 
-- The **face models** (InsightFace `buffalo_s`) are released for non-commercial research use only, and the desktop app embeds them. This applies even with a commercial license for Imadive's code: for commercial use, build it with face models whose license allows it.
+- The **face models** (InsightFace `buffalo_s`) are released for non-commercial research use only, and the desktop apps and server archives include them. Imadive's own license doesn't change that: to use face recognition commercially, build it with face models whose license allows it. Everything else in the gallery works without them.
 - **City names** come from [GeoNames](https://www.geonames.org), licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

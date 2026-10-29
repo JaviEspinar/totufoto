@@ -43,7 +43,7 @@ COPY --from=unpack /out/photos /photos
 # GitHub), version and revision are added by the workflow, from wherever the repository is.
 LABEL org.opencontainers.image.title="Imadive" \
       org.opencontainers.image.description="Fast local photo and video gallery: timeline, places, upcoming anniversaries and people found by face recognition" \
-      org.opencontainers.image.licenses="LicenseRef-PolyForm-Noncommercial-1.0.0"
+      org.opencontainers.image.licenses="AGPL-3.0-only"
 
 # The index (and its thumbnails) lives in /data; the photos are mounted at /photos (or
 # anywhere, given as the command). Other options go before the folders, for example

@@ -5,7 +5,7 @@
 <component type="desktop-application">
   <id>com.waiting4timeout.imadive</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>PolyForm-Noncommercial-1.0.0</project_license>
+  <project_license>AGPL-3.0-only</project_license>
   <name>Imadive</name>
   <summary>Fast local photo and video gallery with places and people</summary>
   <!-- developer_name for older software centres (Ubuntu 22.04), developer for newer ones -->
@@ -28,7 +28,7 @@
     </ul>
     <p>
       Everything runs on your computer: your photos are never uploaded, and the files only
-      change when you rotate or delete a photo. Free for personal and other non-commercial use.
+      change when you rotate or delete a photo. Free and open-source software (AGPL-3.0).
     </p>
   </description>
   <launchable type="desktop-id">Imadive.desktop</launchable>

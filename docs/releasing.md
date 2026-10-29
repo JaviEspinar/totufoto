@@ -46,7 +46,7 @@ One or two sentences: what this version is about.
 
 Your folders, people names and index carry over from earlier versions; nothing is indexed again.
 
-Free for personal and other non-commercial use under the [PolyForm Noncommercial License 1.0.0](https://github.com/JaviEspinar/totufoto/blob/main/LICENSE). The face recognition models built into the app are for non-commercial use only (see [THIRD_PARTY.md](https://github.com/JaviEspinar/totufoto/blob/main/THIRD_PARTY.md)).
+Free and open-source software under the [GNU AGPL-3.0](https://github.com/JaviEspinar/totufoto/blob/main/LICENSE). The face recognition models built into the app are for non-commercial use only (see [THIRD_PARTY.md](https://github.com/JaviEspinar/totufoto/blob/main/THIRD_PARTY.md)).
 
 ## What's new
 

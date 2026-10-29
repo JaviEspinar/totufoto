@@ -261,7 +261,7 @@ export default {
   "Created by {author}": "Creado por {author}",
   "buying me a coffee": "invitarme a un café",
   "ImaDive is free. If you like it, please<br>consider {coffee}&nbsp;☕": "ImaDive es gratis. Si te gusta, puedes<br>{coffee}&nbsp;☕",
-  "<b>Imadive {version}</b>. Free for personal and other non-commercial use under the PolyForm Noncommercial License 1.0.0. The face recognition models are for non-commercial use only.": "<b>Imadive {version}</b>. Gratis para uso personal y otros usos no comerciales bajo la PolyForm Noncommercial License 1.0.0. Los modelos de reconocimiento facial son solo para uso no comercial.",
+  "<b>Imadive {version}</b>. Free and open-source software under the GNU AGPL-3.0. The face recognition models are for non-commercial use only.": "<b>Imadive {version}</b>. Software libre y de código abierto bajo la licencia GNU AGPL-3.0. Los modelos de reconocimiento facial son solo para uso no comercial.",
   "License": "Licencia",
   "Third-party components": "Componentes de terceros",
   "Releases": "Versiones",

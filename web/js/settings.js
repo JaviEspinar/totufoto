@@ -179,7 +179,7 @@ function aboutHtml(st) {
   if (!st?.version) return "";
   const link = (path, text) => `<a href="${esc(st.project)}/${path}" target="_blank" rel="noopener">${text}</a>`;
   return `<section class="set-part"><h4>${t("About")}</h4><div class="about">
-    <p>${t("<b>Imadive {version}</b>. Free for personal and other non-commercial use under the PolyForm Noncommercial License 1.0.0. The face recognition models are for non-commercial use only.", { version: esc(st.version) })}</p>
+    <p>${t("<b>Imadive {version}</b>. Free and open-source software under the GNU AGPL-3.0. The face recognition models are for non-commercial use only.", { version: esc(st.version) })}</p>
     <p>${link("blob/main/LICENSE", t("License"))} · ${link("blob/main/THIRD_PARTY.md", t("Third-party components"))} ·
       ${link("releases", t("Releases"))}</p>
     ${st.logs ? `<p><button class="btn" data-logs>${t("Open log folder")}</button> <small>${t("For reporting a problem: the log of this run, and of the one before.")}</small></p>` : ""}</div></section>

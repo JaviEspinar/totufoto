@@ -28,7 +28,7 @@ allow = [
 ]
 confidence-threshold = 0.9
 
-# The project's own packages (publish = false), under PolyForm Noncommercial.
+# The project's own packages (publish = false), under AGPL-3.0.
 [licenses.private]
 ignore = true
 

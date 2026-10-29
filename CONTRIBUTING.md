@@ -51,10 +51,10 @@ See [docs/releasing.md](docs/releasing.md).
 
 ## Licensing of contributions
 
-Imadive is published under the [PolyForm Noncommercial License 1.0.0](LICENSE), and its maintainer also offers commercial licenses. So that both stay possible, by sending a contribution you agree that:
+Imadive is published under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0), and its maintainer also offers commercial licenses. So that both stay possible, by sending a contribution you agree that:
 
 - you wrote it, or have the right to submit it;
-- it is licensed under the same PolyForm Noncommercial License 1.0.0 as the project; and
+- it is licensed under the same AGPL-3.0 as the project; and
 - the maintainer ([waiting4timeout](https://github.com/waiting4timeout)) may also license it, as part of Imadive, under other terms, including commercial licenses and a future change of the project's license.
 
 You keep the copyright of your contribution. If you can't agree to this, say so in the pull request before it is merged.
