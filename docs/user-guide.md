@@ -75,6 +75,18 @@ Click a photo to open it. Use the arrow keys to move and `Esc` to close.
 - **Card photo** makes that face the one shown on the person's card in People (it stays while the face belongs to them).
 - **Show face boxes** draws the detected faces.
 
+## Slideshow
+
+**Slideshow**, next to the photo count in Photos, shows the photos and videos the filters give (a person, a place, a month...), one after another and full screen. Photos fade into each other; a video plays to its end before the next one.
+
+Move the mouse, or touch the screen on a phone, to show the slideshow's bar:
+
+- **In order** follows the gallery's order (newest or oldest first); **Shuffle** mixes them, and mixes them again on every round.
+- **Speed**: how long each photo stays, from 20 seconds to 2.
+- **✕** (or `Esc`, or Back on a phone) stops it.
+
+The bar hides again after a few seconds. The order and the speed are remembered in this browser.
+
 ## Rotating, downloading and deleting
 
 The buttons under the photo's date in the viewer.
@@ -226,5 +238,7 @@ Where the data folder is: `imadive-data` in the folder you start the command-lin
 | `I` | viewer | fold or show the details |
 | `R`, `Shift+R` | viewer | rotate right, left |
 | `Delete` | viewer | remove the photo (asks how) |
+| `←` `→` | slideshow | previous, next photo |
+| `Esc` | slideshow | stop it |
 | `Enter`, `Space` | cards, faces, names | open, rename |
 | `Tab` | everywhere | move between controls; the viewer keeps the focus inside while it is open |

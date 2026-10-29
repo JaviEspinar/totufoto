@@ -547,4 +547,14 @@ export default {
   "a folder is being moved; wait for it to finish": "se está moviendo una carpeta; espera a que termine",
   "a backup is being restored; wait for it to finish": "se está restaurando una copia; espera a que termine",
   "the duplicates are being deleted; wait for it to finish": "se están borrando los duplicados; espera a que termine",
+  // The slideshow
+  "Slideshow": "Presentación",
+  "Show these photos and videos one after another, full screen": "Mostrar estas fotos y vídeos uno tras otro, a pantalla completa",
+  "In order": "En orden",
+  "Shuffle": "Aleatorio",
+  "Speed": "Velocidad",
+  "{s} s per photo": "{s} s por foto",
+  "{n} of {total}": "{n} de {total}",
+  "Stop the slideshow (Esc)": "Detener la presentación (Esc)",
+  "Stop the slideshow": "Detener la presentación",
 };

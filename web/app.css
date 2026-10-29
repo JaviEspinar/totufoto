@@ -297,6 +297,56 @@ main { overflow-y: auto; min-height: 0; padding: 0 16px 40px; overscroll-behavio
 }
 .clear-all:hover { background: var(--hover); }
 .count { color: var(--muted); font-size: 12px; padding: 12px 0 0; }
+.count-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0 0; }
+.count-row .count { padding: 0; }
+.slideshow-btn {
+  display: inline-flex; align-items: center; gap: 5px; flex: none; border: 1px solid var(--line); background: var(--panel);
+  color: var(--ink); font-size: 12px; padding: 4px 11px; border-radius: 999px; cursor: pointer;
+}
+.slideshow-btn:hover { background: var(--hover); }
+.slideshow-btn[hidden] { display: none; }
+
+/* The slideshow: black, full screen, the pointer hidden until it moves. Photos crossfade;
+   the bar slides in at the bottom while the mouse moves or after a touch. */
+body.slideshow-on { overflow: hidden; }
+#slideshow { position: fixed; inset: 0; z-index: 25; background: #000; color: #fff; cursor: none; user-select: none; }
+#slideshow[hidden] { display: none; }
+#slideshow.bar { cursor: default; }
+.ss-stage, .ss-photo, .ss-video { position: absolute; inset: 0; width: 100%; height: 100%; }
+.ss-photo, .ss-video { object-fit: contain; }
+.ss-photo { opacity: 0; transition: opacity 0.7s ease; }
+.ss-photo.on { opacity: 1; }
+.ss-video[hidden] { display: none; }
+.ss-bar {
+  position: absolute; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 10px);
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 18px; max-width: calc(100% - 32px);
+  padding: 10px 12px 10px 16px; border-radius: 14px; background: rgba(24, 24, 24, 0.82); backdrop-filter: blur(10px);
+  opacity: 0; visibility: hidden; transition: opacity 0.25s, transform 0.25s, visibility 0s 0.25s;
+}
+#slideshow.bar .ss-bar { opacity: 1; visibility: visible; transform: translate(-50%, 0); transition: opacity 0.25s, transform 0.25s; }
+.ss-order { margin: 0; background: rgba(255, 255, 255, 0.08); }
+.ss-order button { color: rgba(255, 255, 255, 0.72); padding: 6px 12px; font-size: 13px; white-space: nowrap; }
+.ss-order button.on { background: rgba(255, 255, 255, 0.2); color: #fff; }
+.ss-speed { display: flex; align-items: center; gap: 10px; font-size: 13px; }
+.ss-speed input { width: 140px; accent-color: #fff; }
+.ss-seconds, .ss-pos { font-size: 12px; color: rgba(255, 255, 255, 0.7); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ss-close {
+  width: 36px; height: 36px; border: 0; border-radius: 50%; background: rgba(255, 255, 255, 0.14); color: #fff;
+  font-size: 16px; cursor: pointer;
+}
+.ss-close:hover { background: rgba(255, 255, 255, 0.28); }
+@media (max-width: 640px) {
+  /* Two rows: the order and ✕, then the speed. */
+  .ss-bar {
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: 1fr auto;
+    gap: 10px 12px; width: calc(100% - 24px); max-width: 420px;
+  }
+  .ss-order { grid-column: 1; grid-row: 1; justify-self: start; }
+  .ss-close { grid-column: 2; grid-row: 1; }
+  .ss-speed { grid-column: 1 / -1; grid-row: 2; }
+  .ss-speed input { flex: 1; width: auto; }
+  .ss-speed > span:first-child, .ss-pos { display: none; }
+}
 
 .group h2 {
   font-size: 15px; font-weight: 650; margin: 0; padding: 18px 0 8px; position: sticky; top: var(--head-h, 0px);

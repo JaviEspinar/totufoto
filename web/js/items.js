@@ -12,7 +12,7 @@ import { makeVideoThumb } from "./videothumbs.js";
 // ---- photo grid ------------------------------------------------------------
 /** An item (photo or video) as /api/items sends it (an array, to keep large libraries small), with names.
  *  `duration` is null for photos, and a video's length in seconds (0 when unknown). */
-const itemRow = ([id, width, height, taken, place, version, duration]) => ({ id, width, height, taken, place, version, duration });
+export const itemRow = ([id, width, height, taken, place, version, duration]) => ({ id, width, height, taken, place, version, duration });
 export const isVideo = p => p?.duration != null;
 /** "0:42", "12:05", "1:02:33"; empty when unknown. */
 export function fmtDuration(seconds) {
@@ -234,7 +234,8 @@ export function oneItemLess() { shownItemCount = Math.max(0, shownItemCount - 1)
 export async function renderPhotos(main, job) {
   indexedAtRender = lastStatus?.running ? lastStatus.done : 0;
   const shape = itemsShape();
-  const load = beginViewLoad(main, "photos", filterChips() + `<div class="count">${t("Loading photos and videos…")}</div>`,
+  const load = beginViewLoad(main, "photos", filterChips() + `<div class="count-row"><div class="count">${t("Loading photos and videos…")}</div>
+      <button class="slideshow-btn" data-slideshow hidden title="${t("Show these photos and videos one after another, full screen")}">${icon("play", 13)} ${t("Slideshow")}</button></div>`,
     shape.cards ? cardPlaceholders : itemPlaceholders, job);
   // Grouped photos show as cards: the server sends one line per group, not every photo.
   // Only an opened group loads its photos.
@@ -248,6 +249,7 @@ export async function renderPhotos(main, job) {
   const count = load.head.querySelector(".count");
   count.textContent = mediaCount(shownItemCount, data.videos ?? items.filter(isVideo).length);
   count.dataset.items = ""; // a plain photo count, which removing a photo updates
+  load.head.querySelector("[data-slideshow]").hidden = !shownItemCount;
   if (!shownItemCount) {
     const filtered = state.people.size || state.place != null || state.date || state.from || state.to;
     if (!filtered && !folderInfo.folders.length) {

@@ -7,6 +7,7 @@ import { render, syncRangeInputs } from "./views.js";
 import { askChoice, closeViewer, viewer } from "./viewer.js";
 import { folderInfo, loadFolders } from "./settings.js";
 import { pollStatus } from "./status.js";
+import { slideshowOpen, stopSlideshow } from "./slideshow.js";
 
 // ---- the Back button ------------------------------------------------------------------
 // The page keeps one entry of its own above the one it was opened with. Back lands on the
@@ -44,6 +45,7 @@ addEventListener("popstate", async e => {
 });
 /** Undoes the most recent step a Back press stands for; false when there is none. */
 async function undoOneStep() {
+  if (slideshowOpen()) { stopSlideshow(); return true; }
   const dialog = [...document.querySelectorAll("dialog[open]")].pop();
   if (dialog) { dialog.close(); return true; }
   if (viewer.classList.contains("open")) { closeViewer(); return true; }

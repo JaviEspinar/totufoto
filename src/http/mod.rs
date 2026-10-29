@@ -33,7 +33,7 @@ const FAVICON_SVG: &str = include_str!("../../web/favicon.svg");
 
 /// The page's script: ES modules, one per area. The page loads main.js, which imports the
 /// others (see web/tests/script-order.mjs for the order they run in).
-const SCRIPTS: [(&str, &str); 17] = [
+const SCRIPTS: [(&str, &str); 18] = [
     ("i18n", include_str!("../../web/js/i18n.js")),
     ("i18n_es", include_str!("../../web/js/i18n_es.js")),
     ("core", include_str!("../../web/js/core.js")),
@@ -45,6 +45,7 @@ const SCRIPTS: [(&str, &str); 17] = [
     ("people", include_str!("../../web/js/people.js")),
     ("views", include_str!("../../web/js/views.js")),
     ("viewer", include_str!("../../web/js/viewer.js")),
+    ("slideshow", include_str!("../../web/js/slideshow.js")),
     ("settings", include_str!("../../web/js/settings.js")),
     ("browse", include_str!("../../web/js/browse.js")),
     ("updates", include_str!("../../web/js/updates.js")),
