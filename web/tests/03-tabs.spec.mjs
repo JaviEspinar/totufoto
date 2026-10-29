@@ -61,3 +61,20 @@ test("the logo opens About: the icon, the name, the version and the coffee", asy
   await about.locator("[data-close]").click();
   await expect(about).not.toHaveAttribute("open");
 });
+
+test("People: changing the size from the top keeps the bar on screen", async ({ page }) => {
+  // Short enough that the cards scroll, so a jump to the first section's title would hide the bar.
+  await page.setViewportSize({ width: 900, height: 420 });
+  await page.goto("/#view=people");
+  await expect(page.locator(".face-card:not(.skeleton)")).toHaveCount(3);
+  const zoom = page.locator("#peopleZoom");
+  for (const value of ["max", "min", "max"]) {
+    await zoom.evaluate((el, v) => {
+      el.value = v === "max" ? el.max : el.min;
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }, value);
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await expect(page.locator(".people-bar")).toBeInViewport();
+    expect(await page.locator("#main").evaluate(m => m.scrollTop)).toBe(0);
+  }
+});

@@ -239,14 +239,18 @@ export async function renderPeople(main, job) {
     applyPeopleSize(host);
   };
   // Rebuilds the grids for the current layout and size, keeping the same people on screen.
+  // From the top of the page it stays at the top, so the bar and its size slider being
+  // dragged don't scroll away.
   const remount = () => {
     if (!peopleGrids) return;
     const which = peopleGrids.named.isAbove() ? "unnamed" : "named";
     const anchor = peopleGrids[which].firstVisible();
+    const before = main.scrollTop;
     mountGrids();
     refreshPeopleViews({ animate: false });
-    $("#main").scrollTop = 0;
-    peopleGrids[which].scrollToIndex(anchor, $(which === "named" ? "#peopleNamed" : "#peopleUnnamed"));
+    main.scrollTop = 0;
+    if (which === "named" && anchor === 0) main.scrollTop = before;
+    else peopleGrids[which].scrollToIndex(anchor, $(which === "named" ? "#peopleNamed" : "#peopleUnnamed"));
   };
   syncZoom();
   let zoomFrame = 0;
