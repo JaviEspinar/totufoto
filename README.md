@@ -4,6 +4,17 @@ A fast local photo and video gallery written in Rust. Point it at your photo fol
 
 It comes as a desktop app for Windows and Linux, and as a command-line app that serves the gallery to your browser. It is free for personal and other non-commercial use, and its source code is available ([license](#license)).
 
+<p align="center"><img src="docs/screenshots/demo.webp" width="100%" alt="A short loop of the gallery: the timeline, a photo with its people named, the People tab, one person's photos, and the photos grouped by place"></p>
+
+### Why Imadive
+
+- **One small program.** No database server and no containers to wire together: the index is a single SQLite file. It comes as a desktop app for Windows and Linux, a one-command install on a Linux server (a Raspberry Pi works), or a Docker image.
+- **Your folders, as they are.** It reads your photos where they already live: nothing is imported, moved or renamed, and a file only changes when you ask (rotating or deleting a photo).
+- **People, found on your computer.** Faces are detected and grouped locally; no photo or face ever leaves it.
+- **From any device at home.** Share it on your network and open it on a phone, or upload photos to it from the phone's browser.
+
+**Compared with [Immich](https://immich.app) and [PhotoPrism](https://www.photoprism.app):** both are excellent and do more, and both usually run as several services with Docker, a database server among them. Immich is built around backing up your phones with its own apps; if that's what you need, it's the better choice. Imadive is for a gallery of the folders you already have, in a single program you can also run on a desktop, with nothing else to set up.
+
 #### Latest Releases
 
 <table>

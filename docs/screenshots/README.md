@@ -5,6 +5,7 @@ The README's screenshots, taken by `web/tests/screenshots.mjs` (Playwright) of a
 ```sh
 cd web/tests && npm ci && npx playwright install chromium
 node screenshots.mjs http://127.0.0.1:7878
+node demo.mjs http://127.0.0.1:7878   # the README's demo loop, demo.webp (needs ffmpeg and img2webp)
 ```
 
 ## The library
