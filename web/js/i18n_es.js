@@ -557,4 +557,9 @@ export default {
   "{n} of {total}": "{n} de {total}",
   "Stop the slideshow (Esc)": "Detener la presentación (Esc)",
   "Stop the slideshow": "Detener la presentación",
+  "Videos": "Vídeos",
+  "Previous": "Anterior",
+  "Previous (←)": "Anterior (←)",
+  "Next": "Siguiente",
+  "Next (→)": "Siguiente (→)",
 };

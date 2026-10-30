@@ -65,6 +65,24 @@ test("slideshow: the filtered photos full screen, with its bar to change order a
   expect(ids).toContain(first);
   await expect(show.locator(".ss-pos")).toHaveText("1 of 3");
 
+  // Back and forward, at the slowest speed so nothing moves on by itself meanwhile.
+  await show.locator(".ss-speed input").fill("0");
+  await show.locator(".ss-next").click();
+  await expect(show.locator(".ss-pos")).toHaveText("2 of 3");
+  await expect.poll(shownId).not.toBe(first);
+  await show.locator(".ss-prev").click();
+  await expect(show.locator(".ss-pos")).toHaveText("1 of 3");
+  await expect.poll(shownId).toBe(first);
+  // Back from the first goes round to the last.
+  await show.locator(".ss-prev").click();
+  await expect(show.locator(".ss-pos")).toHaveText("3 of 3");
+  await show.locator(".ss-next").click();
+  await expect(show.locator(".ss-pos")).toHaveText("1 of 3");
+  // Only photos here: the videos box is greyed.
+  await expect(show.locator('[data-ss-kind="photos"]')).toBeChecked();
+  await expect(show.locator('[data-ss-kind="videos"]')).toBeDisabled();
+  await page.mouse.move(5, 5); // off the bar, so it can hide
+
   // The bar hides by itself, and comes back when the mouse moves.
   const bar = show.locator(".ss-bar");
   await expect(bar).toBeHidden({ timeout: 6000 });

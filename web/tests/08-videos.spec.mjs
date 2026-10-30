@@ -54,6 +54,25 @@ test("videos: thumbnails made by the page, playing or offered for download", asy
   await page.keyboard.press("Escape");
   await expect(page.locator("#viewer")).not.toHaveClass(/open/);
 
+  // The slideshow, photos and videos by default; with videos only, just the two videos.
+  await page.locator("[data-slideshow]").click();
+  const show = page.locator("#slideshow");
+  const pos = show.locator(".ss-pos");
+  await expect(pos).toHaveText(/ of 14$/);
+  await expect(show.locator('[data-ss-kind="photos"]')).toBeChecked();
+  await expect(show.locator('[data-ss-kind="videos"]')).toBeChecked();
+  await show.locator('[data-ss-kind="photos"]').uncheck();
+  await expect(pos).toHaveText(/ of 2$/);
+  await expect(show.locator(".ss-video")).toBeVisible();
+  // One kind always stays: unticking the videos too is refused.
+  await show.locator('[data-ss-kind="videos"]').click();
+  await expect(show.locator('[data-ss-kind="videos"]')).toBeChecked();
+  await expect(pos).toHaveText(/ of 2$/);
+  // Photos again: everything.
+  await show.locator('[data-ss-kind="photos"]').check();
+  await expect(pos).toHaveText(/ of 14$/);
+  await page.keyboard.press("Escape");
+  await expect(show).toBeHidden();
 });
 
 test.afterEach(async ({ request }, info) => {

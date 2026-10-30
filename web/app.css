@@ -318,15 +318,27 @@ body.slideshow-on { overflow: hidden; }
 .ss-photo.on { opacity: 1; }
 .ss-video[hidden] { display: none; }
 .ss-bar {
-  position: absolute; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translate(-50%, 10px);
-  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 18px; max-width: calc(100% - 32px);
+  /* Centred by its margins, so it can use the whole width before wrapping. */
+  position: absolute; left: 16px; right: 16px; width: fit-content; margin: 0 auto;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px)); transform: translateY(10px);
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px 18px;
   padding: 10px 12px 10px 16px; border-radius: 14px; background: rgba(24, 24, 24, 0.82); backdrop-filter: blur(10px);
   opacity: 0; visibility: hidden; transition: opacity 0.25s, transform 0.25s, visibility 0s 0.25s;
 }
-#slideshow.bar .ss-bar { opacity: 1; visibility: visible; transform: translate(-50%, 0); transition: opacity 0.25s, transform 0.25s; }
+#slideshow.bar .ss-bar { opacity: 1; visibility: visible; transform: none; transition: opacity 0.25s, transform 0.25s; }
 .ss-order { margin: 0; background: rgba(255, 255, 255, 0.08); }
 .ss-order button { color: rgba(255, 255, 255, 0.72); padding: 6px 12px; font-size: 13px; white-space: nowrap; }
 .ss-order button.on { background: rgba(255, 255, 255, 0.2); color: #fff; }
+.ss-nav { display: flex; gap: 4px; }
+.ss-nav button {
+  display: grid; place-items: center; width: 36px; height: 36px; border: 0; border-radius: 50%;
+  background: rgba(255, 255, 255, 0.14); color: #fff; cursor: pointer;
+}
+.ss-nav button:hover { background: rgba(255, 255, 255, 0.28); }
+.ss-kinds { display: flex; gap: 14px; font-size: 13px; }
+.ss-kinds label { display: flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; }
+.ss-kinds input { accent-color: #fff; width: 16px; height: 16px; margin: 0; }
+.ss-kinds label:has(input:disabled) { opacity: 0.4; cursor: default; }
 .ss-speed { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .ss-speed input { width: 140px; accent-color: #fff; }
 .ss-seconds, .ss-pos { font-size: 12px; color: rgba(255, 255, 255, 0.7); white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -336,14 +348,16 @@ body.slideshow-on { overflow: hidden; }
 }
 .ss-close:hover { background: rgba(255, 255, 255, 0.28); }
 @media (max-width: 640px) {
-  /* Two rows: the order and ✕, then the speed. */
+  /* Three rows: back, forward, the order and ✕; the kinds; the speed. */
   .ss-bar {
-    bottom: calc(12px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: 1fr auto;
-    gap: 10px 12px; width: calc(100% - 24px); max-width: 420px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: auto 1fr auto;
+    gap: 10px 12px; left: 12px; right: 12px; width: auto; max-width: 420px;
   }
-  .ss-order { grid-column: 1; grid-row: 1; justify-self: start; }
-  .ss-close { grid-column: 2; grid-row: 1; }
-  .ss-speed { grid-column: 1 / -1; grid-row: 2; }
+  .ss-nav { grid-column: 1; grid-row: 1; }
+  .ss-order { grid-column: 2; grid-row: 1; justify-self: start; }
+  .ss-close { grid-column: 3; grid-row: 1; }
+  .ss-kinds { grid-column: 1 / -1; grid-row: 2; }
+  .ss-speed { grid-column: 1 / -1; grid-row: 3; }
   .ss-speed input { flex: 1; width: auto; }
   .ss-speed > span:first-child, .ss-pos { display: none; }
 }

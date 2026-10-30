@@ -60,7 +60,7 @@ It comes as a desktop app for Windows and Linux, and as a command-line app that 
   - *Any*: at least one of them,
   - *Only them*: all of them and no other known person.
 - **Videos** in the timeline, with their date, place and length, played in the viewer.
-- **Slideshow** of the photos and videos on screen, full screen, in order or shuffled, at the speed you choose.
+- **Slideshow** of the photos and videos on screen, full screen: in order or shuffled, photos, videos or both, at the speed you choose.
 - **Upload** from a phone or another computer to the gallery on your server: a folder or photos, with a progress bar.
 - All filters combine (people + place + date range + upcoming) and live in the URL, so views can be bookmarked.
 - **Backups** of everything the gallery has learned (people, names, face groups, your corrections, the folders), to restore here or on another computer.

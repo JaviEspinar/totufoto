@@ -81,7 +81,9 @@ Click a photo to open it. Use the arrow keys to move and `Esc` to close.
 
 Move the mouse, or touch the screen on a phone, to show the slideshow's bar:
 
+- **‹ ›** go back to the previous item or on to the next one (also the `←` `→` keys).
 - **In order** follows the gallery's order (newest or oldest first); **Shuffle** mixes them, and mixes them again on every round.
+- **Photos** and **Videos** choose what is shown: both at first, and at least one always stays ticked. When the filters have no videos (or no photos), that box is greyed out.
 - **Speed**: how long each photo stays, from 20 seconds to 2.
 - **✕** (or `Esc`, or Back on a phone) stops it.
 

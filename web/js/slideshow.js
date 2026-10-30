@@ -1,6 +1,7 @@
 // The slideshow: the photos and videos of the Photos tab's filters, one after another, full
-// screen. Moving the mouse or touching the screen shows its bar (in order or shuffled, the
-// speed, and ✕ to stop). One of the page's modules; main.js starts the page.
+// screen. Moving the mouse or touching the screen shows its bar (back and forward, in order
+// or shuffled, photos and videos or only one kind, the speed, and ✕ to stop). One of the
+// page's modules; main.js starts the page.
 import { t } from "./i18n.js";
 import { $, api, icon, itemQuery, pref } from "./core.js";
 import { VIDEO_PICTURE, isVideo, itemRow, originalUrl, silentUrl, thumbUrl } from "./items.js";
@@ -16,7 +17,9 @@ const savedSpeed = +pref.get("slideshowSpeed");
 const show = {
   el: null,
   all: [], // the items, in the gallery's order
-  order: [], // indices into `all`, in the order they are shown
+  kinds: { photos: true, videos: true }, // which kinds are shown
+  list: [], // the items of those kinds, in the gallery's order
+  order: [], // indices into `list`, in the order they are shown
   pos: 0, // where in `order` the slideshow is
   shuffled: pref.get("slideshowOrder") === "shuffle",
   speed: Number.isInteger(savedSpeed) && savedSpeed >= 0 && savedSpeed < SPEEDS.length && pref.get("slideshowSpeed") !== null
@@ -43,9 +46,17 @@ function build() {
       <video class="ss-video" playsinline hidden></video>
     </div>
     <div class="ss-bar">
+      <div class="ss-nav">
+        <button class="ss-prev" title="${t("Previous (←)")}" aria-label="${t("Previous")}"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M15 18l-6-6 6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <button class="ss-next" title="${t("Next (→)")}" aria-label="${t("Next")}"><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M9 18l6-6-6-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      </div>
       <div class="seg ss-order" role="group" aria-label="${t("Order")}">
         <button data-ss-order="order">${t("In order")}</button>
         <button data-ss-order="shuffle">${t("Shuffle")}</button>
+      </div>
+      <div class="ss-kinds" role="group" aria-label="${t("Show")}">
+        <label><input type="checkbox" data-ss-kind="photos"> ${t("Photos")}</label>
+        <label><input type="checkbox" data-ss-kind="videos"> ${t("Videos")}</label>
       </div>
       <label class="ss-speed"><span>${t("Speed")}</span>
         <input type="range" min="0" max="${SPEEDS.length - 1}" step="1" aria-label="${t("Speed")}">
@@ -58,6 +69,9 @@ function build() {
     const order = e.target.closest("[data-ss-order]")?.dataset.ssOrder;
     if (order) setShuffled(order === "shuffle");
   });
+  el.querySelector(".ss-prev").addEventListener("click", () => next(-1));
+  el.querySelector(".ss-next").addEventListener("click", () => next(1));
+  el.querySelector(".ss-kinds").addEventListener("change", e => setKind(e.target.dataset.ssKind, e.target));
   const speed = el.querySelector(".ss-speed input");
   speed.addEventListener("input", () => setSpeed(+speed.value));
   el.querySelector(".ss-close").addEventListener("click", stopSlideshow);
@@ -88,6 +102,9 @@ export async function startSlideshow(button) {
   if (!all.length) return toast(t("Nothing matches these filters."));
   show.el ??= build();
   show.all = all;
+  // Both kinds each time, but a kind the filters don't have is left out (and its box greyed).
+  show.kinds = { photos: all.some(i => !isVideo(i)), videos: all.some(isVideo) };
+  show.list = kindsList();
   show.returnFocus = button ?? document.activeElement;
   makeOrder(0);
   const el = show.el;
@@ -121,9 +138,11 @@ export function stopSlideshow() {
   show.returnFocus?.focus?.({ preventScroll: true });
 }
 
-/** The order to show the items in, starting from item `first` (an index into `all`). */
+const kindsList = () => show.all.filter(i => show.kinds[isVideo(i) ? "videos" : "photos"]);
+
+/** The order to show the items in, starting from item `first` (an index into `list`). */
 function makeOrder(first) {
-  const n = show.all.length;
+  const n = show.list.length;
   if (!show.shuffled) {
     show.order = Array.from({ length: n }, (_, i) => i);
     show.pos = first;
@@ -147,6 +166,30 @@ function setShuffled(shuffled) {
   syncBar();
 }
 
+/** Shows or leaves out a kind (`photos` or `videos`); at least one stays. */
+function setKind(kind, box) {
+  if (!kind) return;
+  if (!box.checked && !Object.entries(show.kinds).some(([k, on]) => on && k !== kind)) {
+    box.checked = true;
+    return;
+  }
+  const was = current();
+  show.kinds[kind] = box.checked;
+  show.list = kindsList();
+  // The item on screen stays when it is still in; otherwise the next one in the gallery's
+  // order that is.
+  const still = show.list.indexOf(was);
+  if (still >= 0) {
+    makeOrder(still);
+    syncBar();
+    return;
+  }
+  const from = show.all.indexOf(was);
+  const after = show.all.slice(from + 1).concat(show.all.slice(0, from)).find(i => show.list.includes(i));
+  makeOrder(show.list.indexOf(after));
+  showCurrent();
+}
+
 function setSpeed(speed) {
   show.speed = speed;
   pref.set("slideshowSpeed", String(speed));
@@ -161,6 +204,11 @@ function syncBar() {
     const on = (b.dataset.ssOrder === "shuffle") === show.shuffled;
     b.classList.toggle("on", on);
     b.setAttribute("aria-pressed", String(on));
+  }
+  const has = { photos: show.all.some(i => !isVideo(i)), videos: show.all.some(isVideo) };
+  for (const box of el.querySelectorAll("[data-ss-kind]")) {
+    box.checked = show.kinds[box.dataset.ssKind];
+    box.disabled = !has[box.dataset.ssKind];
   }
   el.querySelector(".ss-speed input").value = show.speed;
   el.querySelector(".ss-seconds").textContent = t("{s} s per photo", { s: SPEEDS[show.speed] });
@@ -182,7 +230,7 @@ function hideBar() {
   show.el.classList.remove("bar");
 }
 
-const current = () => show.all[show.order[show.pos]];
+const current = () => show.list[show.order[show.pos]];
 
 /** Moves `by` items (wrapping around at the ends) and shows that one. */
 function next(by = 1) {
@@ -235,7 +283,7 @@ async function showCurrent() {
 
 /** The next photo, fetched while this one is on screen. */
 function preloadNext() {
-  const after = show.all[show.order[(show.pos + 1) % show.order.length]];
+  const after = show.list[show.order[(show.pos + 1) % show.order.length]];
   if (after && !isVideo(after)) new Image().src = originalUrl(after.id, after.version);
 }
 
