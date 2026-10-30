@@ -45,10 +45,10 @@ jobs:
             os: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
 
       # For a release, the tag must match the version in Cargo.toml, have written notes, and
       # the README's download links must point at it, checked before anything is built.
@@ -94,7 +94,7 @@ jobs:
 
       - name: Tauri CLI
         if: runner.os == 'Linux'
-        uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
+        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
         with:
           tool: tauri-cli@2
 
@@ -180,7 +180,7 @@ jobs:
           Write-Output "::$level title=Self-test (Windows)::$($report -replace "`r?`n", '%0A')"
           exit $p.ExitCode
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: imadive-${{ matrix.name }}
           path: dist/*
@@ -204,10 +204,10 @@ jobs:
             os: ubuntu-22.04-arm # Raspberry Pi 4 and 5 with a 64-bit system, ARM servers
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: stable
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           key: server
 
@@ -259,7 +259,7 @@ jobs:
           test ! -e /etc/systemd/system/imadive.service -a ! -e /opt/imadive -a ! -e "$HOME/imadive-data"
           test ! -e /etc/systemd/system/imadive-update.path -a ! -e /etc/systemd/system/imadive-update.service
 
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: imadive-server-${{ matrix.arch }}
           path: dist/*
@@ -283,7 +283,7 @@ jobs:
       - name: Image name
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/imadive" >> "$GITHUB_ENV"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: imadive-server-*
           path: docker/dist
@@ -327,7 +327,7 @@ jobs:
             org.opencontainers.image.description=Fast local photo and video gallery: timeline, places, upcoming anniversaries and people found by face recognition
             org.opencontainers.image.licenses=AGPL-3.0-only
       - if: startsWith(github.ref, 'refs/tags/v')
-        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -363,7 +363,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Only the apps and servers: the Docker build steps upload their build records
       # (*.dockerbuild) as artifacts of the run too, and those don't belong in a release.
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           pattern: imadive-*
