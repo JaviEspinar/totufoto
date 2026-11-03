@@ -18,6 +18,9 @@ const tmp = mkdtempSync(join(tmpdir(), "imadive-demo-"));
 
 const browser = await chromium.launch();
 const context = await browser.newContext({ viewport: size, colorScheme: "light", recordVideo: { dir: tmp, size } });
+// The slideshow covers the window by itself; real full screen would shrink the headless
+// browser's page to its small default screen.
+await context.addInitScript(() => { Element.prototype.requestFullscreen = undefined; });
 const page = await context.newPage();
 const pause = ms => page.waitForTimeout(ms);
 
@@ -92,7 +95,25 @@ await page.locator(".tile img.ok").first().waitFor();
 await settle();
 await pause(1600);
 
-// 4. The places.
+// 4. Her photos as a slideshow: the bar comes up, the speed goes to the fastest, and a few
+// photos fade into each other.
+await page.locator("[data-slideshow]").click();
+await page.locator("#slideshow .ss-photo.on").waitFor();
+await pause(900);
+await page.mouse.move(640, 360);
+await page.mouse.move(660, 380);
+await pause(700);
+const speed = page.locator("#slideshow .ss-speed input");
+for (const value of ["7", "8", "9"]) {
+  await speed.fill(value);
+  await pause(220);
+}
+await page.mouse.move(640, 120); // off the bar, so it hides by itself
+await pause(6200);
+await page.keyboard.press("Escape");
+await page.locator("#slideshow").waitFor({ state: "hidden" });
+
+// 5. The places.
 await page.locator('[data-clear="all"]').click();
 await groupBy("place");
 await page.locator(".group-card").first().waitFor();
@@ -106,6 +127,6 @@ const video = join(tmp, readdirSync(tmp).find(f => f.endsWith(".webm")));
 const FPS = 12;
 execFileSync("ffmpeg", ["-v", "error", "-ss", String(cut), "-i", video, "-vf", `fps=${FPS},scale=960:-1:flags=lanczos`, join(tmp, "f%04d.png")]);
 const frames = readdirSync(tmp).filter(f => f.endsWith(".png")).sort().map(f => join(tmp, f));
-execFileSync("img2webp", ["-loop", "0", "-lossy", "-q", "65", "-m", "6", "-d", String(Math.round(1000 / FPS)), ...frames, "-o", out]);
+execFileSync("img2webp", ["-loop", "0", "-lossy", "-q", "60", "-m", "6", "-d", String(Math.round(1000 / FPS)), ...frames, "-o", out]);
 rmSync(tmp, { recursive: true });
 console.log(out);

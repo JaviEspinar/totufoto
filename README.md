@@ -4,7 +4,7 @@ A fast local photo and video gallery written in Rust. Point it at your photo fol
 
 It comes as a desktop app for Windows and Linux, and as a command-line app that serves the gallery to your browser. It is free and open-source software ([AGPL-3.0](#license)).
 
-<p align="center"><img src="docs/screenshots/demo.webp" width="100%" alt="A short loop of the gallery: the timeline, a photo with its people named, the People tab, one person's photos, and the photos grouped by place"></p>
+<p align="center"><img src="docs/screenshots/demo.webp" width="100%" alt="A short loop of the gallery: the timeline, a photo with its people named, the People tab, one person's photos and their slideshow, and the photos grouped by place"></p>
 
 ### Why Imadive
 
