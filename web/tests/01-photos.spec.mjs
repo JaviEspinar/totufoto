@@ -50,6 +50,28 @@ test("a date range shows as a chip, and Clear all removes it", async ({ page }) 
   await expect(page.locator(".view-head .count")).toContainText("12 photos");
 });
 
+test("a date typed by hand applies once its year is complete", async ({ page }) => {
+  const from = page.locator("#fromDate");
+  await from.focus();
+  // Month, day, then the year digit by digit: the browser sees 0002, 0020 and 0202 first.
+  await page.keyboard.type("0101202");
+  await expect(from).toHaveValue("0202-01-01");
+  expect(page.url()).not.toContain("from=");
+  await page.keyboard.type("2");
+  await expect(from).toHaveValue("2022-01-01");
+  await expect.poll(() => page.url()).toContain("from=2022-01-01");
+  await expect(page.locator(".view-head .chip")).toHaveCount(1);
+  // A year left half typed goes back to the date in use.
+  await from.focus();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.type("19");
+  await expect(from).toHaveValue("0019-01-01");
+  await from.blur();
+  await expect(from).toHaveValue("2022-01-01");
+  expect(page.url()).toContain("from=2022-01-01");
+});
+
 test("slideshow: the filtered photos full screen, with its bar to change order and speed", async ({ page }) => {
   // A month's photos: the slideshow shows only those.
   await page.locator(".group-card", { hasText: "December 2022" }).click();

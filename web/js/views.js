@@ -96,14 +96,24 @@ $("#main").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.
 // Date range: either end may be empty; each picker can't go past the other.
 export function syncRangeInputs() {
   const from = $("#fromDate"), to = $("#toDate");
-  from.value = state.from || "";
-  to.value = state.to || "";
+  // The field being typed in keeps what is typed: setting its value would start the typing
+  // over (and empty it, in Chrome).
+  const set = (input, value) => { if (input.value !== value) input.value = value; };
+  set(from, state.from || "");
+  set(to, state.to || "");
   from.max = state.to || "";
   to.min = state.from || "";
 }
+/** Typing a year by hand goes through 0002, 0020 and 0202 on its way to 2024, and the
+ *  browser reports each as a date: those aren't applied. */
+const typingYear = value => !!value && +value.split("-")[0] < 1000;
 for (const id of ["fromDate", "toDate"]) {
+  // A year left half typed goes back to the date in use.
+  $("#" + id).addEventListener("blur", e => { if (typingYear(e.target.value)) syncRangeInputs(); });
   $("#" + id).addEventListener("change", () => {
     const from = $("#fromDate").value || null, to = $("#toDate").value || null;
+    if (typingYear(from) || typingYear(to)) return;
+    if (from === state.from && to === state.to) return;
     // A reversed range (typed by hand) is put the right way round.
     [state.from, state.to] = from && to && from > to ? [to, from] : [from, to];
     syncRangeInputs();
