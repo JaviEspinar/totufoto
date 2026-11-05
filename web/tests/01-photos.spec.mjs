@@ -50,6 +50,23 @@ test("a date range shows as a chip, and Clear all removes it", async ({ page }) 
   await expect(page.locator(".view-head .count")).toContainText("12 photos");
 });
 
+test("a date range replaces a month opened before, and keeps the place", async ({ page }) => {
+  const places = await (await page.request.get("/api/places")).json();
+  const place = places.find(p => p.id !== 0);
+  await page.goto(`/#group=none&place=${place.id}&date=2022`);
+  await page.reload(); // only the #part changed: the page reads it on load
+  await expect(page.locator(".view-head .chip")).toHaveCount(2);
+  await page.fill("#fromDate", "2021-01-01");
+  await page.locator("#fromDate").dispatchEvent("change");
+  await expect.poll(() => page.url()).toContain("from=2021-01-01");
+  expect(page.url()).not.toContain("date=");
+  expect(page.url()).toContain(`place=${place.id}`);
+  const chips = page.locator(".view-head .chip .label");
+  await expect(chips).toHaveCount(2);
+  await expect(chips.filter({ hasText: place.city })).toHaveCount(1);
+  await expect(chips.filter({ hasText: /^2022$/ })).toHaveCount(0);
+});
+
 test("a date typed by hand applies once its year is complete", async ({ page }) => {
   const from = page.locator("#fromDate");
   await from.focus();

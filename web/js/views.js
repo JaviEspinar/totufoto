@@ -116,6 +116,8 @@ for (const id of ["fromDate", "toDate"]) {
     if (from === state.from && to === state.to) return;
     // A reversed range (typed by hand) is put the right way round.
     [state.from, state.to] = from && to && from > to ? [to, from] : [from, to];
+    // The range replaces a year, month or day opened before; the people and the place stay.
+    state.date = null;
     syncRangeInputs();
     if (["people", "manage"].includes(state.view)) state.view = "photos";
     render();

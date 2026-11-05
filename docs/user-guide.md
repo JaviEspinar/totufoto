@@ -60,6 +60,7 @@ Memories from past years whose anniversary falls in the next 7 to 90 days ("2 ye
 ## Dates and filter chips
 
 - *From* and *to* in the top bar keep only photos taken between those days (both included; either can be left empty). The range applies to Photos and Upcoming.
+- Setting a range replaces a year, month or day opened before (from a card, say); the people and the place stay.
 - Each selected person, place and date range shows as a chip above the photos: × removes one, *Clear all* removes them all.
 
 All filters combine: people, place, date range and upcoming.
